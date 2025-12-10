@@ -124,6 +124,7 @@ export interface DocumentCategory {
   hasSubCategories: boolean;
   order: number;
   driveFolderId?: string; // Google Drive folder ID
+  allowedUploaders?: string[]; // Array of user UIDs who can upload to public categories
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;

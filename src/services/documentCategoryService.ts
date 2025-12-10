@@ -38,6 +38,7 @@ export const documentCategoryService = {
           hasSubCategories: data.hasSubCategories || false,
           order: data.order || 0,
           driveFolderId: data.driveFolderId,
+          allowedUploaders: data.allowedUploaders || [], // Default to empty array for backward compatibility
           createdBy: data.createdBy,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -57,9 +58,10 @@ export const documentCategoryService = {
     hasSubCategories: boolean;
     order: number;
     createdBy: string;
+    allowedUploaders?: string[];
   }): Promise<string> {
     try {
-      const categoryDoc = await addDoc(collection(db, 'documentCategories'), {
+      const categoryDocData: any = {
         schoolYearId: data.schoolYearId,
         name: data.name,
         categoryType: data.categoryType,
@@ -68,7 +70,14 @@ export const documentCategoryService = {
         createdBy: data.createdBy,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
-      });
+      };
+
+      // Only add allowedUploaders if provided and not empty
+      if (data.allowedUploaders && data.allowedUploaders.length > 0) {
+        categoryDocData.allowedUploaders = data.allowedUploaders;
+      }
+
+      const categoryDoc = await addDoc(collection(db, 'documentCategories'), categoryDocData);
 
       return categoryDoc.id;
     } catch (error) {
@@ -83,6 +92,7 @@ export const documentCategoryService = {
     categoryType?: 'public' | 'personal';
     hasSubCategories?: boolean;
     order?: number;
+    allowedUploaders?: string[];
   }): Promise<void> {
     try {
       const updateData: any = {
@@ -93,6 +103,16 @@ export const documentCategoryService = {
       if (data.categoryType !== undefined) updateData.categoryType = data.categoryType;
       if (data.hasSubCategories !== undefined) updateData.hasSubCategories = data.hasSubCategories;
       if (data.order !== undefined) updateData.order = data.order;
+
+      // Handle allowedUploaders
+      if (data.allowedUploaders !== undefined) {
+        if (data.allowedUploaders.length > 0) {
+          updateData.allowedUploaders = data.allowedUploaders;
+        } else {
+          // Clear the field if empty array provided
+          updateData.allowedUploaders = [];
+        }
+      }
 
       await updateDoc(doc(db, 'documentCategories', id), updateData);
     } catch (error) {

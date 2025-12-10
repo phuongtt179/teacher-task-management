@@ -284,7 +284,17 @@ export function DocumentBrowseScreen() {
 
       // Save to Firestore
       let status: 'pending' | 'approved' = 'pending';
+
+      // Get the selected category to check allowedUploaders
+      const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+
+      // Auto-approve if Admin/VP OR in allowedUploaders for public categories
       if (user?.role === 'admin' || user?.role === 'vice_principal') {
+        status = 'approved';
+      } else if (
+        selectedCategory?.categoryType === 'public' &&
+        selectedCategory?.allowedUploaders?.includes(user!.uid)
+      ) {
         status = 'approved';
       }
 
@@ -593,11 +603,22 @@ export function DocumentBrowseScreen() {
                   const category = categories.find(c => c.id === selectedCategoryId);
                   const canUpload = !category?.hasSubCategories || selectedSubCategoryId;
 
-                  return canUpload ? (
+                  // Check if user has permission to upload to this category
+                  const hasUploadPermission =
+                    user?.role === 'admin' ||
+                    user?.role === 'vice_principal' ||
+                    (category?.categoryType === 'public' && category?.allowedUploaders?.includes(user!.uid)) ||
+                    (category?.categoryType === 'personal');
+
+                  return canUpload && hasUploadPermission ? (
                     <Button size="sm" onClick={() => setShowUploadDialog(true)}>
                       <Plus className="h-4 w-4 mr-2" />
                       Thêm hồ sơ
                     </Button>
+                  ) : canUpload ? (
+                    <p className="text-sm text-gray-500 italic">
+                      Bạn không có quyền tải lên danh mục này
+                    </p>
                   ) : (
                     <p className="text-sm text-gray-500 italic">
                       Chọn danh mục con để thêm hồ sơ

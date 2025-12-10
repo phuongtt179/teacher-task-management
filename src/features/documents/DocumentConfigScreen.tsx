@@ -35,6 +35,7 @@ export function DocumentConfigScreen() {
   const [categoryName, setCategoryName] = useState('');
   const [categoryType, setCategoryType] = useState<'public' | 'personal'>('personal');
   const [categoryHasSubCats, setCategoryHasSubCats] = useState(false);
+  const [categoryAllowedUploaders, setCategoryAllowedUploaders] = useState<string[]>([]);
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
 
   // SubCategories
@@ -244,20 +245,34 @@ export function DocumentConfigScreen() {
     }
   };
 
-  const handleOpenCategoryDialog = (category?: DocumentCategory) => {
+  const handleOpenCategoryDialog = async (category?: DocumentCategory) => {
     if (category) {
       // Edit mode
       setEditingCategoryId(category.id);
       setCategoryName(category.name);
       setCategoryType(category.categoryType);
       setCategoryHasSubCats(category.hasSubCategories ?? false);
+      setCategoryAllowedUploaders(category.allowedUploaders || []);
     } else {
       // Create mode
       setEditingCategoryId(null);
       setCategoryName('');
       setCategoryType('personal'); // Default to personal
       setCategoryHasSubCats(false);
+      setCategoryAllowedUploaders([]);
     }
+
+    // Load available users (teachers and department heads)
+    try {
+      const users = await userService.getAllUsers();
+      const teachersAndHeads = users.filter(
+        u => u.role === 'teacher' || u.role === 'department_head'
+      );
+      setAvailableUsers(teachersAndHeads);
+    } catch (error) {
+      console.error('Error loading users:', error);
+    }
+
     setShowCategoryDialog(true);
   };
 
@@ -278,6 +293,7 @@ export function DocumentConfigScreen() {
           name: categoryName,
           categoryType: categoryType,
           hasSubCategories: categoryHasSubCats,
+          allowedUploaders: categoryType === 'public' ? categoryAllowedUploaders : [],
         });
         toast({ title: 'Thành công', description: 'Đã cập nhật danh mục' });
       } else {
@@ -289,6 +305,7 @@ export function DocumentConfigScreen() {
           hasSubCategories: categoryHasSubCats,
           order: categories.length,
           createdBy: user!.uid,
+          allowedUploaders: categoryType === 'public' ? categoryAllowedUploaders : undefined,
         });
         toast({ title: 'Thành công', description: 'Đã tạo danh mục mới' });
       }
@@ -928,6 +945,48 @@ export function DocumentConfigScreen() {
                   </div>
                 </div>
               </div>
+
+              {/* Allowed Uploaders - Only show for public categories */}
+              {categoryType === 'public' && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Người dùng được phép tải lên
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Chọn giáo viên/tổ trưởng có thể tải lên danh mục này (ngoài Admin/Hiệu trưởng)
+                  </p>
+                  <div className="border rounded px-3 py-2 max-h-48 overflow-y-auto space-y-2">
+                    {availableUsers.length === 0 ? (
+                      <p className="text-sm text-gray-500">Đang tải danh sách người dùng...</p>
+                    ) : (
+                      availableUsers.map(u => (
+                        <div key={u.uid} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id={`uploader-${u.uid}`}
+                            checked={categoryAllowedUploaders.includes(u.uid)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setCategoryAllowedUploaders([...categoryAllowedUploaders, u.uid]);
+                              } else {
+                                setCategoryAllowedUploaders(categoryAllowedUploaders.filter(id => id !== u.uid));
+                              }
+                            }}
+                            className="h-4 w-4"
+                          />
+                          <label htmlFor={`uploader-${u.uid}`} className="text-sm cursor-pointer flex-1">
+                            {u.displayName}
+                            <span className="text-gray-500 ml-1">({u.email})</span>
+                          </label>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Đã chọn: {categoryAllowedUploaders.length} người dùng
+                  </p>
+                </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <input
