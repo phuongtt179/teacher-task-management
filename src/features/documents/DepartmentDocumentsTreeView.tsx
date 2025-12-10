@@ -270,7 +270,7 @@ export function DepartmentDocumentsTreeView({
                   {expandedTeachers.has(teacher.uid) && documentsByTeacher.get(teacher.uid) && (
                     <div className="bg-white p-3 pl-16 space-y-2">
                       {/* Upload button for user's own entry */}
-                      {teacher.uid === user.uid && onUploadClick && (
+                      {user && teacher.uid === user.uid && onUploadClick && (
                         <div className="mb-3">
                           <Button
                             size="sm"

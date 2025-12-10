@@ -589,7 +589,7 @@ export function DocumentConfigScreen() {
                     </option>
                   ))}
                 </select>
-                <Button size="sm" disabled={!selectedYearId} onClick={handleOpenCategoryDialog}>
+                <Button size="sm" disabled={!selectedYearId} onClick={() => handleOpenCategoryDialog()}>
                   <Plus className="h-4 w-4 mr-2" />
                   Thêm danh mục
                 </Button>
