@@ -1,0 +1,167 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isVicePrincipal() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vice_principal';
+    }
+
+    function isDepartmentHead() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'department_head';
+    }
+
+    function isTeacher() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+
+    // Whitelist collection
+    match /whitelist/{email} {
+      allow read: if isSignedIn(); // Let users check if they're whitelisted
+      allow write: if isAdmin();
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn();
+    }
+
+    // Tasks collection
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isVicePrincipal() || isAdmin();
+      allow update, delete: if isVicePrincipal() || isAdmin();
+    }
+
+    // Submissions collection (top-level, not nested)
+    match /submissions/{submissionId} {
+      allow read: if isSignedIn();
+      allow create: if isTeacher() || isVicePrincipal() || isAdmin();
+      allow update: if isSignedIn() &&
+                    (request.auth.uid == resource.data.teacherId ||
+                     isVicePrincipal() ||
+                     isAdmin());
+      allow delete: if isVicePrincipal() || isAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow delete: if isSignedIn() &&
+                    (request.auth.uid == resource.data.userId || isAdmin());
+    }
+
+    // ==================== DOCUMENT MANAGEMENT ====================
+
+    // School Years
+    match /schoolYears/{yearId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() || isVicePrincipal();
+    }
+
+    // Document Categories
+    match /documentCategories/{categoryId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() || isVicePrincipal();
+    }
+
+    // Document Sub-Categories
+    match /documentSubCategories/{subCategoryId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() || isVicePrincipal();
+    }
+
+    // Departments
+    match /departments/{departmentId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() || isVicePrincipal();
+    }
+
+    // Documents (file metadata)
+    match /documents/{documentId} {
+      // Helper to get category type
+      function getCategoryType(categoryId) {
+        return get(/databases/$(database)/documents/documentCategories/$(categoryId)).data.categoryType;
+      }
+
+      function getRequestCategoryType() {
+        return getCategoryType(request.resource.data.categoryId);
+      }
+
+      function getResourceCategoryType() {
+        return getCategoryType(resource.data.categoryId);
+      }
+
+      // Helper to check if user is department head of a specific department
+      function isDepartmentHeadOf(deptId) {
+        return exists(/databases/$(database)/documents/departments/$(deptId)) &&
+               get(/databases/$(database)/documents/departments/$(deptId)).data.headTeacherId == request.auth.uid;
+      }
+
+      // Helper to check if user is member of a department
+      function isMemberOf(deptId) {
+        return exists(/databases/$(database)/documents/departments/$(deptId)) &&
+               get(/databases/$(database)/documents/departments/$(deptId)).data.memberIds.hasAny([request.auth.uid]);
+      }
+
+      // READ permissions based on category type
+      // TEMPORARY: Allow all signed-in users to read documents for testing
+      allow read: if isSignedIn();
+
+      // CREATE permissions based on category type
+      allow create: if isSignedIn() && (
+        // Public documents: only admin/VP can upload
+        (getRequestCategoryType() == 'public' && (isAdmin() || isVicePrincipal())) ||
+
+        // Personal documents: anyone can upload
+        (getRequestCategoryType() == 'personal')
+      );
+
+      // UPDATE permissions: Only admin can edit
+      allow update: if isAdmin();
+
+      // DELETE permissions: Only admin can delete
+      allow delete: if isAdmin();
+    }
+
+    // File Requests (delete/edit requests)
+    match /fileRequests/{requestId} {
+      // Users can read their own requests, or admin/vp/dept head can read all
+      allow read: if isSignedIn() &&
+                  (resource.data.requestedBy == request.auth.uid ||
+                   isAdmin() ||
+                   isVicePrincipal() ||
+                   isDepartmentHead());
+
+      // Anyone can create requests
+      allow create: if isSignedIn();
+
+      // Only admin/vp/dept head can approve/reject
+      allow update: if isAdmin() || isVicePrincipal() || isDepartmentHead();
+
+      // Only admin can delete
+      allow delete: if isAdmin();
+    }
+
+    // Document Permissions
+    match /documentPermissions/{permissionId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() || isVicePrincipal();
+    }
+  }
+}

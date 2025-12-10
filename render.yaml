@@ -1,0 +1,42 @@
+services:
+  # Backend Server
+  - type: web
+    name: teacher-task-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server/index.js
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: NODE_ENV
+        value: production
+      # Add your Firebase config
+      - key: VITE_FIREBASE_API_KEY
+        sync: false
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: VITE_FIREBASE_PROJECT_ID
+        sync: false
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        sync: false
+      - key: VITE_FIREBASE_APP_ID
+        sync: false
+      - key: VITE_FIREBASE_MEASUREMENT_ID
+        sync: false
+      - key: VITE_GOOGLE_DRIVE_SHARED_DRIVE_ID
+        sync: false
+      - key: GOOGLE_WORKSPACE_USER_EMAIL
+        sync: false
+
+  # Frontend (Static Site)
+  - type: web
+    name: teacher-task-frontend
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

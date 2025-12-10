@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr:*)",
+      "Bash(npm run setup:firebase:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout /t 5 /nobreak)",
+      "Bash(npm install:*)",
+      "Bash(npm run server:*)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(timeout:*)",
+      "Bash(taskkill:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(node:*)",
+      "Bash(netstat:*)",
+      "Bash(tasklist:*)",
+      "Bash(git --version)",
+      "Bash(git init:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)",
+      "Bash(del nul)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
