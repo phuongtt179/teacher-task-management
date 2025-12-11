@@ -420,18 +420,21 @@ export function DocumentBrowseScreen() {
 
       await documentService.createDocument(docData as any);
 
-      toast({
-        title: 'Thành công',
-        description: status === 'approved'
-          ? `Đã tải lên ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''}`
-          : `Đã tải lên ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''} và đang chờ phê duyệt`,
-      });
-
+      // Close dialog and reset form
       setShowUploadDialog(false);
       setDocumentTitle('');
       setSelectedFiles([]);
       setUploadProgress(0);
-      loadDocuments();
+
+      // Reload documents to show the newly uploaded one
+      await loadDocuments();
+
+      toast({
+        title: 'Thành công',
+        description: status === 'approved'
+          ? `Đã tải lên ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''}. Hồ sơ đã được thêm vào danh sách.`
+          : `Đã tải lên ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''} và đang chờ phê duyệt. Hồ sơ đã được thêm vào danh sách.`,
+      });
     } catch (error) {
       console.error('Error uploading document:', error);
 
@@ -855,42 +858,51 @@ export function DocumentBrowseScreen() {
                             </div>
 
                             {/* Files List */}
-                            <div className="space-y-1 mb-2">
-                              {(doc.files || []).map((file, idx) => (
-                                <div key={idx} className="flex items-center justify-between text-xs bg-white border rounded px-2 py-1">
-                                  <div className="flex items-center gap-1 flex-1 min-w-0">
-                                    <FileText className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                                    <span className="truncate" title={file.name}>
-                                      {file.name}
-                                    </span>
-                                    <span className="text-gray-400 flex-shrink-0">
-                                      ({formatFileSize(file.size)})
-                                    </span>
-                                  </div>
-                                  <div className="flex gap-1 ml-2">
-                                    <button
-                                      onClick={() => window.open(file.driveFileUrl, '_blank')}
-                                      className="text-blue-600 hover:text-blue-800"
-                                      title="Xem file"
-                                    >
-                                      <Eye className="h-3 w-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        const link = document.createElement('a');
-                                        link.href = file.driveFileUrl;
-                                        link.download = file.name;
-                                        link.click();
-                                      }}
-                                      className="text-green-600 hover:text-green-800"
-                                      title="Tải xuống"
-                                    >
-                                      <Download className="h-3 w-3" />
-                                    </button>
-                                  </div>
+                            {doc.files && doc.files.length > 0 ? (
+                              <div className="space-y-1 mb-2">
+                                <div className="text-xs font-medium text-gray-700 mb-1 px-1">
+                                  📎 Files ({doc.files.length}):
                                 </div>
-                              ))}
-                            </div>
+                                {doc.files.map((file, idx) => (
+                                  <div key={idx} className="flex items-center justify-between text-xs bg-white border border-blue-100 rounded px-2 py-1.5 hover:bg-blue-50 transition-colors">
+                                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                      <FileText className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                                      <span className="truncate font-medium" title={file.name}>
+                                        {file.name}
+                                      </span>
+                                      <span className="text-gray-400 flex-shrink-0 text-[10px]">
+                                        ({formatFileSize(file.size)})
+                                      </span>
+                                    </div>
+                                    <div className="flex gap-1.5 ml-2">
+                                      <button
+                                        onClick={() => window.open(file.driveFileUrl, '_blank')}
+                                        className="text-blue-600 hover:text-blue-800 hover:bg-blue-100 p-1 rounded"
+                                        title="Xem file"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          const link = document.createElement('a');
+                                          link.href = file.driveFileUrl;
+                                          link.download = file.name;
+                                          link.click();
+                                        }}
+                                        className="text-green-600 hover:text-green-800 hover:bg-green-100 p-1 rounded"
+                                        title="Tải xuống"
+                                      >
+                                        <Download className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-gray-400 italic mb-2 px-1">
+                                Hồ sơ cũ - không có danh sách file
+                              </div>
+                            )}
 
                             {/* Actions */}
                             <div className="flex gap-1">
