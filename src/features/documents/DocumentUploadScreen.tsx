@@ -4,10 +4,11 @@ import { documentService } from '@/services/documentService';
 import { schoolYearService } from '@/services/schoolYearService';
 import { documentCategoryService } from '@/services/documentCategoryService';
 import { departmentService } from '@/services/departmentService';
+import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
 import { SchoolYear, DocumentCategory, DocumentSubCategory, Department } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Upload } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export function DocumentUploadScreen() {
@@ -23,7 +24,7 @@ export function DocumentUploadScreen() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string>('');
   const [documentTitle, setDocumentTitle] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -90,9 +91,13 @@ export function DocumentUploadScreen() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      setSelectedFiles(Array.from(e.target.files));
     }
+  };
+
+  const removeFile = (indexToRemove: number) => {
+    setSelectedFiles(selectedFiles.filter((_, index) => index !== indexToRemove));
   };
 
   const handleUpload = async () => {
@@ -105,10 +110,10 @@ export function DocumentUploadScreen() {
       return;
     }
 
-    if (!selectedFile || !selectedYearId || !selectedCategoryId) {
+    if (selectedFiles.length === 0 || !selectedYearId || !selectedCategoryId) {
       toast({
         title: 'Lỗi',
-        description: 'Vui lòng chọn đầy đủ thông tin và file',
+        description: 'Vui lòng chọn đầy đủ thông tin và ít nhất 1 file',
         variant: 'destructive',
       });
       return;
@@ -127,25 +132,52 @@ export function DocumentUploadScreen() {
     try {
       setUploading(true);
 
-      // TODO: Upload to Google Drive first, get driveFileId and driveFileUrl
-      // For now, just create metadata without actual file upload
+      // Get necessary metadata
+      const schoolYear = schoolYears.find(y => y.id === selectedYearId);
+      const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+      const selectedSubCategory = subCategories.find(s => s.id === selectedSubCategoryId);
+
+      if (!schoolYear || !selectedCategory) {
+        throw new Error('Invalid school year or category');
+      }
+
+      // Upload all files to Google Drive
+      const uploadedFiles = [];
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const driveFile = await googleDriveServiceBackend.uploadFile({
+          file,
+          schoolYear: schoolYear.name,
+          category: selectedCategory.name,
+          subCategory: selectedSubCategory?.name,
+          uploaderName: user!.displayName,
+          documentTitle: documentTitle.trim(),
+        });
+
+        uploadedFiles.push({
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+          driveFileId: driveFile.id,
+          driveFileUrl: driveFile.webViewLink,
+        });
+      }
 
       // Determine status based on role
       let status: 'pending' | 'approved' = 'pending';
 
       // Auto-approve for admin/VP
       if (user?.role === 'admin' || user?.role === 'vice_principal') {
-        status = 'approved'; // Admin/VP uploads are auto-approved
+        status = 'approved';
       }
       // Auto-approve for department head IF uploading to their own department
       else if (user?.role === 'department_head') {
-        // Check if uploading to their department's sub-category
         if (
           userDepartment &&
           selectedSubCategoryId &&
           selectedSubCategoryId === userDepartment.subCategoryId
         ) {
-          status = 'approved'; // Department head uploads to own dept → auto-approve
+          status = 'approved';
         }
       }
 
@@ -154,9 +186,7 @@ export function DocumentUploadScreen() {
         categoryId: selectedCategoryId,
         subCategoryId: selectedSubCategoryId || undefined,
         title: documentTitle.trim(),
-        fileName: selectedFile.name,
-        fileSize: selectedFile.size,
-        mimeType: selectedFile.type,
+        files: uploadedFiles,
         uploadedBy: user!.uid,
         uploadedByName: user!.displayName,
         departmentId: userDepartment?.id,
@@ -168,13 +198,13 @@ export function DocumentUploadScreen() {
         title: 'Thành công',
         description:
           status === 'approved'
-            ? 'Hồ sơ đã được tải lên'
-            : 'Hồ sơ đã được tải lên và đang chờ phê duyệt',
+            ? `Đã tải lên ${uploadedFiles.length} file`
+            : `Đã tải lên ${uploadedFiles.length} file và đang chờ phê duyệt`,
       });
 
       // Reset form
       setDocumentTitle('');
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setSelectedCategoryId('');
       setSelectedSubCategoryId('');
       const fileInput = document.getElementById('file-input') as HTMLInputElement;
@@ -291,13 +321,28 @@ export function DocumentUploadScreen() {
             <input
               id="file-input"
               type="file"
+              multiple
               onChange={handleFileChange}
               className="w-full border rounded px-3 py-2"
             />
-            {selectedFile && (
-              <p className="mt-2 text-sm text-gray-600">
-                Đã chọn: {selectedFile.name} ({formatFileSize(selectedFile.size)})
-              </p>
+            {selectedFiles.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <p className="text-sm font-medium text-gray-700">
+                  Đã chọn {selectedFiles.length} file(s):
+                </p>
+                {selectedFiles.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                    <span>{file.name} ({formatFileSize(file.size)})</span>
+                    <button
+                      onClick={() => removeFile(index)}
+                      className="text-red-500 hover:text-red-700"
+                      type="button"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
@@ -314,7 +359,7 @@ export function DocumentUploadScreen() {
           {/* Upload Button */}
           <Button
             onClick={handleUpload}
-            disabled={!documentTitle.trim() || !selectedFile || uploading}
+            disabled={!documentTitle.trim() || selectedFiles.length === 0 || uploading}
             className="w-full"
           >
             <Upload className="h-4 w-4 mr-2" />

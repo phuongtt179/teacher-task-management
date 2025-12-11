@@ -7,7 +7,7 @@ import { Document, FileRequest } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Check, X, FileText } from 'lucide-react';
+import { Check, X, FileText, Eye, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export function DocumentApprovalsScreen() {
@@ -140,6 +140,12 @@ export function DocumentApprovalsScreen() {
     }
   };
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-6">
@@ -172,12 +178,12 @@ export function DocumentApprovalsScreen() {
                 <div className="space-y-3">
                   {pendingDocuments.map(doc => (
                     <div key={doc.id} className="border rounded-lg p-4">
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-start justify-between mb-3">
                         <div className="flex items-start gap-3 flex-1">
                           <FileText className="h-8 w-8 text-blue-600 mt-1" />
                           <div className="flex-1">
                             <h3 className="font-semibold">{doc.title}</h3>
-                            <p className="text-sm text-gray-500">{doc.files.length} file(s)</p>
+                            <p className="text-sm text-gray-500">{doc.files?.length || 0} file(s)</p>
                             <p className="text-sm text-gray-600 mt-1">
                               Tải lên bởi: {doc.uploadedByName}
                             </p>
@@ -205,6 +211,48 @@ export function DocumentApprovalsScreen() {
                           </Button>
                         </div>
                       </div>
+
+                      {/* Files List */}
+                      {doc.files && doc.files.length > 0 && (
+                        <div className="ml-11 space-y-1">
+                          {doc.files.map((file, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-xs bg-gray-50 border rounded px-3 py-2">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <FileText className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                                <span className="truncate" title={file.name}>
+                                  {file.name}
+                                </span>
+                                <span className="text-gray-400 flex-shrink-0">
+                                  ({formatFileSize(file.size)})
+                                </span>
+                              </div>
+                              <div className="flex gap-2 ml-3">
+                                <button
+                                  onClick={() => window.open(file.driveFileUrl, '_blank')}
+                                  className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                  title="Xem file"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  <span>Xem</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const link = document.createElement('a');
+                                    link.href = file.driveFileUrl;
+                                    link.download = file.name;
+                                    link.click();
+                                  }}
+                                  className="text-green-600 hover:text-green-800 flex items-center gap-1"
+                                  title="Tải xuống"
+                                >
+                                  <Download className="h-3 w-3" />
+                                  <span>Tải</span>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
