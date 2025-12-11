@@ -67,6 +67,7 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
       setRole(user.role);
       setIsActive(user.isActive !== false);
       setPassword('');
+      loadDepartments(); // Reload departments to get fresh data including headTeacherId
       loadUserDepartment();
     }
   }, [user]);
