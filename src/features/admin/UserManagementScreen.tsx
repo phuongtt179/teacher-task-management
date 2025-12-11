@@ -105,8 +105,13 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
 
       // 🔒 VALIDATION: Check if assigning department_head role
       if (newRole === 'department_head' && oldRole !== 'department_head') {
+        console.log('🔍 VALIDATION: Checking department head assignment...');
+        console.log('New department ID:', newDepartmentId);
+        console.log('All departments:', departments);
+
         // User is being promoted to department head
         if (!newDepartmentId) {
+          console.log('❌ VALIDATION FAILED: No department selected');
           toast({
             title: 'Lỗi',
             description: 'Tổ trưởng phải thuộc một tổ. Vui lòng chọn tổ.',
@@ -118,7 +123,14 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
 
         // Check if the department already has a head
         const targetDepartment = departments.find(d => d.id === newDepartmentId);
+        console.log('Target department:', targetDepartment);
+        console.log('Current user UID:', user.uid);
+
         if (targetDepartment?.headTeacherId && targetDepartment.headTeacherId !== user.uid) {
+          console.log('❌ VALIDATION FAILED: Department already has a head');
+          console.log('Existing head ID:', targetDepartment.headTeacherId);
+          console.log('Existing head name:', targetDepartment.headTeacherName);
+
           toast({
             title: 'Không thể thiết lập tổ trưởng',
             description: `Tổ "${targetDepartment.name}" đã có tổ trưởng: ${targetDepartment.headTeacherName}. Vui lòng đổi người đó về vai trò Giáo viên trước.`,
@@ -127,6 +139,8 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
           setLoading(false);
           return;
         }
+
+        console.log('✅ VALIDATION PASSED: Can assign department head');
       }
 
       // 🔄 DEMOTION: If user was department head and is being changed to another role
