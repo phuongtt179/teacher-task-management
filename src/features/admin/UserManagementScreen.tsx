@@ -33,6 +33,7 @@ import {
   Crown
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { toast as globalToast } from '@/components/ui/use-toast';  // Import toast directly
 import { format } from 'date-fns';
 import type { Department } from '@/types';
 import { auth } from '@/lib/firebase';
@@ -133,14 +134,15 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
 
           const errorMessage = `Tổ "${targetDepartment.name}" đã có tổ trưởng: ${targetDepartment.headTeacherName}. Vui lòng đổi người đó về vai trò Giáo viên trước.`;
 
-          // TEMP: Use alert to test
-          alert(`Không thể thiết lập tổ trưởng\n\n${errorMessage}`);
+          console.log('🔔 CALLING GLOBAL TOAST');
 
-          toast({
+          // Use global toast instead of hook-based toast
+          globalToast({
             title: 'Không thể thiết lập tổ trưởng',
             description: errorMessage,
             variant: 'destructive',
           });
+
           setLoading(false);
           return;
         }
