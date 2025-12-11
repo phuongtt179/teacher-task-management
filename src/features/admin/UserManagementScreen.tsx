@@ -131,9 +131,14 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
           console.log('Existing head ID:', targetDepartment.headTeacherId);
           console.log('Existing head name:', targetDepartment.headTeacherName);
 
+          const errorMessage = `Tổ "${targetDepartment.name}" đã có tổ trưởng: ${targetDepartment.headTeacherName}. Vui lòng đổi người đó về vai trò Giáo viên trước.`;
+
+          // TEMP: Use alert to test
+          alert(`Không thể thiết lập tổ trưởng\n\n${errorMessage}`);
+
           toast({
             title: 'Không thể thiết lập tổ trưởng',
-            description: `Tổ "${targetDepartment.name}" đã có tổ trưởng: ${targetDepartment.headTeacherName}. Vui lòng đổi người đó về vai trò Giáo viên trước.`,
+            description: errorMessage,
             variant: 'destructive',
           });
           setLoading(false);
