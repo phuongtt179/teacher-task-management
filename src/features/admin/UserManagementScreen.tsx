@@ -97,6 +97,48 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
 
     setLoading(true);
     try {
+      const oldRole = user.role;
+      const newRole = role;
+      const oldDepartmentId = currentDepartment?.id;
+      const newDepartmentId = selectedDepartmentId;
+
+      // 🔒 VALIDATION: Check if assigning department_head role
+      if (newRole === 'department_head' && oldRole !== 'department_head') {
+        // User is being promoted to department head
+        if (!newDepartmentId) {
+          toast({
+            title: 'Lỗi',
+            description: 'Tổ trưởng phải thuộc một tổ. Vui lòng chọn tổ.',
+            variant: 'destructive',
+          });
+          setLoading(false);
+          return;
+        }
+
+        // Check if the department already has a head
+        const targetDepartment = departments.find(d => d.id === newDepartmentId);
+        if (targetDepartment?.headTeacherId && targetDepartment.headTeacherId !== user.uid) {
+          toast({
+            title: 'Không thể thiết lập tổ trưởng',
+            description: `Tổ "${targetDepartment.name}" đã có tổ trưởng: ${targetDepartment.headTeacherName}. Vui lòng đổi người đó về vai trò Giáo viên trước.`,
+            variant: 'destructive',
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 🔄 DEMOTION: If user was department head and is being changed to another role
+      if (oldRole === 'department_head' && newRole !== 'department_head') {
+        // Find which department this user is head of
+        const departmentWhereHead = departments.find(d => d.headTeacherId === user.uid);
+        if (departmentWhereHead) {
+          // Clear the department's head
+          await departmentService.clearDepartmentHead(departmentWhereHead.id);
+          console.log(`✅ Cleared head from department: ${departmentWhereHead.name}`);
+        }
+      }
+
       // Update user info
       await userService.updateUser(user.uid, {
         displayName: displayName.trim(),
@@ -109,11 +151,22 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
         // Remove from old department
         if (currentDepartment) {
           await departmentService.removeMember(currentDepartment.id, user.uid);
+
+          // If user was head of old department, clear it
+          if (currentDepartment.headTeacherId === user.uid) {
+            await departmentService.clearDepartmentHead(currentDepartment.id);
+          }
         }
         // Add to new department
         if (selectedDepartmentId) {
           await departmentService.addMember(selectedDepartmentId, user.uid);
         }
+      }
+
+      // 🎯 SET HEAD: If role is department_head, update the department document
+      if (newRole === 'department_head' && newDepartmentId) {
+        await departmentService.setDepartmentHead(newDepartmentId, user.uid, displayName.trim());
+        console.log(`✅ Set ${displayName.trim()} as head of department ${newDepartmentId}`);
       }
 
       // Update password if provided
@@ -132,12 +185,16 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
         description: 'Đã cập nhật thông tin người dùng',
       });
 
+      // Reload departments to get updated head info
+      await loadDepartments();
+
       onSuccess();
       onClose();
     } catch (error) {
+      console.error('Error updating user:', error);
       toast({
         title: 'Lỗi',
-        description: 'Không thể cập nhật người dùng',
+        description: error instanceof Error ? error.message : 'Không thể cập nhật người dùng',
         variant: 'destructive',
       });
     } finally {

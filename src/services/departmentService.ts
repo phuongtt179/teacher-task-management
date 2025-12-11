@@ -10,6 +10,7 @@ import {
   where,
   orderBy,
   Timestamp,
+  deleteField,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Department } from '@/types';
@@ -211,6 +212,40 @@ export const departmentService = {
     } catch (error) {
       console.error('Error checking if user is department head:', error);
       return false;
+    }
+  },
+
+  // Clear department head (remove headTeacherId and headTeacherName)
+  async clearDepartmentHead(departmentId: string): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'departments', departmentId), {
+        headTeacherId: deleteField(),
+        headTeacherName: deleteField(),
+        updatedAt: Timestamp.now(),
+      });
+    } catch (error) {
+      console.error('Error clearing department head:', error);
+      throw error;
+    }
+  },
+
+  // Set department head
+  async setDepartmentHead(departmentId: string, userId: string, userName: string): Promise<void> {
+    try {
+      // First check if this department already has a different head
+      const dept = await this.getDepartment(departmentId);
+      if (dept?.headTeacherId && dept.headTeacherId !== userId) {
+        throw new Error(`Tổ "${dept.name}" đã có tổ trưởng: ${dept.headTeacherName}. Vui lòng xóa tổ trưởng hiện tại trước.`);
+      }
+
+      await updateDoc(doc(db, 'departments', departmentId), {
+        headTeacherId: userId,
+        headTeacherName: userName,
+        updatedAt: Timestamp.now(),
+      });
+    } catch (error) {
+      console.error('Error setting department head:', error);
+      throw error;
     }
   },
 };
