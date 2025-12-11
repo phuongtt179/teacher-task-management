@@ -132,8 +132,21 @@ export function DocumentUploadScreen() {
 
       // Determine status based on role
       let status: 'pending' | 'approved' = 'pending';
+
+      // Auto-approve for admin/VP
       if (user?.role === 'admin' || user?.role === 'vice_principal') {
         status = 'approved'; // Admin/VP uploads are auto-approved
+      }
+      // Auto-approve for department head IF uploading to their own department
+      else if (user?.role === 'department_head') {
+        // Check if uploading to their department's sub-category
+        if (
+          userDepartment &&
+          selectedSubCategoryId &&
+          selectedSubCategoryId === userDepartment.subCategoryId
+        ) {
+          status = 'approved'; // Department head uploads to own dept → auto-approve
+        }
       }
 
       await documentService.createDocument({

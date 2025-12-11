@@ -205,7 +205,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       });
     }
 
-    const { schoolYear, category, subCategory } = req.body;
+    const { schoolYear, category, subCategory, uploaderName, documentTitle } = req.body;
 
     if (!schoolYear || !category) {
       return res.status(400).json({
@@ -213,15 +213,35 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       });
     }
 
-    // Create folder structure: Root Folder > School Year > Category > Subcategory
-    console.log(`📁 Creating folder structure: ${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''}`);
+    // NEW: Create folder structure based on whether uploaderName and documentTitle are provided
+    let targetFolderId;
 
-    const yearFolderId = await getOrCreateFolder(schoolYear);
-    const categoryFolderId = await getOrCreateFolder(category, yearFolderId);
+    if (uploaderName && documentTitle) {
+      // NEW Structure: Root > SchoolYear > Category > [SubCategory] > UploaderName > DocumentTitle
+      console.log(`📁 Creating folder structure: ${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''} > ${uploaderName} > ${documentTitle}`);
 
-    let targetFolderId = categoryFolderId;
-    if (subCategory) {
-      targetFolderId = await getOrCreateFolder(subCategory, categoryFolderId);
+      const yearFolderId = await getOrCreateFolder(schoolYear, ROOT_FOLDER_ID);
+      const categoryFolderId = await getOrCreateFolder(category, yearFolderId);
+
+      // If there's a subcategory, create it between category and uploader
+      let parentFolderId = categoryFolderId;
+      if (subCategory) {
+        parentFolderId = await getOrCreateFolder(subCategory, categoryFolderId);
+      }
+
+      const uploaderFolderId = await getOrCreateFolder(uploaderName, parentFolderId);
+      targetFolderId = await getOrCreateFolder(documentTitle, uploaderFolderId);
+    } else {
+      // OLD Structure (backward compatibility): Root > School Year > Category > Subcategory
+      console.log(`📁 Creating folder structure: ${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''}`);
+
+      const yearFolderId = await getOrCreateFolder(schoolYear);
+      const categoryFolderId = await getOrCreateFolder(category, yearFolderId);
+
+      targetFolderId = categoryFolderId;
+      if (subCategory) {
+        targetFolderId = await getOrCreateFolder(subCategory, categoryFolderId);
+      }
     }
 
     // Upload file

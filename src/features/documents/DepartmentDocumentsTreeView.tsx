@@ -313,8 +313,8 @@ export function DepartmentDocumentsTreeView({
                                     <div className="flex items-center gap-3 text-xs text-gray-600 flex-wrap">
                                       <div className="flex items-center gap-1">
                                         <FileIcon className="w-3 h-3 text-gray-400" />
-                                        <span className="truncate max-w-[200px]" title={doc.fileName}>
-                                          {doc.fileName}
+                                        <span className="truncate max-w-[200px]" title={doc.files[0]?.name || 'No file'}>
+                                          {doc.files.length} file(s)
                                         </span>
                                       </div>
                                       <div className="flex items-center gap-1">
@@ -322,18 +322,18 @@ export function DepartmentDocumentsTreeView({
                                         <span>{doc.uploadedAt.toLocaleDateString('vi-VN')}</span>
                                       </div>
                                       <span className="text-gray-400">•</span>
-                                      <span>{formatFileSize(doc.fileSize)}</span>
+                                      <span>{formatFileSize(doc.files.reduce((sum, f) => sum + f.size, 0))}</span>
                                     </div>
                                   </div>
 
                                   {/* Actions */}
                                   <div className="flex gap-1">
-                                    {doc.driveFileUrl && (
+                                    {doc.files[0]?.driveFileUrl && (
                                       <Button
                                         variant="ghost"
                                         size="sm"
                                         className="h-7 text-xs px-2"
-                                        onClick={() => window.open(doc.driveFileUrl, '_blank')}
+                                        onClick={() => window.open(doc.files[0].driveFileUrl, '_blank')}
                                       >
                                         <Eye className="h-3 w-3 mr-1" />
                                         Xem

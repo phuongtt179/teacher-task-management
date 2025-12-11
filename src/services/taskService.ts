@@ -9,6 +9,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -270,6 +271,24 @@ export const taskService = {
       }
       // else: Quá cả 2 deadline - điểm = 0, metDeadline = undefined
 
+      // Check for existing submissions to handle version tracking
+      const existingSubmissions = await this.getSubmissionsForTask(taskId);
+      const userExistingSubmission = existingSubmissions.find(s => s.teacherId === teacherId);
+
+      let version = 1;
+      let previousVersionId: string | undefined;
+
+      if (userExistingSubmission) {
+        // This is a resubmission - create new version
+        version = userExistingSubmission.version + 1;
+        previousVersionId = userExistingSubmission.id;
+
+        // Mark old submission as not latest
+        await updateDoc(doc(db, 'submissions', userExistingSubmission.id), {
+          isLatest: false,
+        });
+      }
+
       // Create submission document
       const submissionData: any = {
         taskId,
@@ -280,17 +299,25 @@ export const taskService = {
         fileNames,
         submittedAt: Timestamp.fromDate(new Date()),
         score: autoScore,
+        version,
+        isLatest: true,
       };
 
-      // Only add metDeadline if it has a value (not undefined)
+      // Add optional fields
       if (metDeadline !== undefined) {
         submissionData.metDeadline = metDeadline;
+      }
+      if (previousVersionId) {
+        submissionData.previousVersionId = previousVersionId;
       }
 
       const docRef = await addDoc(collection(db, 'submissions'), submissionData);
 
       // Update task status to submitted
       await this.updateTask(taskId, { status: 'submitted' });
+
+      // Update task status based on all submissions
+      await this.updateTaskStatus(taskId);
 
       // Notify VP
       await notificationService.notifyTaskSubmitted(
@@ -303,17 +330,46 @@ export const taskService = {
       return docRef.id;
     } catch (error) {
       console.error('Chi tiết lỗi submitting report:', error);
-      throw new Error(error instanceof Error ? error.message : 'Không thể nộp báo cáo. Vui lòng thử lại.');
+
+      // Provide specific error messages
+      if (error instanceof Error) {
+        const errMsg = error.message.toLowerCase();
+
+        // Firestore permission errors
+        if (errMsg.includes('permission') || errMsg.includes('missing or insufficient permissions')) {
+          throw new Error('Bạn không có quyền nộp báo cáo cho công việc này. Vui lòng liên hệ quản trị viên.');
+        }
+        // Network errors
+        else if (errMsg.includes('network') || errMsg.includes('fetch failed')) {
+          throw new Error('Lỗi kết nối mạng. Vui lòng kiểm tra kết nối internet và thử lại.');
+        }
+        // Firestore quota errors
+        else if (errMsg.includes('quota') || errMsg.includes('resource exhausted')) {
+          throw new Error('Hệ thống đang quá tải. Vui lòng thử lại sau vài phút.');
+        }
+        // Task not found
+        else if (errMsg.includes('task not found') || errMsg.includes('not exist')) {
+          throw new Error('Không tìm thấy công việc này. Có thể đã bị xóa.');
+        }
+        // Re-throw original error message if it's already descriptive
+        else {
+          throw error;
+        }
+      }
+
+      throw new Error('Không thể nộp báo cáo. Vui lòng thử lại sau.');
     }
   },
 
-  // Get submission for task and teacher
+  // Get submission for task and teacher (returns latest submission only)
   async getSubmission(taskId: string, teacherId: string): Promise<Submission | null> {
     try {
       const q = query(
         collection(db, 'submissions'),
         where('taskId', '==', taskId),
-        where('teacherId', '==', teacherId)
+        where('teacherId', '==', teacherId),
+        where('isLatest', '==', true),
+        limit(1)
       );
       const snapshot = await getDocs(q);
 
@@ -326,6 +382,9 @@ export const taskService = {
         ...data,
         submittedAt: data.submittedAt?.toDate(),
         scoredAt: data.scoredAt?.toDate(),
+        version: data.version || 1,
+        previousVersionId: data.previousVersionId,
+        isLatest: data.isLatest ?? true,
       } as Submission;
     } catch (error) {
       console.error('Error getting submission:', error);
@@ -333,12 +392,13 @@ export const taskService = {
     }
   },
 
-  // Get all submissions for a task
+  // Get all submissions for a task (returns only latest version for each teacher)
   async getSubmissionsForTask(taskId: string): Promise<Submission[]> {
     try {
       const q = query(
         collection(db, 'submissions'),
-        where('taskId', '==', taskId)
+        where('taskId', '==', taskId),
+        where('isLatest', '==', true)
       );
       const snapshot = await getDocs(q);
 
@@ -349,10 +409,44 @@ export const taskService = {
           ...data,
           submittedAt: data.submittedAt?.toDate(),
           scoredAt: data.scoredAt?.toDate(),
+          version: data.version || 1,
+          previousVersionId: data.previousVersionId,
+          isLatest: data.isLatest ?? true,
         } as Submission;
       });
     } catch (error) {
       console.error('Error getting submissions:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get all submission versions for a teacher on a task
+   */
+  async getSubmissionHistory(taskId: string, teacherId: string): Promise<Submission[]> {
+    try {
+      const q = query(
+        collection(db, 'submissions'),
+        where('taskId', '==', taskId),
+        where('teacherId', '==', teacherId),
+        orderBy('version', 'desc')
+      );
+      const snapshot = await getDocs(q);
+
+      return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          submittedAt: data.submittedAt?.toDate(),
+          scoredAt: data.scoredAt?.toDate(),
+          version: data.version || 1,
+          previousVersionId: data.previousVersionId,
+          isLatest: data.isLatest ?? true,
+        } as Submission;
+      });
+    } catch (error) {
+      console.error('Error getting submission history:', error);
       throw error;
     }
   },
@@ -376,11 +470,90 @@ export const taskService = {
         scoredAt: Timestamp.fromDate(new Date()),
       });
 
+      // Get submission to retrieve teacher info
+      const submissionDoc = await getDoc(docRef);
+      const submission = submissionDoc.data();
+
+      // Get task to retrieve task title
+      const task = await this.getTaskById(taskId);
+      if (!task) {
+        throw new Error('Không tìm thấy công việc.');
+      }
+
+      // Notify teacher that their submission was scored
+      await notificationService.notifyTaskScored(
+        submission!.teacherId,
+        taskId,
+        task.title,
+        score,
+        task.maxScore,
+        scoredByName
+      );
+
       // Update task status to completed
       await this.updateTask(taskId, { status: 'completed' });
+
+      // Update task status based on all submissions
+      await this.updateTaskStatus(taskId);
     } catch (error) {
       console.error('Error scoring submission:', error);
-      throw error;
+
+      // Provide specific error messages
+      if (error instanceof Error) {
+        const errMsg = error.message.toLowerCase();
+
+        if (errMsg.includes('permission')) {
+          throw new Error('Bạn không có quyền chấm điểm bài nộp này.');
+        } else if (errMsg.includes('not found') || errMsg.includes('not exist')) {
+          throw new Error('Không tìm thấy bài nộp. Có thể đã bị xóa.');
+        } else if (errMsg.includes('network')) {
+          throw new Error('Lỗi kết nối mạng. Vui lòng thử lại.');
+        }
+      }
+
+      throw new Error('Không thể chấm điểm. Vui lòng thử lại.');
+    }
+  },
+
+  /**
+   * Update task status based on submissions and deadline
+   * Call this after any submission/scoring action
+   */
+  async updateTaskStatus(taskId: string): Promise<void> {
+    try {
+      const task = await this.getTaskById(taskId);
+      if (!task) {
+        console.warn(`Task ${taskId} not found, skipping status update`);
+        return;
+      }
+
+      const submissions = await this.getSubmissionsForTask(taskId);
+      const now = new Date();
+
+      let newStatus: TaskStatus = task.status;
+
+      // Check if task is overdue (no submissions and past deadline)
+      if (submissions.length === 0 && now > task.deadline) {
+        newStatus = 'overdue';
+      }
+      // Check if all teachers submitted
+      else if (submissions.length === task.assignedTo.length) {
+        // Check if all submissions are graded
+        const allGraded = submissions.every(s => s.score !== undefined);
+        newStatus = allGraded ? 'completed' : 'submitted';
+      }
+      // Check if at least one teacher submitted
+      else if (submissions.length > 0) {
+        newStatus = 'submitted';
+      }
+
+      // Update if status changed
+      if (newStatus !== task.status) {
+        await this.updateTask(taskId, { status: newStatus });
+      }
+    } catch (error) {
+      console.error('Error updating task status:', error);
+      // Don't throw - status update failure shouldn't break main flow
     }
   },
 

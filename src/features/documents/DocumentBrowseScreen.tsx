@@ -47,7 +47,7 @@ export function DocumentBrowseScreen() {
   // Upload dialog state
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [documentTitle, setDocumentTitle] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -190,7 +190,7 @@ export function DocumentBrowseScreen() {
     try {
       await fileRequestService.createDeleteRequest({
         documentId: doc.id,
-        documentName: doc.fileName,
+        documentName: doc.title, // Use document title instead of fileName
         requestedBy: user!.uid,
         requestedByName: user!.displayName,
         reason,
@@ -210,8 +210,8 @@ export function DocumentBrowseScreen() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      setSelectedFiles(Array.from(e.target.files));
     }
   };
 
@@ -225,10 +225,21 @@ export function DocumentBrowseScreen() {
       return;
     }
 
-    if (!selectedFile || !selectedYearId || !selectedCategoryId) {
+    // Validate files selected
+    if (selectedFiles.length === 0 || !selectedYearId || !selectedCategoryId) {
       toast({
         title: 'Lỗi',
-        description: 'Vui lòng chọn file để tải lên',
+        description: 'Vui lòng chọn ít nhất 1 file để tải lên',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate file count (max 20)
+    if (selectedFiles.length > 20) {
+      toast({
+        title: 'Vượt quá giới hạn',
+        description: `Chỉ có thể tải tối đa 20 files. Bạn đã chọn ${selectedFiles.length} files.`,
         variant: 'destructive',
       });
       return;
@@ -242,6 +253,44 @@ export function DocumentBrowseScreen() {
         variant: 'destructive',
       });
       return;
+    }
+
+    // Validate file sizes and types
+    const maxFileSize = 50 * 1024 * 1024; // 50MB per file
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'text/plain',
+    ];
+
+    for (const file of selectedFiles) {
+      // Check file size
+      if (file.size > maxFileSize) {
+        toast({
+          title: 'File quá lớn',
+          description: `File "${file.name}" vượt quá 50MB (${(file.size / 1024 / 1024).toFixed(2)}MB). Vui lòng chọn file nhỏ hơn.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Check file type
+      if (!allowedTypes.includes(file.type) && file.type !== '') {
+        toast({
+          title: 'Định dạng không hỗ trợ',
+          description: `File "${file.name}" có định dạng không được hỗ trợ. Vui lòng chọn file PDF, Word, Excel, PowerPoint, hoặc ảnh.`,
+          variant: 'destructive',
+        });
+        return;
+      }
     }
 
     try {
@@ -268,19 +317,38 @@ export function DocumentBrowseScreen() {
 
       toast({
         title: 'Đang tải lên',
-        description: 'Đang tải file lên Drive của trường...',
+        description: `Đang tải ${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''} lên Drive...`,
       });
 
-      // Upload via backend
-      const driveFile = await googleDriveServiceBackend.uploadFile({
-        file: selectedFile,
-        schoolYear: schoolYear?.name || 'Hồ sơ',
-        category: categoryName,
-        subCategory: subCategoryName,
-        onProgress: (progress) => {
-          setUploadProgress(progress);
-        },
-      });
+      // Upload all files via backend
+      const uploadedFiles: any[] = [];
+      const totalFiles = selectedFiles.length;
+
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const fileProgress = (i / totalFiles) * 100;
+
+        toast({
+          title: 'Đang tải lên',
+          description: `Đang tải file ${i + 1}/${totalFiles}: ${file.name}`,
+        });
+
+        const driveFile = await googleDriveServiceBackend.uploadFile({
+          file,
+          schoolYear: schoolYear?.name || 'Hồ sơ',
+          category: categoryName,
+          subCategory: subCategoryName,
+          uploaderName: user!.displayName, // NEW: Teacher name for folder structure
+          documentTitle: documentTitle.trim(), // NEW: Document title for folder structure
+          onProgress: (progress) => {
+            // Calculate overall progress
+            const overallProgress = fileProgress + (progress / totalFiles);
+            setUploadProgress(Math.min(overallProgress, 100));
+          },
+        });
+
+        uploadedFiles.push(driveFile);
+      }
 
       // Save to Firestore
       let status: 'pending' | 'approved' = 'pending';
@@ -288,7 +356,7 @@ export function DocumentBrowseScreen() {
       // Get the selected category to check allowedUploaders
       const selectedCategory = categories.find(c => c.id === selectedCategoryId);
 
-      // Auto-approve if Admin/VP OR in allowedUploaders for public categories
+      // Auto-approve if Admin/VP OR in allowedUploaders for public categories OR department head of own department
       if (user?.role === 'admin' || user?.role === 'vice_principal') {
         status = 'approved';
       } else if (
@@ -296,18 +364,32 @@ export function DocumentBrowseScreen() {
         selectedCategory?.allowedUploaders?.includes(user!.uid)
       ) {
         status = 'approved';
+      } else if (user?.role === 'department_head') {
+        // Auto-approve for department head IF uploading to their own department
+        if (
+          userDepartment &&
+          selectedSubCategoryId &&
+          selectedSubCategoryId === userDepartment.subCategoryId
+        ) {
+          status = 'approved';
+        }
       }
 
-      // Build document data, excluding undefined fields
+      // Build document data with multiple files
       const docData: Record<string, any> = {
         schoolYearId: selectedYearId,
         categoryId: selectedCategoryId,
         title: documentTitle.trim(),
-        fileName: driveFile.name,
-        fileSize: driveFile.size,
-        mimeType: driveFile.mimeType,
-        driveFileId: driveFile.id,
-        driveFileUrl: driveFile.webViewLink,
+
+        // NEW: Array of files
+        files: uploadedFiles.map(f => ({
+          name: f.name,
+          size: f.size,
+          mimeType: f.mimeType,
+          driveFileId: f.id,
+          driveFileUrl: f.webViewLink,
+        })),
+
         uploadedBy: user!.uid,
         uploadedByName: user!.displayName,
         isPublic: false,
@@ -317,9 +399,6 @@ export function DocumentBrowseScreen() {
       // Add optional fields only if they exist
       if (selectedSubCategoryId) {
         docData.subCategoryId = selectedSubCategoryId;
-      }
-      if (driveFile.thumbnailLink) {
-        docData.thumbnailUrl = driveFile.thumbnailLink;
       }
       if (userDepartment?.id) {
         docData.departmentId = userDepartment.id;
@@ -333,28 +412,70 @@ export function DocumentBrowseScreen() {
           ? subCategories.find(s => s.id === selectedSubCategoryId)?.name
           : 'None',
         subCategoryId: selectedSubCategoryId,
+        filesCount: uploadedFiles.length,
         docData
       });
+      console.log('📄 Files array in docData:', docData.files);
+      console.log('📦 Uploaded files from backend:', uploadedFiles);
 
       await documentService.createDocument(docData as any);
 
       toast({
         title: 'Thành công',
         description: status === 'approved'
-          ? 'Đã tải lên Drive của trường'
-          : 'Đã tải lên và đang chờ phê duyệt',
+          ? `Đã tải lên ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''}`
+          : `Đã tải lên ${uploadedFiles.length} file${uploadedFiles.length > 1 ? 's' : ''} và đang chờ phê duyệt`,
       });
 
       setShowUploadDialog(false);
       setDocumentTitle('');
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setUploadProgress(0);
       loadDocuments();
     } catch (error) {
       console.error('Error uploading document:', error);
+
+      // Provide specific error messages based on error type
+      let errorTitle = 'Lỗi tải lên';
+      let errorMessage = 'Không thể tải lên hồ sơ. Vui lòng thử lại.';
+
+      if (error instanceof Error) {
+        const errMsg = error.message.toLowerCase();
+
+        // Network errors
+        if (errMsg.includes('network') || errMsg.includes('fetch')) {
+          errorTitle = 'Lỗi kết nối';
+          errorMessage = 'Không thể kết nối đến server. Vui lòng kiểm tra kết nối internet hoặc chạy backend server (npm run server).';
+        }
+        // File size errors from backend
+        else if (errMsg.includes('file too large') || errMsg.includes('quá lớn')) {
+          errorTitle = 'Lỗi kích thước file';
+          errorMessage = 'File quá lớn để tải lên Google Drive. Vui lòng nén file hoặc chọn file nhỏ hơn.';
+        }
+        // Google Drive API errors
+        else if (errMsg.includes('drive') || errMsg.includes('quota')) {
+          errorTitle = 'Lỗi Google Drive';
+          errorMessage = 'Không thể tải lên Google Drive. Có thể đã hết quota hoặc quyền truy cập bị từ chối.';
+        }
+        // Permission errors
+        else if (errMsg.includes('permission') || errMsg.includes('quyền')) {
+          errorTitle = 'Lỗi phân quyền';
+          errorMessage = 'Bạn không có quyền tải file lên mục này.';
+        }
+        // Firestore errors
+        else if (errMsg.includes('firestore') || errMsg.includes('database')) {
+          errorTitle = 'Lỗi lưu dữ liệu';
+          errorMessage = 'File đã tải lên Drive nhưng không thể lưu thông tin vào database. Vui lòng liên hệ quản trị viên.';
+        }
+        // Use original error message if none of the above
+        else {
+          errorMessage = error.message;
+        }
+      }
+
       toast({
-        title: 'Lỗi',
-        description: error instanceof Error ? error.message : 'Không thể tải lên hồ sơ',
+        title: errorTitle,
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
@@ -414,12 +535,16 @@ export function DocumentBrowseScreen() {
   const personalCategories = categories.filter(c => c.categoryType === 'personal');
   const publicCategories = categories.filter(c => c.categoryType === 'public');
 
-  const filteredDocuments = documents.filter(doc =>
-    searchQuery === '' ||
-    doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    doc.fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    doc.uploadedByName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredDocuments = documents.filter(doc => {
+    if (searchQuery === '') return true;
+
+    const query = searchQuery.toLowerCase();
+    return (
+      doc.title.toLowerCase().includes(query) ||
+      doc.uploadedByName.toLowerCase().includes(query) ||
+      (doc.files || []).some(f => f.name.toLowerCase().includes(query))
+    );
+  });
 
   return (
     <div className="flex h-[calc(100vh-4rem)]">
@@ -711,15 +836,9 @@ export function DocumentBrowseScreen() {
                               {getStatusBadge(doc.status)}
                             </div>
 
-                            {/* Metadata - all in one line with background */}
+                            {/* Metadata */}
                             <div className="bg-gray-50 rounded px-2 py-1 mb-2">
                               <div className="flex items-center gap-3 text-xs text-gray-600 flex-wrap">
-                                <div className="flex items-center gap-1">
-                                  <FileIcon className="w-3 h-3 text-gray-400" />
-                                  <span className="truncate max-w-[200px]" title={doc.fileName}>
-                                    {doc.fileName}
-                                  </span>
-                                </div>
                                 <div className="flex items-center gap-1">
                                   <User className="w-3 h-3 text-gray-400" />
                                   <span>{doc.uploadedByName}</span>
@@ -728,32 +847,53 @@ export function DocumentBrowseScreen() {
                                   <Calendar className="w-3 h-3 text-gray-400" />
                                   <span>{doc.uploadedAt.toLocaleDateString('vi-VN')}</span>
                                 </div>
-                                <span className="text-gray-400">•</span>
-                                <span>{formatFileSize(doc.fileSize)}</span>
+                                <div className="flex items-center gap-1">
+                                  <FileIcon className="w-3 h-3 text-gray-400" />
+                                  <span>{doc.files?.length || 0} file{(doc.files?.length || 0) > 1 ? 's' : ''}</span>
+                                </div>
                               </div>
+                            </div>
+
+                            {/* Files List */}
+                            <div className="space-y-1 mb-2">
+                              {(doc.files || []).map((file, idx) => (
+                                <div key={idx} className="flex items-center justify-between text-xs bg-white border rounded px-2 py-1">
+                                  <div className="flex items-center gap-1 flex-1 min-w-0">
+                                    <FileText className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                                    <span className="truncate" title={file.name}>
+                                      {file.name}
+                                    </span>
+                                    <span className="text-gray-400 flex-shrink-0">
+                                      ({formatFileSize(file.size)})
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-1 ml-2">
+                                    <button
+                                      onClick={() => window.open(file.driveFileUrl, '_blank')}
+                                      className="text-blue-600 hover:text-blue-800"
+                                      title="Xem file"
+                                    >
+                                      <Eye className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const link = document.createElement('a');
+                                        link.href = file.driveFileUrl;
+                                        link.download = file.name;
+                                        link.click();
+                                      }}
+                                      className="text-green-600 hover:text-green-800"
+                                      title="Tải xuống"
+                                    >
+                                      <Download className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
 
                             {/* Actions */}
                             <div className="flex gap-1">
-                              {doc.driveFileUrl && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 text-xs px-2"
-                                  onClick={() => window.open(doc.driveFileUrl, '_blank')}
-                                >
-                                  <Eye className="h-3 w-3 mr-1" />
-                                  Xem
-                                </Button>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 text-xs px-2"
-                              >
-                                <Download className="h-3 w-3 mr-1" />
-                                Tải xuống
-                              </Button>
                               {canDeleteFile(doc) && (
                                 <Button
                                   variant="ghost"
@@ -810,13 +950,76 @@ export function DocumentBrowseScreen() {
                 </label>
                 <input
                   type="file"
+                  multiple
                   onChange={handleFileChange}
                   className="w-full border rounded px-3 py-2"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.txt"
                 />
-                {selectedFile && (
-                  <p className="text-sm text-gray-600 mt-1">
-                    Đã chọn: {selectedFile.name} ({formatFileSize(selectedFile.size)})
-                  </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Có thể chọn nhiều file (tối đa 20 files). Định dạng: PDF, Word, Excel, PowerPoint, Ảnh
+                </p>
+
+                {selectedFiles.length > 0 && (
+                  <div className="mt-3 border rounded p-3 bg-gray-50">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium">
+                        Đã chọn: {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFiles([])}
+                        className="text-xs text-red-600 hover:text-red-800"
+                      >
+                        Xóa tất cả
+                      </button>
+                    </div>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {selectedFiles.map((file, index) => (
+                        <div key={index} className="flex items-center justify-between text-sm bg-white rounded px-2 py-1">
+                          <span className="flex-1 truncate">
+                            📄 {file.name} ({formatFileSize(file.size)})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedFiles(selectedFiles.filter((_, i) => i !== index));
+                            }}
+                            className="ml-2 text-red-600 hover:text-red-800 text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedFiles.length < 20 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.multiple = true;
+                          input.accept = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.txt';
+                          input.onchange = (e: any) => {
+                            const newFiles = Array.from(e.target.files || []) as File[];
+                            const totalFiles = selectedFiles.length + newFiles.length;
+                            if (totalFiles > 20) {
+                              toast({
+                                title: 'Vượt quá giới hạn',
+                                description: `Chỉ có thể tải tối đa 20 files. Bạn đang có ${selectedFiles.length} files, chỉ có thể thêm ${20 - selectedFiles.length} files nữa.`,
+                                variant: 'destructive',
+                              });
+                              return;
+                            }
+                            setSelectedFiles([...selectedFiles, ...newFiles]);
+                          };
+                          input.click();
+                        }}
+                        className="mt-2 w-full text-sm text-blue-600 hover:text-blue-800 border border-dashed border-blue-300 rounded py-2 hover:bg-blue-50"
+                      >
+                        + Thêm file khác
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -858,7 +1061,7 @@ export function DocumentBrowseScreen() {
             <div className="flex gap-2 mt-6">
               <Button
                 onClick={handleUpload}
-                disabled={!documentTitle.trim() || !selectedFile || uploading}
+                disabled={!documentTitle.trim() || selectedFiles.length === 0 || uploading}
                 className="flex-1"
               >
                 <UploadIcon className="h-4 w-4 mr-2" />
@@ -868,7 +1071,7 @@ export function DocumentBrowseScreen() {
                 onClick={() => {
                   setShowUploadDialog(false);
                   setDocumentTitle('');
-                  setSelectedFile(null);
+                  setSelectedFiles([]);
                 }}
                 variant="outline"
                 className="flex-1"

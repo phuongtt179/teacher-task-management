@@ -12,6 +12,8 @@ interface UploadFileOptions {
   schoolYear: string;
   category: string;
   subCategory?: string;
+  uploaderName?: string; // NEW: Teacher name for folder structure (optional for backward compatibility)
+  documentTitle?: string; // NEW: Document title for folder structure (optional for backward compatibility)
   onProgress?: (progress: number) => void;
 }
 
@@ -55,7 +57,7 @@ export class GoogleDriveServiceBackend {
    * Upload file to Google Drive via backend
    */
   async uploadFile(options: UploadFileOptions): Promise<DriveFile> {
-    const { file, schoolYear, category, subCategory, onProgress } = options;
+    const { file, schoolYear, category, subCategory, uploaderName, documentTitle, onProgress } = options;
 
     return new Promise((resolve, reject) => {
       const formData = new FormData();
@@ -64,6 +66,12 @@ export class GoogleDriveServiceBackend {
       formData.append('category', category);
       if (subCategory) {
         formData.append('subCategory', subCategory);
+      }
+      if (uploaderName) {
+        formData.append('uploaderName', uploaderName);
+      }
+      if (documentTitle) {
+        formData.append('documentTitle', documentTitle);
       }
 
       const xhr = new XMLHttpRequest();

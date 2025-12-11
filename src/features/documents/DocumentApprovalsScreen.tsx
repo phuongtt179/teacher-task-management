@@ -67,6 +67,11 @@ export function DocumentApprovalsScreen() {
   };
 
   const handleApproveDocument = async (doc: Document) => {
+    // Confirmation dialog
+    if (!confirm(`Xác nhận phê duyệt hồ sơ "${doc.title}" của ${doc.uploadedByName}?`)) {
+      return;
+    }
+
     try {
       await documentService.approveDocument(doc.id, user!.uid, user!.displayName);
       toast({ title: 'Thành công', description: 'Đã phê duyệt hồ sơ' });
@@ -81,6 +86,11 @@ export function DocumentApprovalsScreen() {
   };
 
   const handleRejectDocument = async (doc: Document) => {
+    // Confirmation dialog
+    if (!confirm(`Xác nhận từ chối hồ sơ "${doc.title}" của ${doc.uploadedByName}?`)) {
+      return;
+    }
+
     const reason = prompt('Lý do từ chối:');
     if (!reason) return;
 
@@ -167,7 +177,7 @@ export function DocumentApprovalsScreen() {
                           <FileText className="h-8 w-8 text-blue-600 mt-1" />
                           <div className="flex-1">
                             <h3 className="font-semibold">{doc.title}</h3>
-                            <p className="text-sm text-gray-500">{doc.fileName}</p>
+                            <p className="text-sm text-gray-500">{doc.files.length} file(s)</p>
                             <p className="text-sm text-gray-600 mt-1">
                               Tải lên bởi: {doc.uploadedByName}
                             </p>

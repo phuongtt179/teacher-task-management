@@ -67,6 +67,15 @@ export const TaskDetailScreen = () => {
       return;
     }
 
+    // Get submission to show teacher name in confirmation
+    const submission = submissions.find(s => s.id === submissionId);
+    if (!submission) return;
+
+    // Confirmation dialog
+    if (!confirm(`Xác nhận chấm điểm ${scoreNum}/${task.maxScore} cho ${submission.teacherName}?`)) {
+      return;
+    }
+
     try {
       await taskService.scoreSubmission(
         submissionId,

@@ -66,13 +66,9 @@ export const documentService = {
           schoolYearId: data.schoolYearId,
           categoryId: data.categoryId,
           subCategoryId: data.subCategoryId,
-          title: data.title || data.fileName,
-          fileName: data.fileName,
-          fileSize: data.fileSize,
-          mimeType: data.mimeType,
-          driveFileId: data.driveFileId,
-          driveFileUrl: data.driveFileUrl,
-          thumbnailUrl: data.thumbnailUrl,
+          title: data.title || (data.files && data.files[0]?.name) || 'Untitled',
+          // NEW: Multi-file support
+          files: data.files || [],
           uploadedBy: data.uploadedBy,
           uploadedByName: data.uploadedByName,
           uploadedAt: data.uploadedAt?.toDate() || new Date(),
@@ -117,13 +113,9 @@ export const documentService = {
           schoolYearId: data.schoolYearId,
           categoryId: data.categoryId,
           subCategoryId: data.subCategoryId,
-          title: data.title || data.fileName,
-          fileName: data.fileName,
-          fileSize: data.fileSize,
-          mimeType: data.mimeType,
-          driveFileId: data.driveFileId,
-          driveFileUrl: data.driveFileUrl,
-          thumbnailUrl: data.thumbnailUrl,
+          title: data.title || (data.files && data.files[0]?.name) || 'Untitled',
+          // NEW: Multi-file support
+          files: data.files || [],
           uploadedBy: data.uploadedBy,
           uploadedByName: data.uploadedByName,
           uploadedAt: data.uploadedAt?.toDate() || new Date(),
@@ -154,13 +146,9 @@ export const documentService = {
         schoolYearId: data.schoolYearId,
         categoryId: data.categoryId,
         subCategoryId: data.subCategoryId,
-        title: data.title || data.fileName,
-        fileName: data.fileName,
-        fileSize: data.fileSize,
-        mimeType: data.mimeType,
-        driveFileId: data.driveFileId,
-        driveFileUrl: data.driveFileUrl,
-        thumbnailUrl: data.thumbnailUrl,
+        title: data.title || (data.files && data.files[0]?.name) || 'Untitled',
+        // NEW: Multi-file support
+        files: data.files || [],
         uploadedBy: data.uploadedBy,
         uploadedByName: data.uploadedByName,
         uploadedAt: data.uploadedAt?.toDate() || new Date(),
@@ -184,9 +172,18 @@ export const documentService = {
     categoryId: string;
     subCategoryId?: string;
     title: string;
-    fileName: string;
-    fileSize: number;
-    mimeType: string;
+    // NEW: Multi-file support
+    files?: Array<{
+      name: string;
+      size: number;
+      mimeType: string;
+      driveFileId: string;
+      driveFileUrl: string;
+    }>;
+    // OLD: Single-file fields (backward compatibility)
+    fileName?: string;
+    fileSize?: number;
+    mimeType?: string;
     driveFileId?: string;
     driveFileUrl?: string;
     thumbnailUrl?: string;
@@ -202,9 +199,6 @@ export const documentService = {
         schoolYearId: data.schoolYearId,
         categoryId: data.categoryId,
         title: data.title,
-        fileName: data.fileName,
-        fileSize: data.fileSize,
-        mimeType: data.mimeType,
         uploadedBy: data.uploadedBy,
         uploadedByName: data.uploadedByName,
         uploadedAt: Timestamp.now(),
@@ -212,24 +206,58 @@ export const documentService = {
         isPublic: data.isPublic !== false,
       };
 
+      // Add files array (NEW multi-file support) or fallback to old single-file fields
+      if (data.files && Array.isArray(data.files) && data.files.length > 0) {
+        console.log('✅ Using NEW multi-file structure:', data.files.length, 'files');
+        documentData.files = data.files;
+      } else if (data.fileName) {
+        // Backward compatibility: convert old single-file to array format
+        console.log('⚙️ Using OLD single-file structure (backward compatibility)');
+        documentData.files = [{
+          name: data.fileName,
+          size: data.fileSize || 0,
+          mimeType: data.mimeType || 'application/octet-stream',
+          driveFileId: data.driveFileId || '',
+          driveFileUrl: data.driveFileUrl || '',
+        }];
+      } else {
+        // Default: empty array (should not happen in normal flow)
+        console.warn('⚠️ No files provided in document data!', data);
+        documentData.files = [];
+      }
+
       // Only add optional fields if they have values
       if (data.subCategoryId) {
         documentData.subCategoryId = data.subCategoryId;
-      }
-      if (data.driveFileId) {
-        documentData.driveFileId = data.driveFileId;
-      }
-      if (data.driveFileUrl) {
-        documentData.driveFileUrl = data.driveFileUrl;
-      }
-      if (data.thumbnailUrl) {
-        documentData.thumbnailUrl = data.thumbnailUrl;
       }
       if (data.departmentId) {
         documentData.departmentId = data.departmentId;
       }
 
+      console.log('💾 Saving to Firestore:', {
+        ...documentData,
+        files: documentData.files.map((f: any) => ({
+          name: f.name,
+          size: f.size,
+          hasDriveId: !!f.driveFileId,
+          hasDriveUrl: !!f.driveFileUrl,
+        }))
+      });
+
       const docRef = await addDoc(collection(db, 'documents'), documentData);
+
+      console.log('✅ Document saved with ID:', docRef.id);
+
+      // Verify by reading back
+      const savedDoc = await getDoc(docRef);
+      if (savedDoc.exists()) {
+        const savedData = savedDoc.data();
+        console.log('🔍 Verification - Document read back from Firestore:', {
+          id: savedDoc.id,
+          filesCount: savedData.files?.length || 0,
+          files: savedData.files || []
+        });
+      }
 
       return docRef.id;
     } catch (error) {
@@ -249,7 +277,20 @@ export const documentService = {
       });
     } catch (error) {
       console.error('Error approving document:', error);
-      throw error;
+
+      if (error instanceof Error) {
+        const errMsg = error.message.toLowerCase();
+
+        if (errMsg.includes('permission')) {
+          throw new Error('Bạn không có quyền phê duyệt hồ sơ này.');
+        } else if (errMsg.includes('not found') || errMsg.includes('no document')) {
+          throw new Error('Không tìm thấy hồ sơ. Có thể đã bị xóa.');
+        } else if (errMsg.includes('network')) {
+          throw new Error('Lỗi kết nối mạng. Vui lòng thử lại.');
+        }
+      }
+
+      throw new Error('Không thể phê duyệt hồ sơ. Vui lòng thử lại.');
     }
   },
 
@@ -265,7 +306,20 @@ export const documentService = {
       });
     } catch (error) {
       console.error('Error rejecting document:', error);
-      throw error;
+
+      if (error instanceof Error) {
+        const errMsg = error.message.toLowerCase();
+
+        if (errMsg.includes('permission')) {
+          throw new Error('Bạn không có quyền từ chối hồ sơ này.');
+        } else if (errMsg.includes('not found') || errMsg.includes('no document')) {
+          throw new Error('Không tìm thấy hồ sơ. Có thể đã bị xóa.');
+        } else if (errMsg.includes('network')) {
+          throw new Error('Lỗi kết nối mạng. Vui lòng thử lại.');
+        }
+      }
+
+      throw new Error('Không thể từ chối hồ sơ. Vui lòng thử lại.');
     }
   },
 
@@ -276,7 +330,20 @@ export const documentService = {
       await deleteDoc(doc(db, 'documents', id));
     } catch (error) {
       console.error('Error deleting document:', error);
-      throw error;
+
+      if (error instanceof Error) {
+        const errMsg = error.message.toLowerCase();
+
+        if (errMsg.includes('permission')) {
+          throw new Error('Bạn không có quyền xóa hồ sơ này.');
+        } else if (errMsg.includes('not found') || errMsg.includes('no document')) {
+          throw new Error('Không tìm thấy hồ sơ để xóa.');
+        } else if (errMsg.includes('network')) {
+          throw new Error('Lỗi kết nối mạng. Vui lòng thử lại.');
+        }
+      }
+
+      throw new Error('Không thể xóa hồ sơ. Vui lòng thử lại.');
     }
   },
 

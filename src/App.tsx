@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { LoginScreen } from './features/auth/LoginScreen';
@@ -28,6 +29,7 @@ import { DocumentUploadScreen } from './features/documents/DocumentUploadScreen'
 import { DocumentApprovalsScreen } from './features/documents/DocumentApprovalsScreen';
 import { MyRequestsScreen } from './features/documents/MyRequestsScreen';
 import { TeacherProfileScreen } from './features/teacher/TeacherProfileScreen';
+import { deadlineCheckerService } from './services/deadlineCheckerService';
 // Dashboard router based on role
 const DashboardRouter = () => {
   const { user } = useAuth();
@@ -59,8 +61,23 @@ const PlaceholderScreen = ({ title }: { title: string }) => (
 
 function App() {
   const { firebaseUser, isLoading, isWhitelisted } = useAuth();
+
   // Initialize FCM
   useFCM();
+
+  // Start/stop deadline checker based on authentication
+  useEffect(() => {
+    if (firebaseUser && isWhitelisted) {
+      deadlineCheckerService.startChecking();
+    } else {
+      deadlineCheckerService.stopChecking();
+    }
+
+    return () => {
+      deadlineCheckerService.stopChecking();
+    };
+  }, [firebaseUser, isWhitelisted]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">

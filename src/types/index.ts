@@ -64,6 +64,11 @@ export interface Submission {
   scoredByName?: string; // VP name
   scoredAt?: Date;
   feedback?: string; // Nhận xét từ VP
+
+  // Version tracking fields
+  version: number; // Submission version (1, 2, 3, ...)
+  previousVersionId?: string; // ID of previous version
+  isLatest: boolean; // Flag for latest submission
 }
 // Notification type
 export type NotificationType =
@@ -156,6 +161,15 @@ export interface Department {
 // Document status
 export type DocumentStatus = 'pending' | 'approved' | 'rejected';
 
+// Document File (for multi-file support)
+export interface DocumentFile {
+  name: string;
+  size: number; // bytes
+  mimeType: string;
+  driveFileId: string;
+  driveFileUrl: string;
+}
+
 // Document model (file metadata)
 export interface Document {
   id: string;
@@ -164,13 +178,8 @@ export interface Document {
   subCategoryId?: string;
   title: string; // Descriptive title like "Kế hoạch môn học tuần 1"
 
-  // File info
-  fileName: string;
-  fileSize: number; // bytes
-  mimeType: string;
-  driveFileId?: string; // Google Drive file ID
-  driveFileUrl?: string;
-  thumbnailUrl?: string;
+  // Multi-file support
+  files: DocumentFile[];
 
   // Upload info
   uploadedBy: string;
