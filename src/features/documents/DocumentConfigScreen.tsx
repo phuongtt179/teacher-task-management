@@ -36,6 +36,8 @@ export function DocumentConfigScreen() {
   const [categoryType, setCategoryType] = useState<'public' | 'personal'>('personal');
   const [categoryHasSubCats, setCategoryHasSubCats] = useState(false);
   const [categoryAllowedUploaders, setCategoryAllowedUploaders] = useState<string[]>([]);
+  const [categoryViewPermissionType, setCategoryViewPermissionType] = useState<'everyone' | 'specific_departments'>('everyone');
+  const [categoryViewDepartments, setCategoryViewDepartments] = useState<string[]>([]);
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
 
   // SubCategories
@@ -253,6 +255,16 @@ export function DocumentConfigScreen() {
       setCategoryType(category.categoryType);
       setCategoryHasSubCats(category.hasSubCategories ?? false);
       setCategoryAllowedUploaders(category.allowedUploaders || []);
+
+      // Load view permissions
+      if (category.viewPermissions) {
+        setCategoryViewPermissionType(category.viewPermissions.type as 'everyone' | 'specific_departments');
+        setCategoryViewDepartments(category.viewPermissions.departmentIds || []);
+      } else {
+        // Default to everyone if no view permissions set
+        setCategoryViewPermissionType('everyone');
+        setCategoryViewDepartments([]);
+      }
     } else {
       // Create mode
       setEditingCategoryId(null);
@@ -260,6 +272,8 @@ export function DocumentConfigScreen() {
       setCategoryType('personal'); // Default to personal
       setCategoryHasSubCats(false);
       setCategoryAllowedUploaders([]);
+      setCategoryViewPermissionType('everyone'); // Default view permission
+      setCategoryViewDepartments([]);
     }
 
     // Load available users (teachers and department heads)
@@ -271,6 +285,11 @@ export function DocumentConfigScreen() {
       setAvailableUsers(teachersAndHeads);
     } catch (error) {
       console.error('Error loading users:', error);
+    }
+
+    // Load departments for view permissions
+    if (!departments.length) {
+      loadDepartments();
     }
 
     setShowCategoryDialog(true);
@@ -289,16 +308,30 @@ export function DocumentConfigScreen() {
     try {
       if (editingCategoryId) {
         // Update existing category
-        await documentCategoryService.updateCategory(editingCategoryId, {
+        const updateData: any = {
           name: categoryName,
           categoryType: categoryType,
           hasSubCategories: categoryHasSubCats,
           allowedUploaders: categoryType === 'public' ? categoryAllowedUploaders : [],
-        });
+        };
+
+        // Add view permissions for public categories
+        if (categoryType === 'public') {
+          if (categoryViewPermissionType === 'everyone') {
+            updateData.viewPermissions = { type: 'everyone' };
+          } else if (categoryViewPermissionType === 'specific_departments') {
+            updateData.viewPermissions = {
+              type: 'specific_departments',
+              departmentIds: categoryViewDepartments,
+            };
+          }
+        }
+
+        await documentCategoryService.updateCategory(editingCategoryId, updateData);
         toast({ title: 'Thành công', description: 'Đã cập nhật danh mục' });
       } else {
         // Create new category
-        await documentCategoryService.createCategory({
+        const createData: any = {
           schoolYearId: selectedYearId,
           name: categoryName,
           categoryType: categoryType,
@@ -306,7 +339,21 @@ export function DocumentConfigScreen() {
           order: categories.length,
           createdBy: user!.uid,
           allowedUploaders: categoryType === 'public' ? categoryAllowedUploaders : undefined,
-        });
+        };
+
+        // Add view permissions for public categories
+        if (categoryType === 'public') {
+          if (categoryViewPermissionType === 'everyone') {
+            createData.viewPermissions = { type: 'everyone' };
+          } else if (categoryViewPermissionType === 'specific_departments') {
+            createData.viewPermissions = {
+              type: 'specific_departments',
+              departmentIds: categoryViewDepartments,
+            };
+          }
+        }
+
+        await documentCategoryService.createCategory(createData);
         toast({ title: 'Thành công', description: 'Đã tạo danh mục mới' });
       }
 
@@ -985,6 +1032,95 @@ export function DocumentConfigScreen() {
                   <p className="text-xs text-gray-500 mt-1">
                     Đã chọn: {categoryAllowedUploaders.length} người dùng
                   </p>
+                </div>
+              )}
+
+              {/* View Permissions - Only show for public categories */}
+              {categoryType === 'public' && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Quyền xem hồ sơ
+                  </label>
+                  <div className="space-y-3">
+                    {/* Option 1: Everyone */}
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="radio"
+                        id="view-everyone"
+                        name="viewPermission"
+                        checked={categoryViewPermissionType === 'everyone'}
+                        onChange={() => {
+                          setCategoryViewPermissionType('everyone');
+                          setCategoryViewDepartments([]);
+                        }}
+                        className="h-4 w-4 mt-0.5"
+                      />
+                      <label htmlFor="view-everyone" className="text-sm cursor-pointer flex-1">
+                        <div className="font-medium">Tất cả giáo viên</div>
+                        <div className="text-xs text-gray-500">
+                          Tất cả giáo viên đều có thể xem danh mục này
+                        </div>
+                      </label>
+                    </div>
+
+                    {/* Option 2: Specific Departments */}
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="radio"
+                        id="view-specific"
+                        name="viewPermission"
+                        checked={categoryViewPermissionType === 'specific_departments'}
+                        onChange={() => setCategoryViewPermissionType('specific_departments')}
+                        className="h-4 w-4 mt-0.5"
+                      />
+                      <label htmlFor="view-specific" className="text-sm cursor-pointer flex-1">
+                        <div className="font-medium">Chỉ một số tổ cụ thể</div>
+                        <div className="text-xs text-gray-500">
+                          Chỉ giáo viên trong các tổ được chọn mới xem được
+                        </div>
+                      </label>
+                    </div>
+
+                    {/* Department selection */}
+                    {categoryViewPermissionType === 'specific_departments' && (
+                      <div className="ml-6 border-l-2 border-gray-200 pl-4">
+                        <label className="block text-sm font-medium mb-2">
+                          Chọn tổ được xem
+                        </label>
+                        <div className="border rounded px-3 py-2 max-h-40 overflow-y-auto space-y-2 bg-gray-50">
+                          {departments.length === 0 ? (
+                            <p className="text-sm text-gray-500">Chưa có tổ nào. Vui lòng tạo tổ trước.</p>
+                          ) : (
+                            departments.map(dept => (
+                              <div key={dept.id} className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  id={`dept-view-${dept.id}`}
+                                  checked={categoryViewDepartments.includes(dept.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setCategoryViewDepartments([...categoryViewDepartments, dept.id]);
+                                    } else {
+                                      setCategoryViewDepartments(categoryViewDepartments.filter(id => id !== dept.id));
+                                    }
+                                  }}
+                                  className="h-4 w-4"
+                                />
+                                <label htmlFor={`dept-view-${dept.id}`} className="text-sm cursor-pointer flex-1">
+                                  {dept.name}
+                                </label>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        {departments.length > 0 && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Đã chọn: {categoryViewDepartments.length} tổ
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
