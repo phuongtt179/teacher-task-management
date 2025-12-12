@@ -17,14 +17,17 @@ import {
   Calendar,
   FileIcon,
   Plus,
+  Trash2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { fileRequestService } from '@/services/fileRequestService';
 
 interface DepartmentDocumentsTreeViewProps {
   subCategoryId: string;
   categoryId: string;
   schoolYearId: string;
   onUploadClick?: () => void;
+  refreshTrigger?: number; // Timestamp to trigger reload after upload
 }
 
 export function DepartmentDocumentsTreeView({
@@ -32,6 +35,7 @@ export function DepartmentDocumentsTreeView({
   categoryId,
   schoolYearId,
   onUploadClick,
+  refreshTrigger,
 }: DepartmentDocumentsTreeViewProps) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -48,6 +52,13 @@ export function DepartmentDocumentsTreeView({
   useEffect(() => {
     loadDepartments();
   }, [user]);
+
+  // Reload current user's documents when refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger && user?.uid) {
+      reloadCurrentUserDocuments();
+    }
+  }, [refreshTrigger]);
 
   const loadDepartments = async () => {
     if (!user) return;
@@ -115,15 +126,17 @@ export function DepartmentDocumentsTreeView({
     }
   };
 
-  const loadDocumentsForTeacher = async (teacherId: string) => {
+  const loadDocumentsForTeacher = async (teacherId: string, forceReload = false) => {
     try {
-      if (documentsByTeacher.has(teacherId)) return;
+      // Skip cache check if forceReload is true
+      if (!forceReload && documentsByTeacher.has(teacherId)) return;
 
       console.log('🔍 Loading documents for teacher:', {
         teacherId,
         schoolYearId,
         categoryId,
         subCategoryId,
+        forceReload,
       });
 
       const docs = await documentService.getDocuments({
@@ -152,6 +165,44 @@ export function DepartmentDocumentsTreeView({
         variant: 'destructive',
       });
     }
+  };
+
+  // Function to reload documents after upload
+  const reloadCurrentUserDocuments = async () => {
+    if (user?.uid) {
+      await loadDocumentsForTeacher(user.uid, true);
+    }
+  };
+
+  const handleDeleteRequest = async (doc: Document) => {
+    const reason = prompt('Lý do xóa hồ sơ:');
+    if (!reason) return;
+
+    try {
+      await fileRequestService.createDeleteRequest({
+        documentId: doc.id,
+        documentName: doc.title,
+        requestedBy: user!.uid,
+        requestedByName: user!.displayName,
+        reason,
+      });
+
+      toast({
+        title: 'Thành công',
+        description: 'Yêu cầu xóa hồ sơ đã được gửi',
+      });
+    } catch (error) {
+      toast({
+        title: 'Lỗi',
+        description: 'Không thể gửi yêu cầu xóa',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const canDeleteFile = (doc: Document) => {
+    if (user?.role === 'admin' || user?.role === 'vice_principal') return false;
+    return doc.uploadedBy === user?.uid;
   };
 
   const toggleDepartment = async (deptId: string) => {
@@ -366,6 +417,21 @@ export function DepartmentDocumentsTreeView({
                                   ) : (
                                     <div className="text-xs text-gray-400 italic mb-2 px-1">
                                       Hồ sơ cũ - không có danh sách file
+                                    </div>
+                                  )}
+
+                                  {/* Delete Button */}
+                                  {canDeleteFile(doc) && (
+                                    <div className="mt-2 pt-2 border-t">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleDeleteRequest(doc)}
+                                        className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                        Yêu cầu xóa hồ sơ
+                                      </Button>
                                     </div>
                                   )}
                                 </div>

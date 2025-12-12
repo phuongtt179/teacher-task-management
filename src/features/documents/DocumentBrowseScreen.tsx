@@ -50,6 +50,7 @@ export function DocumentBrowseScreen() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [treeViewRefreshTrigger, setTreeViewRefreshTrigger] = useState(0);
 
   useEffect(() => {
     loadSchoolYears();
@@ -429,6 +430,9 @@ export function DocumentBrowseScreen() {
       // Reload documents to show the newly uploaded one
       await loadDocuments();
 
+      // Trigger tree view reload
+      setTreeViewRefreshTrigger(Date.now());
+
       toast({
         title: 'Thành công',
         description: status === 'approved'
@@ -791,6 +795,7 @@ export function DocumentBrowseScreen() {
                       categoryId={selectedCategoryId}
                       schoolYearId={selectedYearId}
                       onUploadClick={() => setShowUploadDialog(true)}
+                      refreshTrigger={treeViewRefreshTrigger}
                     />
                   );
                 }
