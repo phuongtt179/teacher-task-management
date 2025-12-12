@@ -36,8 +36,9 @@ export function DocumentConfigScreen() {
   const [categoryType, setCategoryType] = useState<'public' | 'personal'>('personal');
   const [categoryHasSubCats, setCategoryHasSubCats] = useState(false);
   const [categoryAllowedUploaders, setCategoryAllowedUploaders] = useState<string[]>([]);
-  const [categoryViewPermissionType, setCategoryViewPermissionType] = useState<'everyone' | 'specific_departments'>('everyone');
-  const [categoryViewDepartments, setCategoryViewDepartments] = useState<string[]>([]);
+  const [categoryViewPermissionType, setCategoryViewPermissionType] = useState<'everyone' | 'specific_users'>('everyone');
+  const [categoryViewUserIds, setCategoryViewUserIds] = useState<string[]>([]);
+  const [viewPermissionDepartmentFilter, setViewPermissionDepartmentFilter] = useState<string>(''); // For filtering users by department
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
 
   // SubCategories
@@ -258,13 +259,14 @@ export function DocumentConfigScreen() {
 
       // Load view permissions
       if (category.viewPermissions) {
-        setCategoryViewPermissionType(category.viewPermissions.type as 'everyone' | 'specific_departments');
-        setCategoryViewDepartments(category.viewPermissions.departmentIds || []);
+        setCategoryViewPermissionType(category.viewPermissions.type as 'everyone' | 'specific_users');
+        setCategoryViewUserIds(category.viewPermissions.userIds || []);
       } else {
         // Default to everyone if no view permissions set
         setCategoryViewPermissionType('everyone');
-        setCategoryViewDepartments([]);
+        setCategoryViewUserIds([]);
       }
+      setViewPermissionDepartmentFilter(''); // Reset department filter
     } else {
       // Create mode
       setEditingCategoryId(null);
@@ -273,7 +275,8 @@ export function DocumentConfigScreen() {
       setCategoryHasSubCats(false);
       setCategoryAllowedUploaders([]);
       setCategoryViewPermissionType('everyone'); // Default view permission
-      setCategoryViewDepartments([]);
+      setCategoryViewUserIds([]);
+      setViewPermissionDepartmentFilter(''); // Reset department filter
     }
 
     // Load available users (teachers and department heads)
@@ -319,10 +322,10 @@ export function DocumentConfigScreen() {
         if (categoryType === 'public') {
           if (categoryViewPermissionType === 'everyone') {
             updateData.viewPermissions = { type: 'everyone' };
-          } else if (categoryViewPermissionType === 'specific_departments') {
+          } else if (categoryViewPermissionType === 'specific_users') {
             updateData.viewPermissions = {
-              type: 'specific_departments',
-              departmentIds: categoryViewDepartments,
+              type: 'specific_users',
+              userIds: categoryViewUserIds,
             };
           }
         }
@@ -345,10 +348,10 @@ export function DocumentConfigScreen() {
         if (categoryType === 'public') {
           if (categoryViewPermissionType === 'everyone') {
             createData.viewPermissions = { type: 'everyone' };
-          } else if (categoryViewPermissionType === 'specific_departments') {
+          } else if (categoryViewPermissionType === 'specific_users') {
             createData.viewPermissions = {
-              type: 'specific_departments',
-              departmentIds: categoryViewDepartments,
+              type: 'specific_users',
+              userIds: categoryViewUserIds,
             };
           }
         }
@@ -993,129 +996,150 @@ export function DocumentConfigScreen() {
                 </div>
               </div>
 
-              {/* Allowed Uploaders - Only show for public categories */}
+              {/* Two-column layout for public category settings */}
               {categoryType === 'public' && (
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Người dùng được phép tải lên
-                  </label>
-                  <p className="text-xs text-gray-500 mb-2">
-                    Chọn giáo viên/tổ trưởng có thể tải lên danh mục này (ngoài Admin/Hiệu trưởng)
-                  </p>
-                  <div className="border rounded px-3 py-2 max-h-48 overflow-y-auto space-y-2">
-                    {availableUsers.length === 0 ? (
-                      <p className="text-sm text-gray-500">Đang tải danh sách người dùng...</p>
-                    ) : (
-                      availableUsers.map(u => (
-                        <div key={u.uid} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id={`uploader-${u.uid}`}
-                            checked={categoryAllowedUploaders.includes(u.uid)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setCategoryAllowedUploaders([...categoryAllowedUploaders, u.uid]);
-                              } else {
-                                setCategoryAllowedUploaders(categoryAllowedUploaders.filter(id => id !== u.uid));
-                              }
-                            }}
-                            className="h-4 w-4"
-                          />
-                          <label htmlFor={`uploader-${u.uid}`} className="text-sm cursor-pointer flex-1">
-                            {u.displayName}
-                            <span className="text-gray-500 ml-1">({u.email})</span>
-                          </label>
-                        </div>
-                      ))
-                    )}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Column 1: Allowed Uploaders */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Người dùng được phép tải lên
+                    </label>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Chọn GV/tổ trưởng có thể tải lên (ngoài Admin/HT)
+                    </p>
+                    <div className="border rounded px-3 py-2 max-h-64 overflow-y-auto space-y-2">
+                      {availableUsers.length === 0 ? (
+                        <p className="text-sm text-gray-500">Đang tải...</p>
+                      ) : (
+                        availableUsers.map(u => (
+                          <div key={u.uid} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`uploader-${u.uid}`}
+                              checked={categoryAllowedUploaders.includes(u.uid)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setCategoryAllowedUploaders([...categoryAllowedUploaders, u.uid]);
+                                } else {
+                                  setCategoryAllowedUploaders(categoryAllowedUploaders.filter(id => id !== u.uid));
+                                }
+                              }}
+                              className="h-4 w-4"
+                            />
+                            <label htmlFor={`uploader-${u.uid}`} className="text-sm cursor-pointer flex-1 truncate" title={`${u.displayName} (${u.email})`}>
+                              {u.displayName}
+                            </label>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Đã chọn: {categoryAllowedUploaders.length}
+                    </p>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Đã chọn: {categoryAllowedUploaders.length} người dùng
-                  </p>
-                </div>
-              )}
 
-              {/* View Permissions - Only show for public categories */}
-              {categoryType === 'public' && (
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Quyền xem hồ sơ
-                  </label>
-                  <div className="space-y-3">
-                    {/* Option 1: Everyone */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="radio"
-                        id="view-everyone"
-                        name="viewPermission"
-                        checked={categoryViewPermissionType === 'everyone'}
-                        onChange={() => {
-                          setCategoryViewPermissionType('everyone');
-                          setCategoryViewDepartments([]);
-                        }}
-                        className="h-4 w-4 mt-0.5"
-                      />
-                      <label htmlFor="view-everyone" className="text-sm cursor-pointer flex-1">
-                        <div className="font-medium">Tất cả giáo viên</div>
-                        <div className="text-xs text-gray-500">
-                          Tất cả giáo viên đều có thể xem danh mục này
-                        </div>
-                      </label>
-                    </div>
-
-                    {/* Option 2: Specific Departments */}
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="radio"
-                        id="view-specific"
-                        name="viewPermission"
-                        checked={categoryViewPermissionType === 'specific_departments'}
-                        onChange={() => setCategoryViewPermissionType('specific_departments')}
-                        className="h-4 w-4 mt-0.5"
-                      />
-                      <label htmlFor="view-specific" className="text-sm cursor-pointer flex-1">
-                        <div className="font-medium">Chỉ một số tổ cụ thể</div>
-                        <div className="text-xs text-gray-500">
-                          Chỉ giáo viên trong các tổ được chọn mới xem được
-                        </div>
-                      </label>
-                    </div>
-
-                    {/* Department selection */}
-                    {categoryViewPermissionType === 'specific_departments' && (
-                      <div className="ml-6 border-l-2 border-gray-200 pl-4">
-                        <label className="block text-sm font-medium mb-2">
-                          Chọn tổ được xem
+                  {/* Column 2: View Permissions */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Quyền xem hồ sơ
+                    </label>
+                    <div className="space-y-2 mb-2">
+                      {/* Option 1: Everyone */}
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="radio"
+                          id="view-everyone"
+                          name="viewPermission"
+                          checked={categoryViewPermissionType === 'everyone'}
+                          onChange={() => {
+                            setCategoryViewPermissionType('everyone');
+                            setCategoryViewUserIds([]);
+                          }}
+                          className="h-4 w-4 mt-0.5"
+                        />
+                        <label htmlFor="view-everyone" className="text-sm cursor-pointer flex-1">
+                          <div className="font-medium">Tất cả GV</div>
+                          <div className="text-xs text-gray-500">
+                            Mọi người đều xem được
+                          </div>
                         </label>
-                        <div className="border rounded px-3 py-2 max-h-40 overflow-y-auto space-y-2 bg-gray-50">
-                          {departments.length === 0 ? (
-                            <p className="text-sm text-gray-500">Chưa có tổ nào. Vui lòng tạo tổ trước.</p>
+                      </div>
+
+                      {/* Option 2: Specific Users */}
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="radio"
+                          id="view-specific"
+                          name="viewPermission"
+                          checked={categoryViewPermissionType === 'specific_users'}
+                          onChange={() => setCategoryViewPermissionType('specific_users')}
+                          className="h-4 w-4 mt-0.5"
+                        />
+                        <label htmlFor="view-specific" className="text-sm cursor-pointer flex-1">
+                          <div className="font-medium">Chỉ một số GV</div>
+                          <div className="text-xs text-gray-500">
+                            Chọn từng GV cụ thể
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* User selection with department filter */}
+                    {categoryViewPermissionType === 'specific_users' && (
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          Lọc theo tổ (tùy chọn)
+                        </label>
+                        <select
+                          value={viewPermissionDepartmentFilter}
+                          onChange={(e) => setViewPermissionDepartmentFilter(e.target.value)}
+                          className="w-full border rounded px-3 py-2 text-sm mb-2"
+                        >
+                          <option value="">Tất cả tổ</option>
+                          {departments.map(dept => (
+                            <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          ))}
+                        </select>
+
+                        <label className="block text-sm font-medium mb-2">
+                          Chọn giáo viên được xem
+                        </label>
+                        <div className="border rounded px-3 py-2 max-h-48 overflow-y-auto space-y-2 bg-gray-50">
+                          {availableUsers.length === 0 ? (
+                            <p className="text-sm text-gray-500">Chưa có giáo viên</p>
                           ) : (
-                            departments.map(dept => (
-                              <div key={dept.id} className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  id={`dept-view-${dept.id}`}
-                                  checked={categoryViewDepartments.includes(dept.id)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setCategoryViewDepartments([...categoryViewDepartments, dept.id]);
-                                    } else {
-                                      setCategoryViewDepartments(categoryViewDepartments.filter(id => id !== dept.id));
-                                    }
-                                  }}
-                                  className="h-4 w-4"
-                                />
-                                <label htmlFor={`dept-view-${dept.id}`} className="text-sm cursor-pointer flex-1">
-                                  {dept.name}
-                                </label>
-                              </div>
-                            ))
+                            availableUsers
+                              .filter(u => {
+                                // Filter by department if selected
+                                if (!viewPermissionDepartmentFilter) return true;
+                                const dept = departments.find(d => d.id === viewPermissionDepartmentFilter);
+                                return dept?.memberIds.includes(u.uid);
+                              })
+                              .map(u => (
+                                <div key={u.uid} className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    id={`user-view-${u.uid}`}
+                                    checked={categoryViewUserIds.includes(u.uid)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setCategoryViewUserIds([...categoryViewUserIds, u.uid]);
+                                      } else {
+                                        setCategoryViewUserIds(categoryViewUserIds.filter(id => id !== u.uid));
+                                      }
+                                    }}
+                                    className="h-4 w-4"
+                                  />
+                                  <label htmlFor={`user-view-${u.uid}`} className="text-sm cursor-pointer flex-1 truncate" title={`${u.displayName} (${u.email})`}>
+                                    {u.displayName}
+                                  </label>
+                                </div>
+                              ))
                           )}
                         </div>
-                        {departments.length > 0 && (
+                        {availableUsers.length > 0 && (
                           <p className="text-xs text-gray-500 mt-1">
-                            Đã chọn: {categoryViewDepartments.length} tổ
+                            Đã chọn: {categoryViewUserIds.length} GV
                           </p>
                         )}
                       </div>
@@ -1123,6 +1147,7 @@ export function DocumentConfigScreen() {
                   </div>
                 </div>
               )}
+
 
               <div className="flex items-center gap-2">
                 <input

@@ -105,8 +105,31 @@ export function DocumentBrowseScreen() {
 
   const loadCategories = async (yearId: string) => {
     try {
-      const cats = await documentCategoryService.getCategoriesBySchoolYear(yearId);
-      setCategories(cats);
+      const allCats = await documentCategoryService.getCategoriesBySchoolYear(yearId);
+
+      // Filter categories based on view permissions
+      const filteredCats = allCats.filter(cat => {
+        // Admin and VP can see all categories
+        if (user?.role === 'admin' || user?.role === 'vice_principal') {
+          return true;
+        }
+
+        // If no view permissions or everyone can view
+        if (!cat.viewPermissions || cat.viewPermissions.type === 'everyone') {
+          return true;
+        }
+
+        // If specific users, check if current user is in the list
+        if (cat.viewPermissions.type === 'specific_users') {
+          return cat.viewPermissions.userIds?.includes(user?.uid || '') || false;
+        }
+
+        // Default: don't show
+        return false;
+      });
+
+      console.log(`📂 Loaded ${allCats.length} categories, filtered to ${filteredCats.length} for user ${user?.displayName}`);
+      setCategories(filteredCats);
       setSelectedCategoryId('');
       setSelectedSubCategoryId('');
       setDocuments([]);
