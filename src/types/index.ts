@@ -120,6 +120,13 @@ export interface SchoolYear {
 // Document Category Type
 export type DocumentCategoryType = 'public' | 'personal';
 
+// View Permissions for Document Categories
+export interface ViewPermissions {
+  type: 'everyone' | 'specific_departments' | 'specific_users';
+  departmentIds?: string[]; // For type = 'specific_departments'
+  userIds?: string[]; // For type = 'specific_users'
+}
+
 // Document Category model
 export interface DocumentCategory {
   id: string;
@@ -130,6 +137,7 @@ export interface DocumentCategory {
   order: number;
   driveFolderId?: string; // Google Drive folder ID
   allowedUploaders?: string[]; // Array of user UIDs who can upload to public categories
+  viewPermissions?: ViewPermissions; // NEW: Control who can view this category
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -186,6 +194,11 @@ export interface Document {
   uploadedByName: string;
   uploadedAt: Date;
 
+  // Edit tracking (NEW)
+  updatedAt?: Date;
+  updatedBy?: string;
+  editCount?: number; // Number of times edited
+
   // Approval
   status: DocumentStatus;
   approvedBy?: string;
@@ -196,6 +209,42 @@ export interface Document {
   // Access control
   departmentId?: string;
   isPublic: boolean; // true = all can view, false = only department
+}
+
+// Document History Action Types
+export type DocumentHistoryAction =
+  | 'file_added'
+  | 'file_removed'
+  | 'title_changed'
+  | 'status_changed'
+  | 'document_created'
+  | 'document_edited';
+
+// Document History model (for audit trail)
+export interface DocumentHistory {
+  id: string;
+  documentId: string;
+  documentTitle: string;
+  action: DocumentHistoryAction;
+  performedBy: string;
+  performedByName: string;
+  performedAt: Date;
+  details: {
+    // For file operations
+    addedFiles?: DocumentFile[];
+    removedFiles?: DocumentFile[];
+
+    // For title changes
+    oldTitle?: string;
+    newTitle?: string;
+
+    // For status changes
+    oldStatus?: DocumentStatus;
+    newStatus?: DocumentStatus;
+
+    // General notes
+    note?: string;
+  };
 }
 
 // File Request Type

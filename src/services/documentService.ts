@@ -72,6 +72,10 @@ export const documentService = {
           uploadedBy: data.uploadedBy,
           uploadedByName: data.uploadedByName,
           uploadedAt: data.uploadedAt?.toDate() || new Date(),
+          // Edit tracking
+          updatedAt: data.updatedAt?.toDate(),
+          updatedBy: data.updatedBy,
+          editCount: data.editCount || 0,
           status: data.status || 'pending',
           approvedBy: data.approvedBy,
           approvedByName: data.approvedByName,
@@ -320,6 +324,73 @@ export const documentService = {
       }
 
       throw new Error('Không thể từ chối hồ sơ. Vui lòng thử lại.');
+    }
+  },
+
+  // Update document
+  async updateDocument(
+    id: string,
+    data: {
+      title?: string;
+      files?: Array<{
+        name: string;
+        size: number;
+        mimeType: string;
+        driveFileId: string;
+        driveFileUrl: string;
+      }>;
+      status?: DocumentStatus;
+      updatedBy?: string;
+      editCount?: number;
+    }
+  ): Promise<void> {
+    try {
+      console.log(`📝 Updating document ${id}:`, data);
+
+      const updateData: Record<string, any> = {};
+
+      if (data.title !== undefined) {
+        updateData.title = data.title;
+      }
+
+      if (data.files !== undefined) {
+        updateData.files = data.files;
+      }
+
+      if (data.status !== undefined) {
+        updateData.status = data.status;
+      }
+
+      if (data.updatedBy !== undefined) {
+        updateData.updatedBy = data.updatedBy;
+        updateData.updatedAt = Timestamp.now();
+      }
+
+      if (data.editCount !== undefined) {
+        updateData.editCount = data.editCount;
+      }
+
+      console.log(`✅ Update data prepared:`, updateData);
+
+      await updateDoc(doc(db, 'documents', id), updateData);
+
+      console.log(`✅ Document ${id} updated successfully`);
+    } catch (error) {
+      console.error(`❌ Error updating document ${id}:`, error);
+
+      if (error instanceof Error) {
+        const errMsg = error.message.toLowerCase();
+
+        if (errMsg.includes('permission')) {
+          throw new Error('Bạn không có quyền cập nhật hồ sơ này.');
+        } else if (errMsg.includes('not found') || errMsg.includes('no document')) {
+          throw new Error('Không tìm thấy hồ sơ để cập nhật.');
+        } else if (errMsg.includes('network')) {
+          throw new Error('Lỗi kết nối mạng. Vui lòng thử lại.');
+        }
+      }
+
+      throw new Error('Không thể cập nhật hồ sơ. Vui lòng thử lại.');
     }
   },
 

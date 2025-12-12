@@ -6,7 +6,8 @@ import { schoolYearService } from '@/services/schoolYearService';
 import { documentCategoryService } from '@/services/documentCategoryService';
 import { departmentService } from '@/services/departmentService';
 import { fileRequestService } from '@/services/fileRequestService';
-import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department } from '@/types';
+import { documentHistoryService } from '@/services/documentHistoryService';
+import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -21,7 +22,9 @@ import {
   Search,
   Calendar,
   User,
-  FileIcon
+  FileIcon,
+  Pencil,
+  X
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DepartmentDocumentsTreeView } from './DepartmentDocumentsTreeView';
@@ -51,6 +54,11 @@ export function DocumentBrowseScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [treeViewRefreshTrigger, setTreeViewRefreshTrigger] = useState(0);
+
+  // Edit mode state
+  const [editingDocument, setEditingDocument] = useState<Document | null>(null);
+  const [existingFiles, setExistingFiles] = useState<DocumentFile[]>([]);
+  const [removedFileIds, setRemovedFileIds] = useState<string[]>([]);
 
   useEffect(() => {
     loadSchoolYears();
@@ -182,6 +190,24 @@ export function DocumentBrowseScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Open dialog in edit mode
+  const openEditDialog = (doc: Document) => {
+    console.log('📝 Opening edit dialog for document:', doc.id, doc.title);
+    setEditingDocument(doc);
+    setDocumentTitle(doc.title);
+    setExistingFiles(doc.files || []);
+    setSelectedFiles([]);
+    setRemovedFileIds([]);
+    setShowUploadDialog(true);
+  };
+
+  // Remove an existing file (mark for removal)
+  const removeExistingFile = (fileId: string) => {
+    console.log('🗑️ Removing existing file:', fileId);
+    setRemovedFileIds([...removedFileIds, fileId]);
+    setExistingFiles(existingFiles.filter(f => f.driveFileId !== fileId));
   };
 
   const handleDeleteRequest = async (doc: Document) => {
@@ -483,6 +509,243 @@ export function DocumentBrowseScreen() {
       toast({
         title: errorTitle,
         description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Handle edit submit
+  const handleEditSubmit = async () => {
+    if (!editingDocument || !documentTitle.trim()) {
+      toast({
+        title: 'Lỗi',
+        description: 'Vui lòng nhập tên hồ sơ',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    console.log('🔄 Starting edit submission for document:', editingDocument.id);
+
+    // Check if there are any changes
+    const hasNewFiles = selectedFiles.length > 0;
+    const hasRemovedFiles = removedFileIds.length > 0;
+    const hasTitleChange = documentTitle.trim() !== editingDocument.title;
+    const totalFiles = existingFiles.length + selectedFiles.length;
+
+    if (!hasNewFiles && !hasRemovedFiles && !hasTitleChange) {
+      toast({
+        title: 'Thông báo',
+        description: 'Không có thay đổi nào để lưu',
+      });
+      return;
+    }
+
+    // Validate total file count
+    if (totalFiles === 0) {
+      toast({
+        title: 'Lỗi',
+        description: 'Hồ sơ phải có ít nhất 1 file',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (totalFiles > 20) {
+      toast({
+        title: 'Vượt quá giới hạn',
+        description: `Tổng số file không được vượt quá 20. Hiện tại: ${totalFiles} files.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setUploading(true);
+      setUploadProgress(0);
+
+      console.log(`📊 Edit summary:`, {
+        documentId: editingDocument.id,
+        newFiles: selectedFiles.length,
+        removedFiles: removedFileIds.length,
+        existingFiles: existingFiles.length,
+        titleChange: hasTitleChange
+      });
+
+      let uploadedNewFiles: any[] = [];
+
+      // Upload new files if any
+      if (hasNewFiles) {
+        console.log(`📤 Uploading ${selectedFiles.length} new files...`);
+
+        const schoolYear = schoolYears.find(y => y.id === selectedYearId);
+        const categoryName = categories.find(c => c.id === selectedCategoryId)?.name || '';
+        const subCategoryName = selectedSubCategoryId
+          ? subCategories.find(s => s.id === selectedSubCategoryId)?.name
+          : undefined;
+
+        const totalFiles = selectedFiles.length;
+
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const file = selectedFiles[i];
+          const fileProgress = (i / totalFiles) * 100;
+
+          console.log(`📤 Uploading file ${i + 1}/${totalFiles}: ${file.name}`);
+
+          const driveFile = await googleDriveServiceBackend.uploadFile({
+            file,
+            schoolYear: schoolYear?.name || 'Hồ sơ',
+            category: categoryName,
+            subCategory: subCategoryName,
+            uploaderName: user!.displayName,
+            documentTitle: documentTitle.trim(),
+            onProgress: (progress) => {
+              const overallProgress = fileProgress + (progress / totalFiles);
+              setUploadProgress(Math.min(overallProgress, 100));
+            },
+          });
+
+          uploadedNewFiles.push(driveFile);
+          console.log(`✅ Uploaded: ${file.name}`);
+        }
+      }
+
+      // Combine existing files (not removed) with newly uploaded files
+      const allFiles = [
+        ...existingFiles.map(f => ({
+          name: f.name,
+          size: f.size,
+          mimeType: f.mimeType,
+          driveFileId: f.driveFileId,
+          driveFileUrl: f.driveFileUrl,
+        })),
+        ...uploadedNewFiles.map(f => ({
+          name: f.name,
+          size: f.size,
+          mimeType: f.mimeType,
+          driveFileId: f.id,
+          driveFileUrl: f.webViewLink,
+        })),
+      ];
+
+      console.log(`📦 Final files array (${allFiles.length} files):`, allFiles);
+
+      // Prepare update data
+      const updateData: any = {
+        files: allFiles,
+        updatedBy: user!.uid,
+        editCount: (editingDocument.editCount || 0) + 1,
+      };
+
+      // If title changed
+      if (hasTitleChange) {
+        updateData.title = documentTitle.trim();
+      }
+
+      // If document was approved, change status to pending
+      if (editingDocument.status === 'approved') {
+        updateData.status = 'pending';
+        console.log('⚠️ Document was approved, changing status to pending');
+      }
+
+      console.log(`💾 Updating document in Firestore...`);
+      await documentService.updateDocument(editingDocument.id, updateData);
+
+      // Create history records
+      console.log(`📝 Creating history records...`);
+
+      if (hasNewFiles) {
+        await documentHistoryService.createHistory({
+          documentId: editingDocument.id,
+          documentTitle: documentTitle.trim(),
+          action: 'file_added',
+          performedBy: user!.uid,
+          performedByName: user!.displayName,
+          details: {
+            addedFiles: uploadedNewFiles.map(f => ({
+              name: f.name,
+              size: f.size,
+              mimeType: f.mimeType,
+              driveFileId: f.id,
+              driveFileUrl: f.webViewLink,
+            })),
+          },
+        });
+      }
+
+      if (hasRemovedFiles) {
+        const removedFiles = editingDocument.files.filter(f =>
+          removedFileIds.includes(f.driveFileId)
+        );
+
+        await documentHistoryService.createHistory({
+          documentId: editingDocument.id,
+          documentTitle: documentTitle.trim(),
+          action: 'file_removed',
+          performedBy: user!.uid,
+          performedByName: user!.displayName,
+          details: { removedFiles },
+        });
+      }
+
+      if (hasTitleChange) {
+        await documentHistoryService.createHistory({
+          documentId: editingDocument.id,
+          documentTitle: documentTitle.trim(),
+          action: 'title_changed',
+          performedBy: user!.uid,
+          performedByName: user!.displayName,
+          details: {
+            oldTitle: editingDocument.title,
+            newTitle: documentTitle.trim(),
+          },
+        });
+      }
+
+      if (editingDocument.status === 'approved') {
+        await documentHistoryService.createHistory({
+          documentId: editingDocument.id,
+          documentTitle: documentTitle.trim(),
+          action: 'status_changed',
+          performedBy: user!.uid,
+          performedByName: user!.displayName,
+          details: {
+            oldStatus: 'approved',
+            newStatus: 'pending',
+            note: 'Tự động chuyển về chờ duyệt khi chỉnh sửa hồ sơ',
+          },
+        });
+      }
+
+      // Close dialog and reset state
+      setShowUploadDialog(false);
+      setEditingDocument(null);
+      setDocumentTitle('');
+      setSelectedFiles([]);
+      setExistingFiles([]);
+      setRemovedFileIds([]);
+      setUploadProgress(0);
+
+      // Reload documents
+      await loadDocuments();
+      setTreeViewRefreshTrigger(Date.now());
+
+      console.log('✅ Document updated successfully');
+
+      toast({
+        title: 'Thành công',
+        description: editingDocument.status === 'approved'
+          ? 'Hồ sơ đã được cập nhật và chuyển về trạng thái chờ duyệt'
+          : 'Hồ sơ đã được cập nhật',
+      });
+    } catch (error) {
+      console.error('❌ Error updating document:', error);
+
+      toast({
+        title: 'Lỗi',
+        description: error instanceof Error ? error.message : 'Không thể cập nhật hồ sơ',
         variant: 'destructive',
       });
     } finally {
@@ -912,14 +1175,24 @@ export function DocumentBrowseScreen() {
                             {/* Actions */}
                             <div className="flex gap-1">
                               {canDeleteFile(doc) && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 text-xs px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => handleDeleteRequest(doc)}
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                    onClick={() => openEditDialog(doc)}
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    onClick={() => handleDeleteRequest(doc)}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </>
                               )}
                             </div>
                           </div>
@@ -945,7 +1218,9 @@ export function DocumentBrowseScreen() {
             className="bg-white rounded-lg p-6 w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-xl font-bold mb-4">Thêm hồ sơ</h2>
+            <h2 className="text-xl font-bold mb-4">
+              {editingDocument ? 'Chỉnh sửa hồ sơ' : 'Thêm hồ sơ'}
+            </h2>
 
             <div className="space-y-4">
               <div>
@@ -961,9 +1236,34 @@ export function DocumentBrowseScreen() {
                 />
               </div>
 
+              {/* Existing Files (Edit Mode Only) */}
+              {editingDocument && existingFiles.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    File hiện tại ({existingFiles.length})
+                  </label>
+                  <div className="border rounded p-3 bg-gray-50 space-y-2 max-h-40 overflow-y-auto">
+                    {existingFiles.map((file, index) => (
+                      <div key={index} className="flex items-center justify-between text-sm bg-white rounded px-2 py-1">
+                        <span className="flex-1 truncate">
+                          📄 {file.name} ({formatFileSize(file.size)})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeExistingFile(file.driveFileId)}
+                          className="ml-2 text-red-600 hover:text-red-800"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Chọn file <span className="text-red-500">*</span>
+                  {editingDocument ? 'Thêm file mới (tùy chọn)' : 'Chọn file'} {!editingDocument && <span className="text-red-500">*</span>}
                 </label>
                 <input
                   type="file"
@@ -1077,18 +1377,34 @@ export function DocumentBrowseScreen() {
 
             <div className="flex gap-2 mt-6">
               <Button
-                onClick={handleUpload}
-                disabled={!documentTitle.trim() || selectedFiles.length === 0 || uploading}
+                onClick={editingDocument ? handleEditSubmit : handleUpload}
+                disabled={
+                  !documentTitle.trim() ||
+                  (editingDocument ? false : selectedFiles.length === 0) ||
+                  uploading
+                }
                 className="flex-1"
               >
-                <UploadIcon className="h-4 w-4 mr-2" />
-                {uploading ? 'Đang tải lên...' : 'Tải lên'}
+                {editingDocument ? (
+                  <>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    {uploading ? 'Đang cập nhật...' : 'Cập nhật'}
+                  </>
+                ) : (
+                  <>
+                    <UploadIcon className="h-4 w-4 mr-2" />
+                    {uploading ? 'Đang tải lên...' : 'Tải lên'}
+                  </>
+                )}
               </Button>
               <Button
                 onClick={() => {
                   setShowUploadDialog(false);
+                  setEditingDocument(null);
                   setDocumentTitle('');
                   setSelectedFiles([]);
+                  setExistingFiles([]);
+                  setRemovedFileIds([]);
                 }}
                 variant="outline"
                 className="flex-1"
