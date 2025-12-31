@@ -14,6 +14,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { LogOut, User, Settings, Bell } from 'lucide-react';
+import { MobileMenu } from './MobileMenu';
 
 export const Header = () => {
   const { user, logout } = useAuth();
@@ -63,9 +64,14 @@ export const Header = () => {
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
       <div className="flex items-center justify-between px-4 py-3">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Quản lý Công việc</h1>
-          <p className="text-xs text-gray-500">{getRoleName(user?.role || '')}</p>
+        <div className="flex items-center gap-3">
+          {/* Mobile Menu Button */}
+          <MobileMenu />
+
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Quản lý Công việc</h1>
+            <p className="text-xs text-gray-500">{getRoleName(user?.role || '')}</p>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
