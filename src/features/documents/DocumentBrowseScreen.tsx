@@ -1380,70 +1380,74 @@ export function DocumentBrowseScreen() {
                 }
 
                 return (
-                <div className="space-y-3">
+                <div className="space-y-2 md:space-y-3">
                   {filteredDocuments.map(doc => (
                     <Card key={doc.id} className="hover:shadow-md transition-shadow">
                       <CardContent className="p-0">
-                        <div className="flex items-center gap-3 p-3">
-                          {/* File Icon */}
-                          <div className="flex-shrink-0">
-                            <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-                              <FileText className="w-5 h-5 text-blue-600" />
+                        <div className="p-2 md:p-3">
+                          {/* Header: Title & Status */}
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-start gap-2 flex-1 min-w-0">
+                              {/* File Icon - smaller on mobile */}
+                              <div className="flex-shrink-0">
+                                <div className="w-8 h-8 md:w-10 md:h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                                  <FileText className="w-4 h-4 md:w-5 md:h-5 text-blue-600" />
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold text-sm md:text-base truncate" title={doc.title}>
+                                  {doc.title}
+                                </h3>
+                              </div>
+                            </div>
+                            <div className="flex-shrink-0">
+                              {getStatusBadge(doc.status)}
                             </div>
                           </div>
 
-                          {/* Content */}
-                          <div className="flex-1 min-w-0">
-                            {/* Title & Status */}
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <h3 className="font-semibold text-sm truncate flex-1" title={doc.title}>
-                                {doc.title}
-                              </h3>
-                              {getStatusBadge(doc.status)}
-                            </div>
-
-                            {/* Metadata */}
-                            <div className="bg-gray-50 rounded px-2 py-1 mb-2">
-                              <div className="flex items-center gap-3 text-xs text-gray-600 flex-wrap">
-                                <div className="flex items-center gap-1">
-                                  <UserIcon className="w-3 h-3 text-gray-400" />
-                                  <span>{doc.uploadedByName}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="w-3 h-3 text-gray-400" />
-                                  <span>{doc.uploadedAt.toLocaleDateString('vi-VN')}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <FileIcon className="w-3 h-3 text-gray-400" />
-                                  <span>{doc.files?.length || 0} file{(doc.files?.length || 0) > 1 ? 's' : ''}</span>
-                                </div>
+                          {/* Metadata */}
+                          <div className="bg-gray-50 rounded px-2 py-1 mb-2 ml-10 md:ml-12">
+                            <div className="flex items-center gap-2 md:gap-3 text-[10px] md:text-xs text-gray-600 flex-wrap">
+                              <div className="flex items-center gap-1">
+                                <UserIcon className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                                <span className="truncate max-w-[100px] md:max-w-none">{doc.uploadedByName}</span>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <Calendar className="w-3 h-3 text-gray-400" />
+                                <span>{doc.uploadedAt.toLocaleDateString('vi-VN')}</span>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <FileIcon className="w-3 h-3 text-gray-400" />
+                                <span>{doc.files?.length || 0} file{(doc.files?.length || 0) > 1 ? 's' : ''}</span>
                               </div>
                             </div>
+                          </div>
 
-                            {/* Files List */}
+                          {/* Files List */}
+                          <div className="ml-10 md:ml-12">
                             {doc.files && doc.files.length > 0 ? (
                               <div className="space-y-1 mb-2">
-                                <div className="text-xs font-medium text-gray-700 mb-1 px-1">
+                                <div className="text-[10px] md:text-xs font-medium text-gray-700 mb-1">
                                   📎 Files ({doc.files.length}):
                                 </div>
                                 {doc.files.map((file, idx) => (
-                                  <div key={idx} className="flex items-center justify-between text-xs bg-white border border-blue-100 rounded px-2 py-1.5 hover:bg-blue-50 transition-colors">
-                                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                                      <FileText className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                                  <div key={idx} className="flex items-center justify-between text-[10px] md:text-xs bg-white border border-blue-100 rounded px-1.5 md:px-2 py-1 md:py-1.5 hover:bg-blue-50 transition-colors">
+                                    <div className="flex items-center gap-1 md:gap-1.5 flex-1 min-w-0">
+                                      <FileText className="h-3 w-3 md:h-3.5 md:w-3.5 text-blue-500 flex-shrink-0" />
                                       <span className="truncate font-medium" title={file.name}>
                                         {file.name}
                                       </span>
-                                      <span className="text-gray-400 flex-shrink-0 text-[10px]">
+                                      <span className="text-gray-400 flex-shrink-0 text-[9px] md:text-[10px]">
                                         ({formatFileSize(file.size)})
                                       </span>
                                     </div>
-                                    <div className="flex gap-1.5 ml-2">
+                                    <div className="flex gap-1 md:gap-1.5 ml-1 md:ml-2">
                                       <button
                                         onClick={() => window.open(file.driveFileUrl, '_blank')}
-                                        className="text-blue-600 hover:text-blue-800 hover:bg-blue-100 p-1 rounded"
+                                        className="text-blue-600 hover:text-blue-800 hover:bg-blue-100 p-0.5 md:p-1 rounded"
                                         title="Xem file"
                                       >
-                                        <Eye className="h-3.5 w-3.5" />
+                                        <Eye className="h-3 w-3 md:h-3.5 md:w-3.5" />
                                       </button>
                                       <button
                                         onClick={() => {
@@ -1452,45 +1456,45 @@ export function DocumentBrowseScreen() {
                                           link.download = file.name;
                                           link.click();
                                         }}
-                                        className="text-green-600 hover:text-green-800 hover:bg-green-100 p-1 rounded"
+                                        className="text-green-600 hover:text-green-800 hover:bg-green-100 p-0.5 md:p-1 rounded"
                                         title="Tải xuống"
                                       >
-                                        <Download className="h-3.5 w-3.5" />
+                                        <Download className="h-3 w-3 md:h-3.5 md:w-3.5" />
                                       </button>
                                     </div>
                                   </div>
                                 ))}
                               </div>
                             ) : (
-                              <div className="text-xs text-gray-400 italic mb-2 px-1">
+                              <div className="text-[10px] md:text-xs text-gray-400 italic mb-2">
                                 Hồ sơ cũ - không có danh sách file
                               </div>
                             )}
-
-                            {/* Actions */}
-                            <div className="flex gap-1">
-                              {canDeleteFile(doc) && (
-                                <>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                    onClick={() => openEditDialog(doc)}
-                                  >
-                                    <Pencil className="h-3 w-3" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                    onClick={() => handleDeleteRequest(doc)}
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </Button>
-                                </>
-                              )}
-                            </div>
                           </div>
+
+                          {/* Actions */}
+                          {canDeleteFile(doc) && (
+                            <div className="flex gap-1 ml-10 md:ml-12 mt-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 md:h-7 text-[10px] md:text-xs px-1.5 md:px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={() => openEditDialog(doc)}
+                              >
+                                <Pencil className="h-3 w-3 mr-1" />
+                                <span className="hidden sm:inline">Sửa</span>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 md:h-7 text-[10px] md:text-xs px-1.5 md:px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleDeleteRequest(doc)}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" />
+                                <span className="hidden sm:inline">Xóa</span>
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
