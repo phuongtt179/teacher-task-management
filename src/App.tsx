@@ -24,6 +24,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import { Toaster } from '@/components/ui/toaster';
 import { NotificationsScreen } from './features/common/NotificationsScreen';
 import { useFCM } from './hooks/useFCM';
+import { useServiceWorker } from './hooks/useServiceWorker';
 import { DocumentConfigScreen } from './features/documents/DocumentConfigScreen';
 import { DocumentBrowseScreen } from './features/documents/DocumentBrowseScreen';
 import { DocumentUploadScreen } from './features/documents/DocumentUploadScreen';
@@ -65,6 +66,9 @@ function App() {
 
   // Initialize FCM
   useFCM();
+
+  // Initialize Service Worker auto-update
+  useServiceWorker();
 
   // Start/stop deadline checker based on authentication
   useEffect(() => {
