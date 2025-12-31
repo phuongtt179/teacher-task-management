@@ -12,18 +12,7 @@ import {
   setDoc
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-
-export interface User {
-  uid: string;
-  email: string;
-  displayName: string;
-  photoURL?: string;
-  role: 'admin' | 'vice_principal' | 'department_head' | 'teacher';
-  createdAt: Date;
-  updatedAt: Date;
-  isActive?: boolean;
-  fcmToken?: string;
-}
+import { User, UserRole } from '@/types';
 
 export const userService = {
   // Get all users
@@ -54,7 +43,7 @@ export const userService = {
   },
 
   // Get users by role
-  async getUsersByRole(role: 'admin' | 'vice_principal' | 'department_head' | 'teacher'): Promise<User[]> {
+  async getUsersByRole(role: UserRole): Promise<User[]> {
     try {
       const usersRef = collection(db, 'users');
       const q = query(
@@ -115,7 +104,7 @@ export const userService = {
   // Update user role
   async updateUserRole(
     uid: string,
-    newRole: 'admin' | 'vice_principal' | 'department_head' | 'teacher'
+    newRole: UserRole
   ): Promise<void> {
     try {
       const userRef = doc(db, 'users', uid);
@@ -161,7 +150,7 @@ export const userService = {
     uid: string,
     updates: Partial<{
       displayName: string;
-      role: 'admin' | 'vice_principal' | 'department_head' | 'teacher';
+      role: UserRole;
       isActive: boolean;
     }>
   ): Promise<void> {
@@ -248,7 +237,7 @@ export const userService = {
   // Add user to whitelist
   async addToWhitelist(
     email: string,
-    role: 'admin' | 'vice_principal' | 'department_head' | 'teacher',
+    role: UserRole,
     addedBy: string
   ): Promise<void> {
     try {

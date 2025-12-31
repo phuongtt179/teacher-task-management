@@ -3,7 +3,7 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { QuickAction } from '../../components/dashboard/QuickAction';
-import { Users, Mail, ClipboardList, Award } from 'lucide-react';
+import { Users, Mail, ClipboardList, Award, FolderTree } from 'lucide-react';
 
 export const AdminDashboard = () => {
   const [stats, setStats] = useState({
@@ -84,18 +84,24 @@ export const AdminDashboard = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <QuickAction
           label="Quản lý Whitelist"
           icon={Mail}
           path="/admin/whitelist"
           variant="default"
         />
-        
+
         <QuickAction
           label="Quản lý người dùng"
           icon={Users}
           path="/admin/users"
+        />
+
+        <QuickAction
+          label="Quản lý loại hồ sơ"
+          icon={FolderTree}
+          path="/documents/config"
         />
       </div>
 

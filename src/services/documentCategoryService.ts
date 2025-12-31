@@ -33,12 +33,14 @@ export const documentCategoryService = {
         return {
           id: doc.id,
           schoolYearId: data.schoolYearId,
+          documentTypeId: data.documentTypeId || '', // NEW: Load documentTypeId
           name: data.name,
           categoryType: data.categoryType || 'personal', // Default to personal for backward compatibility
           hasSubCategories: data.hasSubCategories || false,
           order: data.order || 0,
           driveFolderId: data.driveFolderId,
           allowedUploaders: data.allowedUploaders || [], // Default to empty array for backward compatibility
+          viewPermissions: data.viewPermissions, // Load view permissions
           createdBy: data.createdBy,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -54,17 +56,17 @@ export const documentCategoryService = {
   async createCategory(data: {
     schoolYearId: string;
     name: string;
-    categoryType: 'public' | 'personal';
+    categoryType?: 'public' | 'personal'; // Optional for backward compatibility
     hasSubCategories: boolean;
     order: number;
     createdBy: string;
     allowedUploaders?: string[];
+    documentTypeId?: string; // NEW: Optional DocumentType reference
   }): Promise<string> {
     try {
       const categoryDocData: any = {
         schoolYearId: data.schoolYearId,
         name: data.name,
-        categoryType: data.categoryType,
         hasSubCategories: data.hasSubCategories ?? false, // Ensure it's never undefined
         order: data.order,
         createdBy: data.createdBy,
@@ -72,9 +74,19 @@ export const documentCategoryService = {
         updatedAt: Timestamp.now(),
       };
 
+      // Only add categoryType if provided (for backward compatibility)
+      if (data.categoryType) {
+        categoryDocData.categoryType = data.categoryType;
+      }
+
       // Only add allowedUploaders if provided and not empty
       if (data.allowedUploaders && data.allowedUploaders.length > 0) {
         categoryDocData.allowedUploaders = data.allowedUploaders;
+      }
+
+      // NEW: Add documentTypeId if provided
+      if (data.documentTypeId) {
+        categoryDocData.documentTypeId = data.documentTypeId;
       }
 
       const categoryDoc = await addDoc(collection(db, 'documentCategories'), categoryDocData);
@@ -93,6 +105,7 @@ export const documentCategoryService = {
     hasSubCategories?: boolean;
     order?: number;
     allowedUploaders?: string[];
+    documentTypeId?: string; // NEW: Optional DocumentType reference
   }): Promise<void> {
     try {
       const updateData: any = {
@@ -112,6 +125,14 @@ export const documentCategoryService = {
           // Clear the field if empty array provided
           updateData.allowedUploaders = [];
         }
+      }
+
+      // NEW: Handle documentTypeId
+      if (data.documentTypeId !== undefined) {
+        if (data.documentTypeId) {
+          updateData.documentTypeId = data.documentTypeId;
+        }
+        // Note: We don't remove it if empty string - keep existing value
       }
 
       await updateDoc(doc(db, 'documentCategories', id), updateData);

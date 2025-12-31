@@ -4,12 +4,15 @@ import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend'
 import { documentService } from '@/services/documentService';
 import { schoolYearService } from '@/services/schoolYearService';
 import { documentCategoryService } from '@/services/documentCategoryService';
+import { documentTypeService } from '@/services/documentTypeService';
+import { userService } from '@/services/userService';
 import { departmentService } from '@/services/departmentService';
 import { fileRequestService } from '@/services/fileRequestService';
 import { documentHistoryService } from '@/services/documentHistoryService';
-import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile } from '@/types';
+import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile, DocumentType, User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import {
   Download,
   FileText,
@@ -21,7 +24,7 @@ import {
   ChevronDown,
   Search,
   Calendar,
-  User,
+  User as UserIcon,
   FileIcon,
   Pencil,
   X
@@ -38,6 +41,9 @@ export function DocumentBrowseScreen() {
   const [subCategories, setSubCategories] = useState<DocumentSubCategory[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [userDepartment, setUserDepartment] = useState<Department | null>(null);
+  const [currentDocumentType, setCurrentDocumentType] = useState<DocumentType | null>(null);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>(''); // For personal mode
 
   const [selectedYearId, setSelectedYearId] = useState<string>('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
@@ -63,6 +69,7 @@ export function DocumentBrowseScreen() {
   useEffect(() => {
     loadSchoolYears();
     loadUserDepartment();
+    loadAllUsers();
   }, [user]);
 
   useEffect(() => {
@@ -74,6 +81,17 @@ export function DocumentBrowseScreen() {
   useEffect(() => {
     if (selectedCategoryId) {
       const category = categories.find(c => c.id === selectedCategoryId);
+
+      // Load DocumentType if category has one
+      if (category?.documentTypeId) {
+        loadDocumentType(category.documentTypeId);
+      } else {
+        setCurrentDocumentType(null);
+      }
+
+      // Reset selected user when category changes
+      setSelectedUserId('');
+
       if (category?.hasSubCategories) {
         loadSubCategories(selectedCategoryId);
       } else {
@@ -83,12 +101,12 @@ export function DocumentBrowseScreen() {
     }
   }, [selectedCategoryId]);
 
-  // Auto load documents when subcategory changes
+  // Auto load documents when subcategory or selected user changes
   useEffect(() => {
-    if (selectedSubCategoryId) {
+    if (selectedSubCategoryId || selectedCategoryId) {
       loadDocuments();
     }
-  }, [selectedSubCategoryId]);
+  }, [selectedSubCategoryId, selectedUserId]);
 
   const loadSchoolYears = async () => {
     try {
@@ -157,6 +175,26 @@ export function DocumentBrowseScreen() {
     }
   };
 
+  const loadAllUsers = async () => {
+    try {
+      const users = await userService.getAllUsers();
+      setAllUsers(users);
+    } catch (error) {
+      console.error('Error loading users:', error);
+    }
+  };
+
+  const loadDocumentType = async (documentTypeId: string) => {
+    try {
+      const docType = await documentTypeService.getDocumentTypeById(documentTypeId);
+      setCurrentDocumentType(docType);
+      console.log('📋 Loaded DocumentType:', docType?.name, 'viewMode:', docType?.viewMode);
+    } catch (error) {
+      console.error('Error loading document type:', error);
+      setCurrentDocumentType(null);
+    }
+  };
+
   const loadDocuments = async () => {
     try {
       setLoading(true);
@@ -171,37 +209,72 @@ export function DocumentBrowseScreen() {
 
       const allDocs = await documentService.getDocuments(filters);
 
-      // Get selected category to check type
-      const selectedCategory = categories.find(c => c.id === selectedCategoryId);
-      const isPersonalCategory = selectedCategory?.categoryType === 'personal';
-
       let filteredDocs: Document[];
 
-      if (isPersonalCategory) {
-        // Hồ sơ cá nhân - apply role-based filtering
+      // NEW: Use viewMode from DocumentType instead of categoryType
+      const viewMode = currentDocumentType?.viewMode;
+
+      if (viewMode === 'personal') {
+        // PERSONAL MODE: Each user sees only specific files
         if (user?.role === 'admin' || user?.role === 'vice_principal') {
-          // Admin & Vice Principal: see all approved documents + own pending
-          filteredDocs = allDocs.filter(doc =>
-            doc.status === 'approved' || doc.uploadedBy === user?.uid
-          );
+          // Admin & Vice Principal can select any user to view
+          if (selectedUserId) {
+            // Show documents from selected user only
+            filteredDocs = allDocs.filter(doc =>
+              doc.uploadedBy === selectedUserId && (doc.status === 'approved' || doc.uploadedBy === user?.uid)
+            );
+          } else {
+            // If no user selected, show own documents only
+            filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
+          }
         } else if (user?.role === 'department_head') {
-          // Department Head: see all documents from their department + own pending
-          const deptMemberIds = userDepartment?.memberIds || [];
-          filteredDocs = allDocs.filter(doc =>
-            (doc.status === 'approved' && deptMemberIds.includes(doc.uploadedBy)) ||
-            doc.uploadedBy === user?.uid
-          );
+          // Department Head can select users in their department
+          if (selectedUserId) {
+            // Show documents from selected user only
+            filteredDocs = allDocs.filter(doc =>
+              doc.uploadedBy === selectedUserId && (doc.status === 'approved' || doc.uploadedBy === user?.uid)
+            );
+          } else {
+            // If no user selected, show own documents only
+            filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
+          }
         } else {
-          // Teacher: only see own documents
+          // Regular teachers/staff: only see own documents
           filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
         }
-      } else {
-        // Hồ sơ công khai - everyone sees all approved documents + own pending
+      } else if (viewMode === 'shared') {
+        // SHARED MODE: All viewers see all files from all uploaders (flat list)
+        // Show all approved documents + own pending documents
         filteredDocs = allDocs.filter(doc =>
           doc.status === 'approved' || doc.uploadedBy === user?.uid
         );
+      } else {
+        // Fallback: No DocumentType or no viewMode - use old categoryType logic
+        const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+        const isPersonalCategory = selectedCategory?.categoryType === 'personal';
+
+        if (isPersonalCategory) {
+          if (user?.role === 'admin' || user?.role === 'vice_principal') {
+            filteredDocs = allDocs.filter(doc =>
+              doc.status === 'approved' || doc.uploadedBy === user?.uid
+            );
+          } else if (user?.role === 'department_head') {
+            const deptMemberIds = userDepartment?.memberIds || [];
+            filteredDocs = allDocs.filter(doc =>
+              (doc.status === 'approved' && deptMemberIds.includes(doc.uploadedBy)) ||
+              doc.uploadedBy === user?.uid
+            );
+          } else {
+            filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
+          }
+        } else {
+          filteredDocs = allDocs.filter(doc =>
+            doc.status === 'approved' || doc.uploadedBy === user?.uid
+          );
+        }
       }
 
+      console.log(`📄 Loaded ${allDocs.length} documents, filtered to ${filteredDocs.length} (viewMode: ${viewMode}, selectedUserId: ${selectedUserId})`);
       setDocuments(filteredDocs);
     } catch (error) {
       console.error('Error loading documents:', error);
@@ -390,6 +463,7 @@ export function DocumentBrowseScreen() {
           subCategory: subCategoryName,
           uploaderName: user!.displayName, // NEW: Teacher name for folder structure
           documentTitle: documentTitle.trim(), // NEW: Document title for folder structure
+          documentType: currentDocumentType?.name, // NEW: DocumentType for folder structure
           onProgress: (progress) => {
             // Calculate overall progress
             const overallProgress = fileProgress + (progress / totalFiles);
@@ -624,6 +698,7 @@ export function DocumentBrowseScreen() {
             subCategory: subCategoryName,
             uploaderName: user!.displayName,
             documentTitle: documentTitle.trim(),
+            documentType: currentDocumentType?.name, // NEW: DocumentType for folder structure
             onProgress: (progress) => {
               const overallProgress = fileProgress + (progress / totalFiles);
               setUploadProgress(Math.min(overallProgress, 100));
@@ -808,7 +883,7 @@ export function DocumentBrowseScreen() {
   };
 
   const canDeleteFile = (doc: Document) => {
-    if (user?.role === 'admin' || user?.role === 'vice_principal') return false;
+    // Cho phép sửa/xóa nếu là người upload (bao gồm cả Admin/Hiệu trưởng)
     return doc.uploadedBy === user?.uid;
   };
 
@@ -825,8 +900,49 @@ export function DocumentBrowseScreen() {
     }
   };
 
-  const personalCategories = categories.filter(c => c.categoryType === 'personal');
-  const publicCategories = categories.filter(c => c.categoryType === 'public');
+  // Group categories by DocumentType
+  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
+
+  useEffect(() => {
+    loadDocumentTypes();
+  }, []);
+
+  const loadDocumentTypes = async () => {
+    try {
+      const types = await documentTypeService.getActiveDocumentTypes();
+      setDocumentTypes(types);
+    } catch (error) {
+      console.error('Error loading document types:', error);
+    }
+  };
+
+  // Check if user can view a DocumentType
+  const canUserViewDocumentType = (docType: DocumentType) => {
+    if (!user) return false;
+
+    // Admin, VP, and Principal can view all DocumentTypes
+    if (user.role === 'admin' || user.role === 'vice_principal' || user.role === 'principal') {
+      return true;
+    }
+
+    // Check viewPermissionType
+    if (docType.viewPermissionType === 'everyone') {
+      return true;
+    } else if (docType.viewPermissionType === 'specific_users') {
+      return docType.allowedViewerUserIds?.includes(user.uid) || false;
+    }
+
+    return false;
+  };
+
+  // Group categories by documentTypeId
+  const getCategoriesByDocumentType = (documentTypeId: string) => {
+    return categories.filter(c => c.documentTypeId === documentTypeId);
+  };
+
+  // Legacy categories without documentTypeId
+  const personalCategories = categories.filter(c => !c.documentTypeId && c.categoryType === 'personal');
+  const publicCategories = categories.filter(c => !c.documentTypeId && c.categoryType === 'public');
 
   const filteredDocuments = documents.filter(doc => {
     if (searchQuery === '') return true;
@@ -869,10 +985,73 @@ export function DocumentBrowseScreen() {
             <p className="text-sm text-gray-500 text-center py-8">Vui lòng chọn năm học</p>
           ) : (
             <div className="space-y-6">
-              {/* Personal Categories */}
+              {/* NEW: Categories grouped by DocumentType */}
+              {documentTypes
+                .filter(docType => canUserViewDocumentType(docType)) // Filter by view permissions
+                .map(docType => {
+                  const typeCategories = getCategoriesByDocumentType(docType.id);
+                  if (typeCategories.length === 0) return null;
+
+                  return (
+                    <div key={docType.id}>
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                        {docType.name}
+                        <Badge variant={docType.viewMode === 'personal' ? 'default' : 'secondary'} className="ml-2 text-[10px]">
+                          {docType.viewMode === 'personal' ? 'Cá nhân' : 'Chia sẻ'}
+                        </Badge>
+                      </h3>
+                    <div className="space-y-1">
+                      {typeCategories.map(category => (
+                        <div key={category.id}>
+                          <button
+                            onClick={() => handleCategoryClick(category)}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                              selectedCategoryId === category.id
+                                ? 'bg-indigo-50 text-indigo-600'
+                                : 'text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            <span className="flex-1">{category.name}</span>
+                            {category.hasSubCategories && (
+                              expandedCategories.has(category.id) ? (
+                                <ChevronDown className="w-4 h-4" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4" />
+                              )
+                            )}
+                          </button>
+
+                          {/* Subcategories */}
+                          {category.hasSubCategories && expandedCategories.has(category.id) && (
+                            <div className="ml-4 mt-1 space-y-1">
+                              {subCategories
+                                .filter(sub => sub.categoryId === category.id)
+                                .map(subCategory => (
+                                  <button
+                                    key={subCategory.id}
+                                    onClick={() => handleSubCategoryClick(subCategory)}
+                                    className={`w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${
+                                      selectedSubCategoryId === subCategory.id
+                                        ? 'bg-indigo-100 text-indigo-700'
+                                        : 'text-gray-600 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    {subCategory.name}
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* LEGACY: Personal Categories (without DocumentType) */}
               {personalCategories.length > 0 && (
                 <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Hồ sơ cá nhân</h3>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Hồ sơ cá nhân (Cũ)</h3>
                   <div className="space-y-1">
                     {personalCategories.map(category => (
                       <div key={category.id}>
@@ -920,10 +1099,10 @@ export function DocumentBrowseScreen() {
                 </div>
               )}
 
-              {/* Public Categories */}
+              {/* LEGACY: Public Categories (without DocumentType) */}
               {publicCategories.length > 0 && (
                 <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Hồ sơ công khai</h3>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Hồ sơ công khai (Cũ)</h3>
                   <div className="space-y-1">
                     {publicCategories.map(category => (
                       <div key={category.id}>
@@ -1005,8 +1184,12 @@ export function DocumentBrowseScreen() {
                   // Check if tree view is active
                   const selectedCategory = categories.find(c => c.id === selectedCategoryId);
                   const isPersonalCategory = selectedCategory?.categoryType === 'personal';
+                  const hasDocumentType = !!currentDocumentType;
 
+                  // Only hide upload button for legacy personal categories (no DocumentType)
+                  // Tree view is only for legacy categories without DocumentType
                   const isTreeViewActive =
+                    !hasDocumentType && // Don't hide button if using new DocumentType system
                     isPersonalCategory &&
                     selectedSubCategoryId &&
                     (user?.role === 'admin' ||
@@ -1022,11 +1205,20 @@ export function DocumentBrowseScreen() {
                   const canUpload = !category?.hasSubCategories || selectedSubCategoryId;
 
                   // Check if user has permission to upload to this category
-                  const hasUploadPermission =
-                    user?.role === 'admin' ||
-                    user?.role === 'vice_principal' ||
-                    (category?.categoryType === 'public' && category?.allowedUploaders?.includes(user!.uid)) ||
-                    (category?.categoryType === 'personal');
+                  let hasUploadPermission = false;
+
+                  // Admin, VP, and Principal always have upload permission
+                  if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'principal') {
+                    hasUploadPermission = true;
+                  } else if (currentDocumentType) {
+                    // NEW: Check DocumentType permissions for other users
+                    hasUploadPermission = currentDocumentType.allowedUploaderUserIds.includes(user!.uid);
+                  } else {
+                    // Fallback: Use old category-based permissions
+                    hasUploadPermission =
+                      (category?.categoryType === 'public' && category?.allowedUploaders?.includes(user!.uid)) ||
+                      (category?.categoryType === 'personal');
+                  }
 
                   return canUpload && hasUploadPermission ? (
                     <Button size="sm" onClick={() => setShowUploadDialog(true)}>
@@ -1045,6 +1237,40 @@ export function DocumentBrowseScreen() {
                 })()}
               </div>
 
+              {/* User Selection (for personal mode with elevated roles) */}
+              {currentDocumentType?.viewMode === 'personal' &&
+               (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'department_head') && (
+                <div className="mb-3">
+                  <label className="block text-sm font-medium mb-1">Xem hồ sơ của:</label>
+                  <select
+                    value={selectedUserId}
+                    onChange={(e) => setSelectedUserId(e.target.value)}
+                    className="w-full border rounded px-3 py-2 text-sm"
+                  >
+                    <option value="">-- Chọn người dùng --</option>
+                    {(() => {
+                      // Filter users based on role
+                      let availableUsers = allUsers;
+                      if (user?.role === 'department_head') {
+                        // Dept head can only see users in their department
+                        const deptMemberIds = userDepartment?.memberIds || [];
+                        availableUsers = allUsers.filter(u => deptMemberIds.includes(u.uid));
+                      }
+                      // Admin and VP can see all users
+
+                      return availableUsers.map(u => (
+                        <option key={u.uid} value={u.uid}>
+                          {u.displayName} ({u.role === 'admin' ? 'Admin' : u.role === 'vice_principal' ? 'Hiệu phó' : u.role === 'department_head' ? 'Tổ trưởng' : 'Giáo viên'})
+                        </option>
+                      ));
+                    })()}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {currentDocumentType.viewMode === 'personal' && 'Chế độ cá nhân: Mỗi user chỉ thấy file của mình'}
+                  </p>
+                </div>
+              )}
+
               {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -1061,11 +1287,15 @@ export function DocumentBrowseScreen() {
             {/* Documents List */}
             <div className="flex-1 overflow-y-auto p-4">
               {(() => {
-                // Check if this is a personal category subcategory for Admin/VP/Dept Head
+                // NEW: Disable tree view when using DocumentType viewMode
+                // Tree view is only for legacy categories without DocumentType
                 const selectedCategory = categories.find(c => c.id === selectedCategoryId);
                 const isPersonalCategory = selectedCategory?.categoryType === 'personal';
+                const hasDocumentType = !!currentDocumentType;
 
+                // Only show tree view for legacy personal categories (no DocumentType)
                 const showTreeView =
+                  !hasDocumentType && // Don't show tree view if using new DocumentType system
                   isPersonalCategory &&
                   selectedSubCategoryId &&
                   (user?.role === 'admin' ||
@@ -1073,7 +1303,7 @@ export function DocumentBrowseScreen() {
                    user?.role === 'department_head');
 
                 if (showTreeView) {
-                  // Show Department → Teacher → Documents tree view
+                  // Show Department → Teacher → Documents tree view (legacy)
                   return (
                     <DepartmentDocumentsTreeView
                       key={selectedSubCategoryId}
@@ -1134,7 +1364,7 @@ export function DocumentBrowseScreen() {
                             <div className="bg-gray-50 rounded px-2 py-1 mb-2">
                               <div className="flex items-center gap-3 text-xs text-gray-600 flex-wrap">
                                 <div className="flex items-center gap-1">
-                                  <User className="w-3 h-3 text-gray-400" />
+                                  <UserIcon className="w-3 h-3 text-gray-400" />
                                   <span>{doc.uploadedByName}</span>
                                 </div>
                                 <div className="flex items-center gap-1">

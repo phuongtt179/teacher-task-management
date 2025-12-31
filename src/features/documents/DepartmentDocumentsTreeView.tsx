@@ -201,7 +201,7 @@ export function DepartmentDocumentsTreeView({
   };
 
   const canDeleteFile = (doc: Document) => {
-    if (user?.role === 'admin' || user?.role === 'vice_principal') return false;
+    // Cho phép sửa/xóa nếu là người upload (bao gồm cả Admin/Hiệu trưởng)
     return doc.uploadedBy === user?.uid;
   };
 

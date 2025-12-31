@@ -6,6 +6,7 @@ import { WhitelistChecker } from './features/auth/WhitelistChecker';
 import { WhitelistScreen } from './features/admin/WhitelistScreen';
 import { AdminDashboard } from './features/admin/AdminDashboard';
 import UserManagementScreen from './features/admin/UserManagementScreen';
+import { DocumentTypesScreen } from './features/admin/DocumentTypesScreen';
 import { VPDashboard } from './features/vice-principal/VPDashboard';
 import { CreateTaskScreen } from './features/vice-principal/CreateTaskScreen';
 import { TaskListScreen } from './features/vice-principal/TaskListScreen';
@@ -147,6 +148,16 @@ function App() {
             <ProtectedRoute allowedRoles={['admin']}>
               <AppLayout>
                 <UserManagementScreen />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/document-types"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AppLayout>
+                <DocumentTypesScreen />
               </AppLayout>
             </ProtectedRoute>
           }

@@ -1,5 +1,5 @@
 // User roles
-export type UserRole = 'admin' | 'vice_principal' | 'teacher' | 'department_head';
+export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'staff';
 
 // User model
 export interface User {
@@ -10,6 +10,8 @@ export interface User {
   role: UserRole;
   createdAt: Date;
   updatedAt: Date;
+  isActive?: boolean;
+  fcmToken?: string;
 }
 
 // Whitelist model
@@ -117,7 +119,33 @@ export interface SchoolYear {
   updatedAt: Date;
 }
 
-// Document Category Type
+// Document Type (Admin can create custom types)
+export interface DocumentType {
+  id: string;
+  name: string; // "Hồ sơ Ban giám hiệu", "Hồ sơ Giáo viên", "Hồ sơ Nhân viên", "Hồ sơ Tổ chức"
+  description?: string;
+  icon?: string; // Icon name for UI (optional)
+
+  // View permissions
+  viewPermissionType: 'everyone' | 'specific_users'; // Who can view this document type
+  allowedViewerUserIds?: string[]; // UIDs of users who can view (required if viewPermissionType = 'specific_users')
+
+  // Upload permissions (must be subset of viewers)
+  allowedUploaderUserIds: string[]; // UIDs of users who can upload (must have view permission)
+
+  // View mode - determines how documents are displayed
+  viewMode: 'personal' | 'shared';
+  // - 'personal': Each user sees only their own files. Elevated roles (dept head/admin) can select users to view
+  // - 'shared': All viewers see all files from all uploaders in a flat list
+
+  order: number; // Display order
+  isActive: boolean; // Can be disabled without deleting
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Document Category Type (DEPRECATED - keeping for backward compatibility)
 export type DocumentCategoryType = 'public' | 'personal';
 
 // View Permissions for Document Categories
@@ -131,13 +159,14 @@ export interface ViewPermissions {
 export interface DocumentCategory {
   id: string;
   schoolYearId: string;
+  documentTypeId: string; // Reference to DocumentType (NEW: replaces categoryType)
   name: string; // "Hồ sơ sáng kiến"
-  categoryType: DocumentCategoryType; // 'public' = admin/VP upload, all view | 'personal' = individual upload, hierarchical view
+  categoryType?: DocumentCategoryType; // DEPRECATED: keeping for backward compatibility
   hasSubCategories: boolean;
   order: number;
   driveFolderId?: string; // Google Drive folder ID
   allowedUploaders?: string[]; // Array of user UIDs who can upload to public categories
-  viewPermissions?: ViewPermissions; // NEW: Control who can view this category
+  viewPermissions?: ViewPermissions; // Control who can view this category
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;

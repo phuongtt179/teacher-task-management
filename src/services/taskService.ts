@@ -228,12 +228,13 @@ export const taskService = {
           const sanitizedTaskTitle = removeVietnameseTones(task.title);
           const sanitizedTeacherName = removeVietnameseTones(teacherName);
 
-          // Upload to: Công việc / [Năm học] / [Task name] / submissions / [Teacher name]
+          // Upload to: [Năm học] cv / [Task name] / submissions / [Teacher name]
+          // This keeps all task-related files (description PDF + submissions) in the same folder
           const driveFile = await googleDriveServiceBackend.uploadFile({
             file,
-            schoolYear: schoolYear.name,
-            category: 'Công việc',
-            subCategory: `${sanitizedTaskTitle}/submissions/${sanitizedTeacherName}`,
+            schoolYear: `${schoolYear.name} cv`,
+            category: sanitizedTaskTitle,
+            subCategory: `submissions/${sanitizedTeacherName}`,
           });
 
           // Store the webViewLink as the file URL

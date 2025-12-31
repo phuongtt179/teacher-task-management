@@ -3,9 +3,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { documentService } from '@/services/documentService';
 import { schoolYearService } from '@/services/schoolYearService';
 import { documentCategoryService } from '@/services/documentCategoryService';
+import { documentTypeService } from '@/services/documentTypeService';
 import { departmentService } from '@/services/departmentService';
 import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
-import { SchoolYear, DocumentCategory, DocumentSubCategory, Department } from '@/types';
+import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentType } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Upload, X } from 'lucide-react';
@@ -19,6 +20,7 @@ export function DocumentUploadScreen() {
   const [categories, setCategories] = useState<DocumentCategory[]>([]);
   const [subCategories, setSubCategories] = useState<DocumentSubCategory[]>([]);
   const [userDepartment, setUserDepartment] = useState<Department | null>(null);
+  const [currentDocumentType, setCurrentDocumentType] = useState<DocumentType | null>(null);
 
   const [selectedYearId, setSelectedYearId] = useState<string>('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
@@ -41,6 +43,14 @@ export function DocumentUploadScreen() {
   useEffect(() => {
     if (selectedCategoryId) {
       const category = categories.find(c => c.id === selectedCategoryId);
+
+      // Load DocumentType if category has one
+      if (category?.documentTypeId) {
+        loadDocumentType(category.documentTypeId);
+      } else {
+        setCurrentDocumentType(null);
+      }
+
       if (category?.hasSubCategories) {
         loadSubCategories(selectedCategoryId);
       } else {
@@ -87,6 +97,16 @@ export function DocumentUploadScreen() {
       setUserDepartment(dept);
     } catch (error) {
       console.error('Error loading user department:', error);
+    }
+  };
+
+  const loadDocumentType = async (documentTypeId: string) => {
+    try {
+      const docType = await documentTypeService.getDocumentTypeById(documentTypeId);
+      setCurrentDocumentType(docType);
+    } catch (error) {
+      console.error('Error loading document type:', error);
+      setCurrentDocumentType(null);
     }
   };
 
@@ -152,6 +172,7 @@ export function DocumentUploadScreen() {
           subCategory: selectedSubCategory?.name,
           uploaderName: user!.displayName,
           documentTitle: documentTitle.trim(),
+          documentType: currentDocumentType?.name,
         });
 
         uploadedFiles.push({

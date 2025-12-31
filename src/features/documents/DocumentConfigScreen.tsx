@@ -2,14 +2,16 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { schoolYearService } from '@/services/schoolYearService';
 import { documentCategoryService } from '@/services/documentCategoryService';
+import { documentTypeService } from '@/services/documentTypeService';
 import { departmentService } from '@/services/departmentService';
-import { userService, User } from '@/services/userService';
-import { SchoolYear, DocumentCategory, DocumentSubCategory, Department } from '@/types';
+import { userService } from '@/services/userService';
+import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentType, User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, List } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { DocumentTypesScreen } from '@/features/admin/DocumentTypesScreen';
 
 export function DocumentConfigScreen() {
   const { user } = useAuth();
@@ -34,12 +36,17 @@ export function DocumentConfigScreen() {
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [categoryName, setCategoryName] = useState('');
   const [categoryType, setCategoryType] = useState<'public' | 'personal'>('personal');
+  const [categoryDocumentTypeId, setCategoryDocumentTypeId] = useState<string>(''); // NEW: DocumentType selection
   const [categoryHasSubCats, setCategoryHasSubCats] = useState(false);
   const [categoryAllowedUploaders, setCategoryAllowedUploaders] = useState<string[]>([]);
   const [categoryViewPermissionType, setCategoryViewPermissionType] = useState<'everyone' | 'specific_users'>('everyone');
   const [categoryViewUserIds, setCategoryViewUserIds] = useState<string[]>([]);
   const [viewPermissionDepartmentFilter, setViewPermissionDepartmentFilter] = useState<string>(''); // For filtering users by department
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
+
+  // Document Types (NEW)
+  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
+  const [loadingDocumentTypes, setLoadingDocumentTypes] = useState(false);
 
   // SubCategories
   const [subCategories, setSubCategories] = useState<DocumentSubCategory[]>([]);
@@ -58,9 +65,10 @@ export function DocumentConfigScreen() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [selectedHeadTeacherId, setSelectedHeadTeacherId] = useState<string>('');
 
-  // Load school years
+  // Load school years and document types
   useEffect(() => {
     loadSchoolYears();
+    loadDocumentTypes();
   }, []);
 
   // Load categories when year changes
@@ -109,6 +117,18 @@ export function DocumentConfigScreen() {
       console.error('Error loading categories:', error);
     } finally {
       setLoadingCategories(false);
+    }
+  };
+
+  const loadDocumentTypes = async () => {
+    try {
+      setLoadingDocumentTypes(true);
+      const types = await documentTypeService.getActiveDocumentTypes();
+      setDocumentTypes(types);
+    } catch (error) {
+      console.error('Error loading document types:', error);
+    } finally {
+      setLoadingDocumentTypes(false);
     }
   };
 
@@ -249,50 +269,29 @@ export function DocumentConfigScreen() {
   };
 
   const handleOpenCategoryDialog = async (category?: DocumentCategory) => {
+    // Load document types first
+    try {
+      setLoadingDocumentTypes(true);
+      const types = await documentTypeService.getAllDocumentTypes();
+      setDocumentTypes(types);
+    } catch (error) {
+      console.error('Error loading document types:', error);
+    } finally {
+      setLoadingDocumentTypes(false);
+    }
+
     if (category) {
       // Edit mode
       setEditingCategoryId(category.id);
       setCategoryName(category.name);
-      setCategoryType(category.categoryType);
+      setCategoryDocumentTypeId(category.documentTypeId || '');
       setCategoryHasSubCats(category.hasSubCategories ?? false);
-      setCategoryAllowedUploaders(category.allowedUploaders || []);
-
-      // Load view permissions
-      if (category.viewPermissions) {
-        setCategoryViewPermissionType(category.viewPermissions.type as 'everyone' | 'specific_users');
-        setCategoryViewUserIds(category.viewPermissions.userIds || []);
-      } else {
-        // Default to everyone if no view permissions set
-        setCategoryViewPermissionType('everyone');
-        setCategoryViewUserIds([]);
-      }
-      setViewPermissionDepartmentFilter(''); // Reset department filter
     } else {
       // Create mode
       setEditingCategoryId(null);
       setCategoryName('');
-      setCategoryType('personal'); // Default to personal
+      setCategoryDocumentTypeId('');
       setCategoryHasSubCats(false);
-      setCategoryAllowedUploaders([]);
-      setCategoryViewPermissionType('everyone'); // Default view permission
-      setCategoryViewUserIds([]);
-      setViewPermissionDepartmentFilter(''); // Reset department filter
-    }
-
-    // Load available users (teachers and department heads)
-    try {
-      const users = await userService.getAllUsers();
-      const teachersAndHeads = users.filter(
-        u => u.role === 'teacher' || u.role === 'department_head'
-      );
-      setAvailableUsers(teachersAndHeads);
-    } catch (error) {
-      console.error('Error loading users:', error);
-    }
-
-    // Load departments for view permissions
-    if (!departments.length) {
-      loadDepartments();
     }
 
     setShowCategoryDialog(true);
@@ -308,27 +307,23 @@ export function DocumentConfigScreen() {
       return;
     }
 
+    if (!categoryDocumentTypeId) {
+      toast({
+        title: 'Lỗi',
+        description: 'Vui lòng chọn loại hồ sơ',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       if (editingCategoryId) {
         // Update existing category
         const updateData: any = {
           name: categoryName,
-          categoryType: categoryType,
+          documentTypeId: categoryDocumentTypeId,
           hasSubCategories: categoryHasSubCats,
-          allowedUploaders: categoryType === 'public' ? categoryAllowedUploaders : [],
         };
-
-        // Add view permissions for public categories
-        if (categoryType === 'public') {
-          if (categoryViewPermissionType === 'everyone') {
-            updateData.viewPermissions = { type: 'everyone' };
-          } else if (categoryViewPermissionType === 'specific_users') {
-            updateData.viewPermissions = {
-              type: 'specific_users',
-              userIds: categoryViewUserIds,
-            };
-          }
-        }
 
         await documentCategoryService.updateCategory(editingCategoryId, updateData);
         toast({ title: 'Thành công', description: 'Đã cập nhật danh mục' });
@@ -337,24 +332,11 @@ export function DocumentConfigScreen() {
         const createData: any = {
           schoolYearId: selectedYearId,
           name: categoryName,
-          categoryType: categoryType,
+          documentTypeId: categoryDocumentTypeId,
           hasSubCategories: categoryHasSubCats,
           order: categories.length,
           createdBy: user!.uid,
-          allowedUploaders: categoryType === 'public' ? categoryAllowedUploaders : undefined,
         };
-
-        // Add view permissions for public categories
-        if (categoryType === 'public') {
-          if (categoryViewPermissionType === 'everyone') {
-            createData.viewPermissions = { type: 'everyone' };
-          } else if (categoryViewPermissionType === 'specific_users') {
-            createData.viewPermissions = {
-              type: 'specific_users',
-              userIds: categoryViewUserIds,
-            };
-          }
-        }
 
         await documentCategoryService.createCategory(createData);
         toast({ title: 'Thành công', description: 'Đã tạo danh mục mới' });
@@ -575,9 +557,10 @@ export function DocumentConfigScreen() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="years">Năm học</TabsTrigger>
           <TabsTrigger value="categories">Danh mục hồ sơ</TabsTrigger>
+          <TabsTrigger value="document-types">Loại hồ sơ</TabsTrigger>
           <TabsTrigger value="departments">Tổ chuyên môn</TabsTrigger>
         </TabsList>
 
@@ -691,13 +674,20 @@ export function DocumentConfigScreen() {
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
                               <h3 className="font-semibold">{category.name}</h3>
-                              <span className={`text-xs px-2 py-1 rounded ${
-                                category.categoryType === 'public'
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : 'bg-green-100 text-green-800'
-                              }`}>
-                                {category.categoryType === 'public' ? 'Công khai' : 'Cá nhân'}
-                              </span>
+                              {/* Show DocumentType name if available, otherwise show legacy categoryType */}
+                              {category.documentTypeId ? (
+                                <span className="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-800">
+                                  {documentTypes.find(dt => dt.id === category.documentTypeId)?.name || 'DocumentType'}
+                                </span>
+                              ) : (
+                                <span className={`text-xs px-2 py-1 rounded ${
+                                  category.categoryType === 'public'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-green-100 text-green-800'
+                                }`}>
+                                  {category.categoryType === 'public' ? 'Công khai (Cũ)' : 'Cá nhân (Cũ)'}
+                                </span>
+                              )}
                             </div>
                             <p className="text-sm text-gray-600">
                               {category.hasSubCategories ? 'Có mục con' : 'Không có mục con'}
@@ -778,6 +768,11 @@ export function DocumentConfigScreen() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* DOCUMENT TYPES TAB */}
+        <TabsContent value="document-types">
+          <DocumentTypesScreen />
         </TabsContent>
 
         {/* DEPARTMENTS TAB */}
@@ -944,210 +939,32 @@ export function DocumentConfigScreen() {
                   type="text"
                   value={categoryName}
                   onChange={(e) => setCategoryName(e.target.value)}
-                  placeholder="Ví dụ: Kế hoạch giáo dục"
+                  placeholder="Ví dụ: Kế hoạch bài dạy"
                   className="w-full border rounded px-3 py-2"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Loại danh mục <span className="text-red-500">*</span>
+                  Loại hồ sơ <span className="text-red-500">*</span>
+                  <span className="text-xs text-gray-500 ml-2">(Tính năng mới)</span>
                 </label>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 p-3 border rounded hover:bg-gray-50 cursor-pointer"
-                       onClick={() => setCategoryType('personal')}>
-                    <input
-                      type="radio"
-                      id="type-personal"
-                      name="categoryType"
-                      checked={categoryType === 'personal'}
-                      onChange={() => setCategoryType('personal')}
-                      className="h-4 w-4"
-                    />
-                    <div className="flex-1">
-                      <label htmlFor="type-personal" className="text-sm font-medium cursor-pointer">
-                        Hồ sơ cá nhân
-                      </label>
-                      <p className="text-xs text-gray-500">
-                        Giáo viên thấy của mình, tổ trưởng thấy cả tổ, BGH/Admin thấy toàn trường
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 p-3 border rounded hover:bg-gray-50 cursor-pointer"
-                       onClick={() => setCategoryType('public')}>
-                    <input
-                      type="radio"
-                      id="type-public"
-                      name="categoryType"
-                      checked={categoryType === 'public'}
-                      onChange={() => setCategoryType('public')}
-                      className="h-4 w-4"
-                    />
-                    <div className="flex-1">
-                      <label htmlFor="type-public" className="text-sm font-medium cursor-pointer">
-                        Hồ sơ công khai
-                      </label>
-                      <p className="text-xs text-gray-500">
-                        Chỉ Admin/Hiệu trưởng được tải lên, toàn trường có thể xem
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <select
+                  value={categoryDocumentTypeId}
+                  onChange={(e) => setCategoryDocumentTypeId(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  <option value="">-- Chọn loại hồ sơ --</option>
+                  {documentTypes.map(type => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 Chọn loại hồ sơ để tự động kế thừa quyền quản lý quyền theo vai trò. Bỏ qua nếu muốn dùng cách cũ (Hồ sơ cá nhân/công khai).
+                </p>
               </div>
-
-              {/* Two-column layout for public category settings */}
-              {categoryType === 'public' && (
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Column 1: Allowed Uploaders */}
-                  <div>
-                    <label className="block text-sm font-medium mb-2">
-                      Người dùng được phép tải lên
-                    </label>
-                    <p className="text-xs text-gray-500 mb-2">
-                      Chọn GV/tổ trưởng có thể tải lên (ngoài Admin/HT)
-                    </p>
-                    <div className="border rounded px-3 py-2 max-h-64 overflow-y-auto space-y-2">
-                      {availableUsers.length === 0 ? (
-                        <p className="text-sm text-gray-500">Đang tải...</p>
-                      ) : (
-                        availableUsers.map(u => (
-                          <div key={u.uid} className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              id={`uploader-${u.uid}`}
-                              checked={categoryAllowedUploaders.includes(u.uid)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setCategoryAllowedUploaders([...categoryAllowedUploaders, u.uid]);
-                                } else {
-                                  setCategoryAllowedUploaders(categoryAllowedUploaders.filter(id => id !== u.uid));
-                                }
-                              }}
-                              className="h-4 w-4"
-                            />
-                            <label htmlFor={`uploader-${u.uid}`} className="text-sm cursor-pointer flex-1 truncate" title={`${u.displayName} (${u.email})`}>
-                              {u.displayName}
-                            </label>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Đã chọn: {categoryAllowedUploaders.length}
-                    </p>
-                  </div>
-
-                  {/* Column 2: View Permissions */}
-                  <div>
-                    <label className="block text-sm font-medium mb-2">
-                      Quyền xem hồ sơ
-                    </label>
-                    <div className="space-y-2 mb-2">
-                      {/* Option 1: Everyone */}
-                      <div className="flex items-start gap-2">
-                        <input
-                          type="radio"
-                          id="view-everyone"
-                          name="viewPermission"
-                          checked={categoryViewPermissionType === 'everyone'}
-                          onChange={() => {
-                            setCategoryViewPermissionType('everyone');
-                            setCategoryViewUserIds([]);
-                          }}
-                          className="h-4 w-4 mt-0.5"
-                        />
-                        <label htmlFor="view-everyone" className="text-sm cursor-pointer flex-1">
-                          <div className="font-medium">Tất cả GV</div>
-                          <div className="text-xs text-gray-500">
-                            Mọi người đều xem được
-                          </div>
-                        </label>
-                      </div>
-
-                      {/* Option 2: Specific Users */}
-                      <div className="flex items-start gap-2">
-                        <input
-                          type="radio"
-                          id="view-specific"
-                          name="viewPermission"
-                          checked={categoryViewPermissionType === 'specific_users'}
-                          onChange={() => setCategoryViewPermissionType('specific_users')}
-                          className="h-4 w-4 mt-0.5"
-                        />
-                        <label htmlFor="view-specific" className="text-sm cursor-pointer flex-1">
-                          <div className="font-medium">Chỉ một số GV</div>
-                          <div className="text-xs text-gray-500">
-                            Chọn từng GV cụ thể
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* User selection with department filter */}
-                    {categoryViewPermissionType === 'specific_users' && (
-                      <div>
-                        <label className="block text-sm font-medium mb-2">
-                          Lọc theo tổ (tùy chọn)
-                        </label>
-                        <select
-                          value={viewPermissionDepartmentFilter}
-                          onChange={(e) => setViewPermissionDepartmentFilter(e.target.value)}
-                          className="w-full border rounded px-3 py-2 text-sm mb-2"
-                        >
-                          <option value="">Tất cả tổ</option>
-                          {departments.map(dept => (
-                            <option key={dept.id} value={dept.id}>{dept.name}</option>
-                          ))}
-                        </select>
-
-                        <label className="block text-sm font-medium mb-2">
-                          Chọn giáo viên được xem
-                        </label>
-                        <div className="border rounded px-3 py-2 max-h-48 overflow-y-auto space-y-2 bg-gray-50">
-                          {availableUsers.length === 0 ? (
-                            <p className="text-sm text-gray-500">Chưa có giáo viên</p>
-                          ) : (
-                            availableUsers
-                              .filter(u => {
-                                // Filter by department if selected
-                                if (!viewPermissionDepartmentFilter) return true;
-                                const dept = departments.find(d => d.id === viewPermissionDepartmentFilter);
-                                return dept?.memberIds.includes(u.uid);
-                              })
-                              .map(u => (
-                                <div key={u.uid} className="flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    id={`user-view-${u.uid}`}
-                                    checked={categoryViewUserIds.includes(u.uid)}
-                                    onChange={(e) => {
-                                      if (e.target.checked) {
-                                        setCategoryViewUserIds([...categoryViewUserIds, u.uid]);
-                                      } else {
-                                        setCategoryViewUserIds(categoryViewUserIds.filter(id => id !== u.uid));
-                                      }
-                                    }}
-                                    className="h-4 w-4"
-                                  />
-                                  <label htmlFor={`user-view-${u.uid}`} className="text-sm cursor-pointer flex-1 truncate" title={`${u.displayName} (${u.email})`}>
-                                    {u.displayName}
-                                  </label>
-                                </div>
-                              ))
-                          )}
-                        </div>
-                        {availableUsers.length > 0 && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Đã chọn: {categoryViewUserIds.length} GV
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
 
               <div className="flex items-center gap-2">
                 <input

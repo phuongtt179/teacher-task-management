@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { userService, User } from '@/services/userService';
+import { userService } from '@/services/userService';
+import { User } from '@/types';
 import { departmentService } from '@/services/departmentService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -256,9 +257,11 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="vice_principal">Hiệu trưởng</SelectItem>
+                  <SelectItem value="principal">Hiệu trưởng</SelectItem>
+                  <SelectItem value="vice_principal">Hiệu phó</SelectItem>
                   <SelectItem value="department_head">Tổ trưởng</SelectItem>
                   <SelectItem value="teacher">Giáo viên</SelectItem>
+                  <SelectItem value="staff">Nhân viên</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -448,12 +451,16 @@ export default function UserManagementScreen() {
     switch (role) {
       case 'admin':
         return <Crown className="w-4 h-4" />;
+      case 'principal':
+        return <Crown className="w-4 h-4" />;
       case 'vice_principal':
         return <Shield className="w-4 h-4" />;
       case 'department_head':
         return <Users className="w-4 h-4" />;
       case 'teacher':
         return <GraduationCap className="w-4 h-4" />;
+      case 'staff':
+        return <UserCheck className="w-4 h-4" />;
       default:
         return null;
     }
@@ -463,12 +470,16 @@ export default function UserManagementScreen() {
     switch (role) {
       case 'admin':
         return 'Admin';
-      case 'vice_principal':
+      case 'principal':
         return 'Hiệu trưởng';
+      case 'vice_principal':
+        return 'Hiệu phó';
       case 'department_head':
         return 'Tổ trưởng';
       case 'teacher':
         return 'Giáo viên';
+      case 'staff':
+        return 'Nhân viên';
       default:
         return role;
     }
@@ -478,12 +489,16 @@ export default function UserManagementScreen() {
     switch (role) {
       case 'admin':
         return 'bg-red-100 text-red-800';
+      case 'principal':
+        return 'bg-indigo-100 text-indigo-800';
       case 'vice_principal':
         return 'bg-blue-100 text-blue-800';
       case 'department_head':
         return 'bg-purple-100 text-purple-800';
       case 'teacher':
         return 'bg-green-100 text-green-800';
+      case 'staff':
+        return 'bg-gray-100 text-gray-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -565,9 +580,11 @@ export default function UserManagementScreen() {
               <SelectContent>
                 <SelectItem value="all">Tất cả vai trò</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="vice_principal">Hiệu trưởng</SelectItem>
+                <SelectItem value="principal">Hiệu trưởng</SelectItem>
+                <SelectItem value="vice_principal">Hiệu phó</SelectItem>
                 <SelectItem value="department_head">Tổ trưởng</SelectItem>
                 <SelectItem value="teacher">Giáo viên</SelectItem>
+                <SelectItem value="staff">Nhân viên</SelectItem>
               </SelectContent>
             </Select>
           </div>

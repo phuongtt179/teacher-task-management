@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import dotenv from 'dotenv';
+import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials } from './oauth-config.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -30,53 +31,33 @@ const upload = multer({
   },
 });
 
-// Load Service Account credentials
-const SERVICE_ACCOUNT_KEY_PATH = path.join(__dirname, '..', 'google-service-account-key.json');
-const ROOT_FOLDER_ID = process.env.VITE_GOOGLE_DRIVE_SHARED_DRIVE_ID; // My Drive folder ID
-const WORKSPACE_USER_EMAIL = process.env.GOOGLE_WORKSPACE_USER_EMAIL; // User to impersonate
+// Google Drive configuration
+const ROOT_FOLDER_ID = process.env.ADMIN_DRIVE_FOLDER_ID;
 
-// Initialize Google Drive API with JWT for domain-wide delegation
+// Initialize Google Drive API with OAuth2
 let drive;
-let jwtClient;
 
-(async () => {
+function initializeDrive() {
   try {
-    // Read service account key
-    const serviceAccountKey = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_KEY_PATH, 'utf8'));
-
-    // Verify private key exists
-    if (!serviceAccountKey.private_key) {
-      throw new Error('Private key not found in service account JSON file');
-    }
-
-    // Create JWT client with domain-wide delegation
-    jwtClient = new google.auth.JWT({
-      email: serviceAccountKey.client_email,
-      key: serviceAccountKey.private_key,
-      scopes: ['https://www.googleapis.com/auth/drive'],
-      subject: WORKSPACE_USER_EMAIL,
-    });
-
-    // IMPORTANT: Authorize the JWT client for domain-wide delegation
-    await jwtClient.authorize();
-
-    drive = google.drive({ version: 'v3', auth: jwtClient });
-    console.log('✅ Google Drive API initialized successfully (using JWT)');
-    console.log(`📧 Service Account: ${serviceAccountKey.client_email}`);
-    if (WORKSPACE_USER_EMAIL) {
-      console.log(`👤 Impersonating user: ${WORKSPACE_USER_EMAIL}`);
-      console.log('✅ JWT Client authorized successfully');
-    } else {
-      console.log('⚠️  Warning: GOOGLE_WORKSPACE_USER_EMAIL not set (domain-wide delegation disabled)');
-    }
+    drive = google.drive({ version: 'v3', auth: oauth2Client });
+    console.log('✅ Google Drive API initialized with OAuth 2.0');
+    return true;
   } catch (error) {
     console.error('❌ Error initializing Google Drive API:', error.message);
-    console.error('Full error:', error);
+    return false;
   }
-})();
+}
+
+// Initialize on startup if credentials exist
+if (loadSavedCredentials()) {
+  initializeDrive();
+} else {
+  console.log('⚠️  OAuth credentials not found. Admin needs to authorize first.');
+  console.log('👉 Visit: http://localhost:3001/api/auth/google');
+}
 
 /**
- * Get or create a folder in Google Drive (My Drive)
+ * Get or create a folder in Google Drive
  */
 async function getOrCreateFolder(folderName, parentId = ROOT_FOLDER_ID) {
   try {
@@ -116,8 +97,12 @@ async function getOrCreateFolder(folderName, parentId = ROOT_FOLDER_ID) {
  */
 async function uploadFileToDrive(file, folderId) {
   try {
+    // Fix UTF-8 encoding for Vietnamese filenames
+    // Multer receives filename in Latin1, need to convert to UTF-8
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+
     const fileMetadata = {
-      name: file.originalname,
+      name: originalName,
     };
 
     // Only set parents if folderId is provided
@@ -174,15 +159,124 @@ async function makeFilePublic(fileId) {
   }
 }
 
-// API Endpoints
+// ============================================
+// OAuth 2.0 Authorization Endpoints
+// ============================================
+
+/**
+ * Step 1: Redirect admin to Google authorization page
+ */
+app.get('/api/auth/google', (req, res) => {
+  const authUrl = getAuthUrl();
+  res.redirect(authUrl);
+});
+
+/**
+ * Step 2: Handle OAuth callback from Google
+ */
+app.get('/api/auth/google/callback', async (req, res) => {
+  const { code } = req.query;
+
+  if (!code) {
+    return res.status(400).send('Authorization code not found');
+  }
+
+  try {
+    // Exchange code for tokens
+    const tokens = await getTokenFromCode(code);
+
+    // Initialize Drive API with new credentials
+    initializeDrive();
+
+    res.send(`
+      <html>
+        <head>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              max-width: 600px;
+              margin: 50px auto;
+              padding: 20px;
+              background: #f5f5f5;
+            }
+            .success {
+              background: #4CAF50;
+              color: white;
+              padding: 20px;
+              border-radius: 5px;
+              text-align: center;
+            }
+            .info {
+              background: white;
+              padding: 20px;
+              border-radius: 5px;
+              margin-top: 20px;
+            }
+            code {
+              background: #f0f0f0;
+              padding: 2px 5px;
+              border-radius: 3px;
+              font-family: monospace;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="success">
+            <h1>✅ Authorization Successful!</h1>
+            <p>Your Google Drive has been connected successfully.</p>
+          </div>
+          <div class="info">
+            <h3>Next Steps:</h3>
+            <ol>
+              <li>Create a folder in your Google Drive for storing documents</li>
+              <li>Get the Folder ID from the URL</li>
+              <li>Add it to your .env file as <code>ADMIN_DRIVE_FOLDER_ID</code></li>
+              <li>Restart the server</li>
+            </ol>
+            <p>You can close this window now.</p>
+          </div>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('Error during OAuth callback:', error);
+    res.status(500).send(`
+      <html>
+        <body style="font-family: Arial; padding: 50px; text-align: center;">
+          <h1 style="color: red;">❌ Authorization Failed</h1>
+          <p>${error.message}</p>
+          <p><a href="/api/auth/google">Try again</a></p>
+        </body>
+      </html>
+    `);
+  }
+});
+
+/**
+ * Check OAuth status
+ */
+app.get('/api/auth/status', (req, res) => {
+  const hasCredentials = oauth2Client.credentials && oauth2Client.credentials.access_token;
+  res.json({
+    authorized: hasCredentials,
+    driveConfigured: !!drive,
+    rootFolderId: ROOT_FOLDER_ID ? 'configured' : 'missing',
+  });
+});
+
+// ============================================
+// File Upload/Delete Endpoints
+// ============================================
 
 /**
  * Health check
  */
 app.get('/api/health', (req, res) => {
+  const hasCredentials = oauth2Client.credentials && oauth2Client.credentials.access_token;
   res.json({
     status: 'ok',
     message: 'Server is running',
+    oauthConfigured: hasCredentials,
     driveConfigured: !!drive,
     rootFolderId: ROOT_FOLDER_ID ? 'configured' : 'missing',
   });
@@ -195,7 +289,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
     if (!drive) {
       return res.status(500).json({
-        error: 'Google Drive not configured',
+        error: 'Google Drive not configured. Admin needs to authorize first.',
+        authUrl: '/api/auth/google',
       });
     }
 
@@ -205,7 +300,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       });
     }
 
-    const { schoolYear, category, subCategory, uploaderName, documentTitle } = req.body;
+    const { schoolYear, category, subCategory, uploaderName, documentTitle, documentType } = req.body;
 
     if (!schoolYear || !category) {
       return res.status(400).json({
@@ -213,30 +308,49 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       });
     }
 
-    // NEW: Create folder structure based on whether uploaderName and documentTitle are provided
+    // Create folder structure
     let targetFolderId;
 
     if (uploaderName && documentTitle) {
-      // NEW Structure: Root > SchoolYear > Category > [SubCategory] > UploaderName > DocumentTitle
-      console.log(`📁 Creating folder structure: ${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''} > ${uploaderName} > ${documentTitle}`);
+      // NEW Structure with DocumentType: Root > SchoolYear > DocumentType > Category > [SubCategory] > UploaderName > DocumentTitle
+      const folderPath = documentType
+        ? `${schoolYear} > ${documentType} > ${category}${subCategory ? ' > ' + subCategory : ''} > ${uploaderName} > ${documentTitle}`
+        : `${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''} > ${uploaderName} > ${documentTitle}`;
+      console.log(`📁 Creating folder structure: ${folderPath}`);
 
       const yearFolderId = await getOrCreateFolder(schoolYear, ROOT_FOLDER_ID);
-      const categoryFolderId = await getOrCreateFolder(category, yearFolderId);
 
-      // If there's a subcategory, create it between category and uploader
-      let parentFolderId = categoryFolderId;
-      if (subCategory) {
-        parentFolderId = await getOrCreateFolder(subCategory, categoryFolderId);
+      // NEW: Add DocumentType folder if provided
+      let parentFolderId = yearFolderId;
+      if (documentType) {
+        parentFolderId = await getOrCreateFolder(documentType, yearFolderId);
       }
 
-      const uploaderFolderId = await getOrCreateFolder(uploaderName, parentFolderId);
+      const categoryFolderId = await getOrCreateFolder(category, parentFolderId);
+
+      let subParentFolderId = categoryFolderId;
+      if (subCategory) {
+        subParentFolderId = await getOrCreateFolder(subCategory, categoryFolderId);
+      }
+
+      const uploaderFolderId = await getOrCreateFolder(uploaderName, subParentFolderId);
       targetFolderId = await getOrCreateFolder(documentTitle, uploaderFolderId);
     } else {
-      // OLD Structure (backward compatibility): Root > School Year > Category > Subcategory
-      console.log(`📁 Creating folder structure: ${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''}`);
+      // Backward compatibility: Root > School Year > [DocumentType] > Category > Subcategory
+      const folderPath = documentType
+        ? `${schoolYear} > ${documentType} > ${category}${subCategory ? ' > ' + subCategory : ''}`
+        : `${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''}`;
+      console.log(`📁 Creating folder structure: ${folderPath}`);
 
-      const yearFolderId = await getOrCreateFolder(schoolYear);
-      const categoryFolderId = await getOrCreateFolder(category, yearFolderId);
+      const yearFolderId = await getOrCreateFolder(schoolYear, ROOT_FOLDER_ID);
+
+      // NEW: Add DocumentType folder if provided
+      let parentFolderId = yearFolderId;
+      if (documentType) {
+        parentFolderId = await getOrCreateFolder(documentType, yearFolderId);
+      }
+
+      const categoryFolderId = await getOrCreateFolder(category, parentFolderId);
 
       targetFolderId = categoryFolderId;
       if (subCategory) {
@@ -313,6 +427,14 @@ if (!fs.existsSync(uploadsDir)) {
 app.listen(PORT, () => {
   console.log(`\n🚀 Server running on http://localhost:${PORT}`);
   console.log(`📁 Root Folder ID: ${ROOT_FOLDER_ID || 'NOT CONFIGURED'}`);
-  console.log(`🔑 Service Account Key: ${fs.existsSync(SERVICE_ACCOUNT_KEY_PATH) ? 'Found' : 'NOT FOUND'}`);
+  console.log(`🔐 OAuth Method: Google OAuth 2.0`);
+
+  const hasCredentials = oauth2Client.credentials && oauth2Client.credentials.access_token;
+  if (hasCredentials) {
+    console.log('✅ OAuth credentials loaded');
+  } else {
+    console.log('⚠️  OAuth not authorized yet');
+    console.log(`👉 Visit: http://localhost:${PORT}/api/auth/google to authorize`);
+  }
   console.log('\n');
 });
