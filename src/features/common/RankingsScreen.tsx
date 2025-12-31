@@ -160,14 +160,14 @@ export const RankingsScreen = () => {
         {/* Current User Position */}
         {currentUserRanking && (
           <Card className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-            <CardContent className="pt-6">
+            <CardContent className="pt-4 md:pt-6">
               <div className="text-center">
-                <p className="text-sm text-indigo-100 mb-1">Vị trí của bạn</p>
-                <div className="flex items-center justify-center gap-3">
-                  <div className="text-4xl font-bold">#{currentUserRanking.rank}</div>
+                <p className="text-xs md:text-sm text-indigo-100 mb-1">Vị trí của bạn</p>
+                <div className="flex items-center justify-center gap-2 md:gap-3">
+                  <div className="text-3xl md:text-4xl font-bold">#{currentUserRanking.rank}</div>
                   {currentUserRanking.rank <= 3 && getMedalIcon(currentUserRanking.rank)}
                 </div>
-                <p className="text-sm text-indigo-100 mt-2">
+                <p className="text-xs md:text-sm text-indigo-100 mt-1 md:mt-2">
                   {getRankingTypeLabel(rankBy)}: {getRankingValue(currentUserRanking, rankBy)}
                 </p>
               </div>
@@ -198,25 +198,25 @@ export const RankingsScreen = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-3 gap-4 items-end pb-4">
+                  <div className="grid grid-cols-3 gap-2 md:gap-4 items-end pb-2 md:pb-4">
                     {/* 2nd Place */}
                     {top3[1] && (
-                      <div className="text-center space-y-2">
-                        <div className={`mx-auto w-20 h-20 rounded-full bg-gradient-to-br ${getMedalColor(2)} flex items-center justify-center shadow-lg`}>
-                          <Medal className="w-10 h-10 text-white" />
+                      <div className="text-center space-y-1 md:space-y-2">
+                        <div className={`mx-auto w-12 h-12 md:w-20 md:h-20 rounded-full bg-gradient-to-br ${getMedalColor(2)} flex items-center justify-center shadow-lg`}>
+                          <Medal className="w-6 h-6 md:w-10 md:h-10 text-white" />
                         </div>
-                        <div className="bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-4 h-32 flex flex-col justify-between">
+                        <div className="bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-2 md:p-4 h-24 md:h-32 flex flex-col justify-between">
                           <div>
-                            <p className="text-2xl font-bold text-gray-700">#2</p>
-                            <p className={`text-sm font-medium ${top3[1].isCurrentUser ? 'text-indigo-600' : 'text-gray-600'}`}>
+                            <p className="text-lg md:text-2xl font-bold text-gray-700">#2</p>
+                            <p className={`text-xs md:text-sm font-medium ${top3[1].isCurrentUser ? 'text-indigo-600' : 'text-gray-600'} truncate`}>
                               {top3[1].anonymousId}
                             </p>
                           </div>
                           <div>
-                            <p className="text-xl font-bold text-gray-900">
+                            <p className="text-base md:text-xl font-bold text-gray-900">
                               {getRankingValue(top3[1], rankBy)}
                             </p>
-                            <p className="text-xs text-gray-600">
+                            <p className="text-[10px] md:text-xs text-gray-600">
                               {top3[1].completedTasks} tasks
                             </p>
                           </div>
@@ -226,22 +226,22 @@ export const RankingsScreen = () => {
 
                     {/* 1st Place */}
                     {top3[0] && (
-                      <div className="text-center space-y-2">
-                        <div className={`mx-auto w-24 h-24 rounded-full bg-gradient-to-br ${getMedalColor(1)} flex items-center justify-center shadow-2xl animate-pulse`}>
-                          <Crown className="w-12 h-12 text-white" />
+                      <div className="text-center space-y-1 md:space-y-2">
+                        <div className={`mx-auto w-14 h-14 md:w-24 md:h-24 rounded-full bg-gradient-to-br ${getMedalColor(1)} flex items-center justify-center shadow-2xl animate-pulse`}>
+                          <Crown className="w-7 h-7 md:w-12 md:h-12 text-white" />
                         </div>
-                        <div className="bg-gradient-to-br from-yellow-100 to-yellow-300 rounded-lg p-4 h-40 flex flex-col justify-between border-2 border-yellow-400">
+                        <div className="bg-gradient-to-br from-yellow-100 to-yellow-300 rounded-lg p-2 md:p-4 h-28 md:h-40 flex flex-col justify-between border-2 border-yellow-400">
                           <div>
-                            <p className="text-3xl font-bold text-yellow-800">#1</p>
-                            <p className={`text-sm font-medium ${top3[0].isCurrentUser ? 'text-indigo-600' : 'text-yellow-800'}`}>
+                            <p className="text-xl md:text-3xl font-bold text-yellow-800">#1</p>
+                            <p className={`text-xs md:text-sm font-medium ${top3[0].isCurrentUser ? 'text-indigo-600' : 'text-yellow-800'} truncate`}>
                               {top3[0].anonymousId}
                             </p>
                           </div>
                           <div>
-                            <p className="text-2xl font-bold text-yellow-900">
+                            <p className="text-lg md:text-2xl font-bold text-yellow-900">
                               {getRankingValue(top3[0], rankBy)}
                             </p>
-                            <p className="text-xs text-yellow-700">
+                            <p className="text-[10px] md:text-xs text-yellow-700">
                               {top3[0].completedTasks} tasks
                             </p>
                           </div>
@@ -251,22 +251,22 @@ export const RankingsScreen = () => {
 
                     {/* 3rd Place */}
                     {top3[2] && (
-                      <div className="text-center space-y-2">
-                        <div className={`mx-auto w-20 h-20 rounded-full bg-gradient-to-br ${getMedalColor(3)} flex items-center justify-center shadow-lg`}>
-                          <Medal className="w-10 h-10 text-white" />
+                      <div className="text-center space-y-1 md:space-y-2">
+                        <div className={`mx-auto w-12 h-12 md:w-20 md:h-20 rounded-full bg-gradient-to-br ${getMedalColor(3)} flex items-center justify-center shadow-lg`}>
+                          <Medal className="w-6 h-6 md:w-10 md:h-10 text-white" />
                         </div>
-                        <div className="bg-gradient-to-br from-amber-100 to-amber-200 rounded-lg p-4 h-32 flex flex-col justify-between">
+                        <div className="bg-gradient-to-br from-amber-100 to-amber-200 rounded-lg p-2 md:p-4 h-24 md:h-32 flex flex-col justify-between">
                           <div>
-                            <p className="text-2xl font-bold text-amber-800">#3</p>
-                            <p className={`text-sm font-medium ${top3[2].isCurrentUser ? 'text-indigo-600' : 'text-amber-700'}`}>
+                            <p className="text-lg md:text-2xl font-bold text-amber-800">#3</p>
+                            <p className={`text-xs md:text-sm font-medium ${top3[2].isCurrentUser ? 'text-indigo-600' : 'text-amber-700'} truncate`}>
                               {top3[2].anonymousId}
                             </p>
                           </div>
                           <div>
-                            <p className="text-xl font-bold text-amber-900">
+                            <p className="text-base md:text-xl font-bold text-amber-900">
                               {getRankingValue(top3[2], rankBy)}
                             </p>
-                            <p className="text-xs text-amber-700">
+                            <p className="text-[10px] md:text-xs text-amber-700">
                               {top3[2].completedTasks} tasks
                             </p>
                           </div>
@@ -285,11 +285,11 @@ export const RankingsScreen = () => {
               <CardTitle>Toàn bộ xếp hạng ({rankings.length} giáo viên)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
+              <div className="space-y-1.5 md:space-y-2">
                 {rankings.map((ranking) => (
                   <div
                     key={ranking.anonymousId}
-                    className={`flex items-center gap-4 p-4 rounded-lg transition-all ${
+                    className={`flex items-center gap-2 md:gap-4 p-2 md:p-4 rounded-lg transition-all ${
                       ranking.isCurrentUser
                         ? 'bg-indigo-50 border-2 border-indigo-300 shadow-md'
                         : ranking.rank <= 3
@@ -298,7 +298,7 @@ export const RankingsScreen = () => {
                     }`}
                   >
                     {/* Rank */}
-                    <div className="flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 font-bold text-xl">
+                    <div className="flex items-center justify-center w-10 h-10 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 font-bold text-base md:text-xl flex-shrink-0">
                       {ranking.rank <= 3 ? (
                         getMedalIcon(ranking.rank)
                       ) : (
@@ -308,15 +308,15 @@ export const RankingsScreen = () => {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className={`font-semibold text-lg ${ranking.isCurrentUser ? 'text-indigo-600' : 'text-gray-900'}`}>
+                      <div className="flex items-center gap-1.5 md:gap-2 mb-0.5 md:mb-1">
+                        <p className={`font-semibold text-sm md:text-lg truncate ${ranking.isCurrentUser ? 'text-indigo-600' : 'text-gray-900'}`}>
                           {ranking.anonymousId}
                         </p>
                         {ranking.isCurrentUser && (
-                          <Badge className="bg-indigo-600">Bạn</Badge>
+                          <Badge className="bg-indigo-600 text-xs flex-shrink-0">Bạn</Badge>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
+                      <div className="flex flex-wrap gap-x-2 md:gap-x-4 gap-y-0.5 md:gap-y-1 text-xs md:text-sm text-gray-600">
                         <span className="flex items-center gap-1">
                           <Target className="w-3 h-3" />
                           {ranking.completedTasks}/{ranking.totalTasks} tasks
@@ -333,11 +333,11 @@ export const RankingsScreen = () => {
                     </div>
 
                     {/* Main Stat */}
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600 mb-1">
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-[10px] md:text-sm text-gray-600 mb-0.5 md:mb-1">
                         {getRankingTypeLabel(rankBy)}
                       </p>
-                      <p className={`text-3xl font-bold ${
+                      <p className={`text-xl md:text-3xl font-bold ${
                         ranking.rank === 1 ? 'text-yellow-600' :
                         ranking.rank === 2 ? 'text-gray-600' :
                         ranking.rank === 3 ? 'text-amber-700' :

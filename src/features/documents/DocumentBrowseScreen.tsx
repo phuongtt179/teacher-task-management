@@ -27,7 +27,8 @@ import {
   User as UserIcon,
   FileIcon,
   Pencil,
-  X
+  X,
+  Filter
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DepartmentDocumentsTreeView } from './DepartmentDocumentsTreeView';
@@ -60,6 +61,7 @@ export function DocumentBrowseScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [treeViewRefreshTrigger, setTreeViewRefreshTrigger] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Edit mode state
   const [editingDocument, setEditingDocument] = useState<Document | null>(null);
@@ -868,12 +870,16 @@ export function DocumentBrowseScreen() {
       toggleCategory(category.id);
     } else {
       loadDocuments();
+      // Close sidebar on mobile after selecting category without subcategories
+      setSidebarOpen(false);
     }
   };
 
   const handleSubCategoryClick = (subCategory: DocumentSubCategory) => {
     setSelectedSubCategoryId(subCategory.id);
     // loadDocuments will be called automatically by useEffect when selectedSubCategoryId changes
+    // Close sidebar on mobile after selecting subcategory
+    setSidebarOpen(false);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -957,11 +963,36 @@ export function DocumentBrowseScreen() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)]">
-      {/* Left Sidebar - Categories */}
-      <div className="w-80 border-r bg-white flex flex-col">
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Left Sidebar - Categories (Desktop: always visible, Mobile: drawer) */}
+      <div
+        className={`
+          w-80 border-r bg-white flex flex-col
+          fixed lg:static inset-y-0 left-0 z-50
+          transform transition-transform duration-300 ease-in-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        `}
+      >
         {/* Header */}
         <div className="p-4 border-b">
-          <h1 className="text-2xl font-bold mb-2">Hồ sơ điện tử</h1>
+          <div className="flex items-center justify-between mb-2">
+            <h1 className="text-2xl font-bold">Hồ sơ điện tử</h1>
+            {/* Close button for mobile */}
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="lg:hidden p-1 text-gray-500 hover:text-gray-700"
+              aria-label="Đóng"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
           <div>
             <label className="block text-sm font-medium mb-1">Năm học</label>
             <select
@@ -1170,15 +1201,26 @@ export function DocumentBrowseScreen() {
         ) : (
           <>
             {/* Header */}
-            <div className="bg-white border-b p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-xl font-semibold">
-                    {categories.find(c => c.id === selectedCategoryId)?.name}
-                    {selectedSubCategoryId && (
-                      <span className="text-gray-400 font-normal"> {' > '} {subCategories.find(s => s.id === selectedSubCategoryId)?.name}</span>
-                    )}
-                  </h2>
+            <div className="bg-white border-b p-3 md:p-4">
+              <div className="flex items-center justify-between mb-3 md:mb-4">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  {/* Mobile filter button */}
+                  <button
+                    onClick={() => setSidebarOpen(true)}
+                    className="lg:hidden p-2 text-gray-700 hover:text-indigo-600 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
+                    aria-label="Mở bộ lọc"
+                  >
+                    <Filter className="w-5 h-5" />
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-base md:text-xl font-semibold truncate">
+                      {categories.find(c => c.id === selectedCategoryId)?.name}
+                      {selectedSubCategoryId && (
+                        <span className="text-gray-400 font-normal"> {' > '} {subCategories.find(s => s.id === selectedSubCategoryId)?.name}</span>
+                      )}
+                    </h2>
+                  </div>
                 </div>
                 {(() => {
                   // Check if tree view is active

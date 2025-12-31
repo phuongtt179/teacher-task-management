@@ -168,26 +168,26 @@ export const TaskListScreen = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border p-4">
-          <p className="text-sm text-gray-600">Tổng số</p>
-          <p className="text-2xl font-bold text-gray-900">{filteredTasks.length}</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <div className="bg-white rounded-lg border p-3 md:p-4">
+          <p className="text-xs md:text-sm text-gray-600">Tổng số</p>
+          <p className="text-xl md:text-2xl font-bold text-gray-900">{filteredTasks.length}</p>
         </div>
-        <div className="bg-white rounded-lg border p-4">
-          <p className="text-sm text-gray-600">Đã giao</p>
-          <p className="text-2xl font-bold text-blue-600">
+        <div className="bg-white rounded-lg border p-3 md:p-4">
+          <p className="text-xs md:text-sm text-gray-600">Đã giao</p>
+          <p className="text-xl md:text-2xl font-bold text-blue-600">
             {filteredTasks.filter((t) => t.status === 'assigned').length}
           </p>
         </div>
-        <div className="bg-white rounded-lg border p-4">
-          <p className="text-sm text-gray-600">Đã nộp</p>
-          <p className="text-2xl font-bold text-purple-600">
+        <div className="bg-white rounded-lg border p-3 md:p-4">
+          <p className="text-xs md:text-sm text-gray-600">Đã nộp</p>
+          <p className="text-xl md:text-2xl font-bold text-purple-600">
             {filteredTasks.filter((t) => t.status === 'submitted').length}
           </p>
         </div>
-        <div className="bg-white rounded-lg border p-4">
-          <p className="text-sm text-gray-600">Hoàn thành</p>
-          <p className="text-2xl font-bold text-green-600">
+        <div className="bg-white rounded-lg border p-3 md:p-4">
+          <p className="text-xs md:text-sm text-gray-600">Hoàn thành</p>
+          <p className="text-xl md:text-2xl font-bold text-green-600">
             {filteredTasks.filter((t) => t.status === 'completed').length}
           </p>
         </div>

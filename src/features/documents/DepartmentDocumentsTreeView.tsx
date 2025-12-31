@@ -271,7 +271,7 @@ export function DepartmentDocumentsTreeView({
           {/* Department Header */}
           <button
             onClick={() => toggleDepartment(dept.id)}
-            className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors text-left"
+            className="w-full flex items-center gap-2 md:gap-3 p-3 md:p-4 hover:bg-gray-50 transition-colors text-left"
           >
             {expandedDepts.has(dept.id) ? (
               <ChevronDown className="w-5 h-5 text-gray-500 flex-shrink-0" />
@@ -298,7 +298,7 @@ export function DepartmentDocumentsTreeView({
                   {/* Teacher Header */}
                   <button
                     onClick={() => toggleTeacher(teacher.uid)}
-                    className="w-full flex items-center gap-3 p-3 pl-12 hover:bg-gray-100 transition-colors text-left"
+                    className="w-full flex items-center gap-2 md:gap-3 p-2 md:p-3 pl-6 md:pl-12 hover:bg-gray-100 transition-colors text-left"
                   >
                     {expandedTeachers.has(teacher.uid) ? (
                       <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
@@ -319,7 +319,7 @@ export function DepartmentDocumentsTreeView({
 
                   {/* Documents List */}
                   {expandedTeachers.has(teacher.uid) && documentsByTeacher.get(teacher.uid) && (
-                    <div className="bg-white p-3 pl-16 space-y-2">
+                    <div className="bg-white p-2 md:p-3 pl-8 md:pl-16 space-y-2">
                       {/* Upload button for user's own entry */}
                       {user && teacher.uid === user.uid && onUploadClick && (
                         <div className="mb-3">
