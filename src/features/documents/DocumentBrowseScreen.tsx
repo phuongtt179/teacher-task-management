@@ -1192,10 +1192,26 @@ export function DocumentBrowseScreen() {
       {/* Right Panel - Documents */}
       <div className="flex-1 flex flex-col bg-gray-50">
         {!selectedCategoryId ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
+          <div className="flex items-center justify-center h-full p-4">
+            <div className="text-center max-w-sm">
               <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">Chọn danh mục để xem hồ sơ</p>
+              <p className="text-gray-700 font-medium mb-2">Chọn danh mục để xem hồ sơ</p>
+              <p className="text-sm text-gray-500 mb-4">
+                Bấm nút bên dưới để mở danh sách các danh mục hồ sơ
+              </p>
+              {/* Mobile: Show button to open sidebar */}
+              <Button
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden"
+                size="lg"
+              >
+                <Filter className="w-5 h-5 mr-2" />
+                Chọn danh mục
+              </Button>
+              {/* Desktop: Show instruction */}
+              <p className="hidden lg:block text-sm text-gray-400 italic">
+                Chọn danh mục từ thanh bên trái
+              </p>
             </div>
           </div>
         ) : (
