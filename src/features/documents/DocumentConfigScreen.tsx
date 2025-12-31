@@ -624,13 +624,13 @@ export function DocumentConfigScreen() {
         {/* CATEGORIES TAB */}
         <TabsContent value="categories">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <CardTitle>Danh mục hồ sơ</CardTitle>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <select
                   value={selectedYearId}
                   onChange={(e) => setSelectedYearId(e.target.value)}
-                  className="border rounded px-3 py-2"
+                  className="border rounded px-3 py-2 text-sm md:text-base"
                 >
                   <option value="">Chọn năm học</option>
                   {schoolYears.map(year => (
@@ -639,7 +639,7 @@ export function DocumentConfigScreen() {
                     </option>
                   ))}
                 </select>
-                <Button size="sm" disabled={!selectedYearId} onClick={() => handleOpenCategoryDialog()}>
+                <Button size="sm" disabled={!selectedYearId} onClick={() => handleOpenCategoryDialog()} className="w-full sm:w-auto">
                   <Plus className="h-4 w-4 mr-2" />
                   Thêm danh mục
                 </Button>
@@ -657,12 +657,12 @@ export function DocumentConfigScreen() {
                   {categories.map(category => (
                     <div key={category.id} className="border rounded-lg">
                       {/* Category Header */}
-                      <div className="flex items-center justify-between p-4 hover:bg-gray-50">
-                        <div className="flex-1 flex items-center gap-2">
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-3 md:p-4 hover:bg-gray-50">
+                        <div className="flex-1 flex items-start md:items-center gap-2">
                           {category.hasSubCategories && (
                             <button
                               onClick={() => handleToggleCategory(category.id)}
-                              className="p-1 hover:bg-gray-200 rounded"
+                              className="p-1 hover:bg-gray-200 rounded flex-shrink-0"
                             >
                               {expandedCategoryId === category.id ? (
                                 <ChevronDown className="h-4 w-4" />
@@ -671,16 +671,16 @@ export function DocumentConfigScreen() {
                               )}
                             </button>
                           )}
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-semibold">{category.name}</h3>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-sm md:text-base">{category.name}</h3>
                               {/* Show DocumentType name if available, otherwise show legacy categoryType */}
                               {category.documentTypeId ? (
-                                <span className="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-800">
+                                <span className="text-[10px] md:text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-800 flex-shrink-0">
                                   {documentTypes.find(dt => dt.id === category.documentTypeId)?.name || 'DocumentType'}
                                 </span>
                               ) : (
-                                <span className={`text-xs px-2 py-1 rounded ${
+                                <span className={`text-[10px] md:text-xs px-2 py-1 rounded flex-shrink-0 ${
                                   category.categoryType === 'public'
                                     ? 'bg-blue-100 text-blue-800'
                                     : 'bg-green-100 text-green-800'
@@ -689,35 +689,39 @@ export function DocumentConfigScreen() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-xs md:text-sm text-gray-600">
                               {category.hasSubCategories ? 'Có mục con' : 'Không có mục con'}
                             </p>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-1 md:gap-2 flex-wrap">
                           {category.hasSubCategories && (
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => handleOpenSubCategoryDialog(category.id)}
+                              className="h-8 md:h-9 text-xs"
                             >
-                              <Plus className="h-4 w-4 mr-1" />
-                              Thêm mục con
+                              <Plus className="h-3 w-3 md:h-4 md:w-4 mr-1" />
+                              <span className="hidden sm:inline">Thêm mục con</span>
+                              <span className="sm:hidden">Mục con</span>
                             </Button>
                           )}
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleOpenCategoryDialog(category)}
+                            className="h-8 md:h-9"
                           >
-                            <Pencil className="h-4 w-4" />
+                            <Pencil className="h-3 w-3 md:h-4 md:w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDeleteCategory(category.id)}
+                            className="h-8 md:h-9"
                           >
-                            <Trash2 className="h-4 w-4 text-red-600" />
+                            <Trash2 className="h-3 w-3 md:h-4 md:w-4 text-red-600" />
                           </Button>
                         </div>
                       </div>

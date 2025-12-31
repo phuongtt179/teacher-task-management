@@ -52,6 +52,7 @@ export const MobileMenu = () => {
                   <NavLink
                     key={item.path}
                     to={item.path}
+                    end
                     onClick={() => setIsOpen(false)}
                     className={({ isActive }) =>
                       cn(
