@@ -10,33 +10,34 @@ export const useFCM = () => {
   useEffect(() => {
     if (!user) return;
 
-    // TODO: Tạm thời disable FCM để test
-    // Sẽ enable lại sau khi fix service worker issue
-    console.log('FCM disabled temporarily for testing');
-
-    /* COMMENTED OUT - Will re-enable after fixing service worker
     const setupFCM = async () => {
       try {
+        console.log('🔔 Initializing FCM for user:', user.displayName);
+
         // Initialize FCM and get token
         const token = await notificationService.initializeFCM();
         if (token) {
+          console.log('✅ FCM token obtained, saving to user document');
           // Save token to user document
           await notificationService.saveFCMToken(user.uid, token);
+        } else {
+          console.log('⚠️ FCM token not available (permission denied or not supported)');
         }
 
         // Setup foreground message listener
         notificationService.setupForegroundListener((payload) => {
+          console.log('📬 Foreground message received:', payload);
           toast({
             title: payload.notification?.title || 'Thông báo mới',
             description: payload.notification?.body || '',
           });
         });
       } catch (error) {
-        console.error('Error setting up FCM:', error);
+        console.error('❌ Error setting up FCM:', error);
+        // Don't throw error - FCM is optional, app should continue working
       }
     };
 
     setupFCM();
-    */
-  }, [user]);
+  }, [user, toast]);
 };

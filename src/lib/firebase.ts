@@ -57,4 +57,5 @@ export const initMessaging = async () => {
   }
 };
 
-export const messaging = getMessaging(app);
+// Don't export messaging directly to avoid errors in non-HTTPS environments
+// Use getMessaging(app) in components where needed with proper error handling

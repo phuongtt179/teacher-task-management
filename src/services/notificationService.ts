@@ -25,6 +25,24 @@ export const notificationService = {
         return null;
       }
 
+      // Register service worker first
+      console.log('Registering service worker for FCM...');
+      let registration: ServiceWorkerRegistration;
+
+      try {
+        registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+          scope: '/'
+        });
+        console.log('Service worker registered:', registration);
+
+        // Wait for service worker to be ready
+        await navigator.serviceWorker.ready;
+        console.log('Service worker ready');
+      } catch (swError) {
+        console.error('Service worker registration failed:', swError);
+        return null;
+      }
+
       const messaging = getMessaging(app);
 
       // ✅ FIXED: Dùng window.Notification (browser API) thay vì imported Notification (custom type)
@@ -34,9 +52,17 @@ export const notificationService = {
         return null;
       }
 
-      // Get FCM token
+      // Get FCM token with VAPID key from environment
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      if (!vapidKey) {
+        console.error('VAPID key not configured');
+        return null;
+      }
+
+      // Pass the service worker registration to getToken
       const token = await getToken(messaging, {
-        vapidKey: 'BCaJO5TuOip1i-WPOt6uH3FcWWurscMcsrhyE291g0Un1HMplrV3NTRj43Bblsa2Jf_lTLmuTh8cslck1Bpf-GwE',
+        vapidKey,
+        serviceWorkerRegistration: registration
       });
 
       console.log('FCM Token:', token);
