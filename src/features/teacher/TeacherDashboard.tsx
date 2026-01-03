@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { analyticsService, TeacherStats } from '../../services/analyticsService';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { QuickAction } from '../../components/dashboard/QuickAction';
-import { 
-  ClipboardList, 
-  CheckCircle, 
+import {
+  ClipboardList,
+  CheckCircle,
   Clock,
   Award,
   Trophy,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 
 export const TeacherDashboard = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [stats, setStats] = useState<TeacherStats | null>(null);
   const [schoolAverage, setSchoolAverage] = useState(0);
@@ -70,6 +72,7 @@ export const TeacherDashboard = () => {
           icon={ClipboardList}
           color="blue"
           description="Được giao"
+          onClick={() => navigate('/teacher/my-tasks')}
         />
         
         <StatsCard

@@ -24,7 +24,7 @@ export const BottomNav = () => {
               }
             >
               <Icon className="w-5 h-5" />
-              <span className="text-xs font-medium">{item.label}</span>
+              <span className="text-xs font-medium whitespace-nowrap">{item.shortLabel || item.label}</span>
             </NavLink>
           );
         })}

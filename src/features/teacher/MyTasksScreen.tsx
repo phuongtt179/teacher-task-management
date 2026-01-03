@@ -229,31 +229,31 @@ export const MyTasksScreen = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 md:gap-4">
         <div className="bg-white rounded-lg border p-3 md:p-4">
-          <p className="text-xs md:text-sm text-gray-600">Tổng số</p>
+          <p className="text-xs md:text-sm text-gray-600 whitespace-nowrap truncate">Tổng số</p>
           <p className="text-xl md:text-2xl font-bold text-gray-900">{filteredTasks.length}</p>
         </div>
         <div className="bg-white rounded-lg border p-3 md:p-4">
-          <p className="text-xs md:text-sm text-gray-600">Chưa làm</p>
+          <p className="text-xs md:text-sm text-gray-600 whitespace-nowrap truncate">Chưa làm</p>
           <p className="text-xl md:text-2xl font-bold text-blue-600">
             {filteredTasks.filter((t) => t.teacherStatus === 'assigned').length}
           </p>
         </div>
         <div className="bg-red-50 rounded-lg border border-red-200 p-3 md:p-4">
-          <p className="text-xs md:text-sm text-red-600 font-medium">⚠️ Hết hạn hôm nay</p>
+          <p className="text-xs md:text-sm text-red-600 font-medium whitespace-nowrap truncate">⚠️ Hết hạn hôm nay</p>
           <p className="text-xl md:text-2xl font-bold text-red-600">
             {filteredTasks.filter((t) => isDueToday(t)).length}
           </p>
         </div>
         <div className="bg-white rounded-lg border p-3 md:p-4">
-          <p className="text-xs md:text-sm text-gray-600">Đã nộp</p>
+          <p className="text-xs md:text-sm text-gray-600 whitespace-nowrap truncate">Đã nộp</p>
           <p className="text-xl md:text-2xl font-bold text-purple-600">
             {filteredTasks.filter((t) => t.teacherStatus === 'submitted').length}
           </p>
         </div>
         <div className="bg-white rounded-lg border p-3 md:p-4">
-          <p className="text-xs md:text-sm text-gray-600">Hoàn thành</p>
+          <p className="text-xs md:text-sm text-gray-600 whitespace-nowrap truncate">Hoàn thành</p>
           <p className="text-xl md:text-2xl font-bold text-green-600">
             {filteredTasks.filter((t) => t.teacherStatus === 'completed').length}
           </p>

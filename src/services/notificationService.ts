@@ -25,21 +25,16 @@ export const notificationService = {
         return null;
       }
 
-      // Register service worker first
-      console.log('Registering service worker for FCM...');
+      // Use existing PWA service worker instead of registering a new one
+      console.log('Using existing service worker for FCM...');
       let registration: ServiceWorkerRegistration;
 
       try {
-        registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-          scope: '/'
-        });
-        console.log('Service worker registered:', registration);
-
-        // Wait for service worker to be ready
-        await navigator.serviceWorker.ready;
-        console.log('Service worker ready');
+        // Wait for the existing service worker to be ready (from VitePWA)
+        registration = await navigator.serviceWorker.ready;
+        console.log('Service worker ready:', registration);
       } catch (swError) {
-        console.error('Service worker registration failed:', swError);
+        console.error('Service worker not available:', swError);
         return null;
       }
 
@@ -55,7 +50,7 @@ export const notificationService = {
       // Get FCM token with VAPID key from environment
       const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
       if (!vapidKey) {
-        console.error('VAPID key not configured');
+        console.log('VAPID key not configured - push notifications disabled');
         return null;
       }
 
@@ -65,10 +60,15 @@ export const notificationService = {
         serviceWorkerRegistration: registration
       });
 
-      console.log('FCM Token:', token);
+      if (token) {
+        console.log('✅ FCM Token obtained');
+      }
       return token;
-    } catch (error) {
-      console.error('Error initializing FCM:', error);
+    } catch (error: any) {
+      // Only log error if it's not a permission issue
+      if (error?.code !== 'messaging/permission-blocked') {
+        console.warn('FCM initialization skipped:', error?.message || error);
+      }
       return null;
     }
   },

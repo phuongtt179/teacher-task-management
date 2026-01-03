@@ -19,6 +19,7 @@ import {
   
   export interface NavItem {
     label: string;
+    shortLabel?: string; // For mobile bottom nav
     path: string;
     icon: any;
     roles: UserRole[];
@@ -70,20 +71,23 @@ import {
     // Teacher
     {
       label: 'Công việc của tôi',
+      shortLabel: 'Công việc',
       path: '/teacher/my-tasks',
       icon: ClipboardList,
       roles: ['teacher', 'department_head'],
     },
     {
       label: 'Điểm của tôi',
+      shortLabel: 'Điểm',
       path: '/teacher/my-scores',
       icon: Award,
       roles: ['teacher', 'department_head'],
     },
-    
+
     // Common
     {
       label: 'Bảng xếp hạng',
+      shortLabel: 'Xếp hạng',
       path: '/rankings',
       icon: Trophy,
       roles: ['admin', 'vice_principal', 'teacher', 'department_head'],

@@ -27,5 +27,8 @@ dist-ssr
 # Google Service Account Key
 google-service-account-key.json
 
+# OAuth tokens
+google-oauth-tokens.json
+
 # Uploads directory
-uploads/google-oauth-tokens.json
+uploads/

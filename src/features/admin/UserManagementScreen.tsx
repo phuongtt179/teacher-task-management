@@ -515,7 +515,7 @@ export default function UserManagementScreen() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-3 md:gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Tổng số</CardDescription>
@@ -613,13 +613,13 @@ export default function UserManagementScreen() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-3 px-4">Avatar</th>
-                    <th className="text-left py-3 px-4">Họ và tên</th>
-                    <th className="text-left py-3 px-4">Email</th>
-                    <th className="text-left py-3 px-4">Vai trò</th>
-                    <th className="text-left py-3 px-4">Trạng thái</th>
-                    <th className="text-left py-3 px-4">Ngày tạo</th>
-                    <th className="text-right py-3 px-4">Thao tác</th>
+                    <th className="text-left py-3 px-2 md:px-4 hidden sm:table-cell">Avatar</th>
+                    <th className="text-left py-3 px-2 md:px-4">Họ và tên</th>
+                    <th className="text-left py-3 px-2 md:px-4 hidden lg:table-cell">Email</th>
+                    <th className="text-left py-3 px-2 md:px-4">Vai trò</th>
+                    <th className="text-left py-3 px-2 md:px-4 hidden md:table-cell">Trạng thái</th>
+                    <th className="text-left py-3 px-2 md:px-4 hidden lg:table-cell">Ngày tạo</th>
+                    <th className="text-right py-3 px-2 md:px-4">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -632,35 +632,35 @@ export default function UserManagementScreen() {
                         setIsEditDialogOpen(true);
                       }}
                     >
-                      <td className="py-3 px-4">
-                        <Avatar>
+                      <td className="py-3 px-2 md:px-4 hidden sm:table-cell">
+                        <Avatar className="w-8 h-8 md:w-10 md:h-10">
                           <AvatarImage src={user.photoURL} />
-                          <AvatarFallback>
+                          <AvatarFallback className="text-xs md:text-sm">
                             {user.displayName.charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                       </td>
-                      <td className="py-3 px-4">
-                        <div className="font-medium">{user.displayName}</div>
+                      <td className="py-3 px-2 md:px-4">
+                        <div className="font-medium text-sm md:text-base">{user.displayName}</div>
                       </td>
-                      <td className="py-3 px-4 text-sm text-muted-foreground">
+                      <td className="py-3 px-2 md:px-4 text-xs md:text-sm text-muted-foreground hidden lg:table-cell">
                         {user.email}
                       </td>
-                      <td className="py-3 px-4">
-                        <Badge className={`${getRoleBadgeColor(user.role)} flex items-center gap-1 w-fit`}>
+                      <td className="py-3 px-2 md:px-4">
+                        <Badge className={`${getRoleBadgeColor(user.role)} flex items-center gap-1 w-fit text-xs md:text-sm`}>
                           {getRoleIcon(user.role)}
-                          {getRoleLabel(user.role)}
+                          <span className="hidden sm:inline">{getRoleLabel(user.role)}</span>
                         </Badge>
                       </td>
-                      <td className="py-3 px-4">
-                        <Badge variant={user.isActive !== false ? 'default' : 'secondary'}>
+                      <td className="py-3 px-2 md:px-4 hidden md:table-cell">
+                        <Badge variant={user.isActive !== false ? 'default' : 'secondary'} className="text-xs md:text-sm">
                           {user.isActive !== false ? 'Hoạt động' : 'Vô hiệu hóa'}
                         </Badge>
                       </td>
-                      <td className="py-3 px-4 text-sm text-muted-foreground">
+                      <td className="py-3 px-2 md:px-4 text-xs md:text-sm text-muted-foreground hidden lg:table-cell">
                         {format(user.createdAt, 'dd/MM/yyyy HH:mm')}
                       </td>
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-2 md:px-4">
                         <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>

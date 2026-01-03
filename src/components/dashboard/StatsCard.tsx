@@ -12,15 +12,17 @@ interface StatsCardProps {
     isPositive: boolean;
   };
   color?: 'blue' | 'green' | 'orange' | 'purple' | 'red';
+  onClick?: () => void;
 }
 
-export const StatsCard = ({ 
-  title, 
-  value, 
-  icon: Icon, 
+export const StatsCard = ({
+  title,
+  value,
+  icon: Icon,
   description,
   trend,
-  color = 'blue' 
+  color = 'blue',
+  onClick
 }: StatsCardProps) => {
   const colorClasses = {
     blue: 'bg-blue-50 text-blue-600',
@@ -31,7 +33,10 @@ export const StatsCard = ({
   };
 
   return (
-    <Card>
+    <Card
+      className={cn(onClick && 'cursor-pointer hover:shadow-md transition-shadow')}
+      onClick={onClick}
+    >
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div className="flex-1">
