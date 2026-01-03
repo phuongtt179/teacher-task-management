@@ -430,11 +430,8 @@ if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 
   // Handle React Router - return index.html for all non-API routes
-  app.get('*', (req, res) => {
-    // Don't serve index.html for API routes
-    if (req.path.startsWith('/api/')) {
-      return res.status(404).json({ error: 'API route not found' });
-    }
+  // Express 5 requires regex pattern instead of '*'
+  app.get(/^\/(?!api\/).*/, (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 } else {
