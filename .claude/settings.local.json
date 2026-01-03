@@ -26,7 +26,17 @@
       "Bash(ls:*)",
       "Bash(npx tsc:*)",
       "Bash(npm run build:*)",
-      "Bash(npm run build:server:*)"
+      "Bash(npm run build:server:*)",
+      "Bash(dir:*)",
+      "Bash(if [ -f \"f:/teacher-task-management/google-service-account-key.json\" ])",
+      "Bash(then rm \"f:/teacher-task-management/google-service-account-key.json\")",
+      "Bash(else echo \"⚠️  File không tồn tại hoặc đã xóa rồi\")",
+      "Bash(fi)",
+      "Bash(cat:*)",
+      "Bash(if exist nul del nul)",
+      "Bash(git restore:*)",
+      "Bash(del serverstart.js)",
+      "Bash(git reset:*)"
     ],
     "deny": [],
     "ask": []

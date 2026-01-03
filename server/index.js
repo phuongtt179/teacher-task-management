@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import dotenv from 'dotenv';
 import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials } from './oauth-config.js';
+import { sendNewTaskNotification, sendTaskScoredNotification } from './notificationService.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -412,6 +413,59 @@ app.delete('/api/files/:fileId', async (req, res) => {
     console.error('❌ Delete error:', error);
     res.status(500).json({
       error: 'Delete failed',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * Send notification endpoint
+ */
+app.post('/api/notifications/send', express.json(), async (req, res) => {
+  try {
+    const { type, task, assignedTo, userId, score } = req.body;
+
+    if (!type || !task) {
+      return res.status(400).json({
+        error: 'Missing required fields: type, task',
+      });
+    }
+
+    let result;
+    switch (type) {
+      case 'new_task':
+        if (!assignedTo || assignedTo.length === 0) {
+          return res.status(400).json({
+            error: 'assignedTo is required for new_task notifications',
+          });
+        }
+        result = await sendNewTaskNotification(task, assignedTo);
+        break;
+
+      case 'task_scored':
+        if (!userId || score === undefined) {
+          return res.status(400).json({
+            error: 'userId and score are required for task_scored notifications',
+          });
+        }
+        result = await sendTaskScoredNotification(task, userId, score);
+        break;
+
+      default:
+        return res.status(400).json({
+          error: `Invalid notification type: ${type}`,
+        });
+    }
+
+    res.json({
+      success: true,
+      message: 'Notification sent',
+      result,
+    });
+  } catch (error) {
+    console.error('❌ Notification error:', error);
+    res.status(500).json({
+      error: 'Failed to send notification',
       message: error.message,
     });
   }

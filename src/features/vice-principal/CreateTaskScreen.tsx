@@ -272,7 +272,30 @@ export const CreateTaskScreen = () => {
         taskData.descriptionPdfUrl = descriptionPdfUrl;
       }
 
-      await taskService.createTask(taskData);
+      const newTask = await taskService.createTask(taskData);
+
+      // Send push notification to assigned teachers
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        await fetch(`${API_URL}/api/notifications/send`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'new_task',
+            task: {
+              id: newTask.id,
+              title: data.title,
+              priority: data.priority,
+            },
+            assignedTo: data.assignedTo,
+          }),
+        });
+      } catch (notifError) {
+        console.error('Failed to send notification:', notifError);
+        // Don't fail the whole operation if notification fails
+      }
 
       toast({
         title: 'Thành công',

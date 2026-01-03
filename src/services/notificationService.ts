@@ -65,7 +65,8 @@ export const notificationService = {
       }
       return token;
     } catch (error: any) {
-      // Silently fail - FCM is optional, app works fine without it
+      // Log error for debugging but don't break the app
+      console.log('FCM initialization failed:', error?.message || error);
       return null;
     }
   },
