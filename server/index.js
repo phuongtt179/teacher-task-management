@@ -423,6 +423,25 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
+// Serve static files from the React app (for production)
+const distPath = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(distPath)) {
+  console.log('📦 Serving static files from:', distPath);
+  app.use(express.static(distPath));
+
+  // Handle React Router - return index.html for all non-API routes
+  app.get('*', (req, res) => {
+    // Don't serve index.html for API routes
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API route not found' });
+    }
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+} else {
+  console.log('⚠️  dist folder not found. Frontend will not be served.');
+  console.log('   Run "npm run build" to build the frontend first.');
+}
+
 // Start server
 app.listen(PORT, () => {
   console.log(`\n🚀 Server running on http://localhost:${PORT}`);
