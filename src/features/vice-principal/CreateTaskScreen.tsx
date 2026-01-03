@@ -272,7 +272,7 @@ export const CreateTaskScreen = () => {
         taskData.descriptionPdfUrl = descriptionPdfUrl;
       }
 
-      const newTask = await taskService.createTask(taskData);
+      const newTaskId = await taskService.createTask(taskData);
 
       // Send push notification to assigned teachers
       try {
@@ -285,7 +285,7 @@ export const CreateTaskScreen = () => {
           body: JSON.stringify({
             type: 'new_task',
             task: {
-              id: newTask.id,
+              id: newTaskId,
               title: data.title,
               priority: data.priority,
             },
