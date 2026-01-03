@@ -250,11 +250,11 @@ export const CreateTaskScreen = () => {
         }
       }
 
-      await taskService.createTask({
+      // Build task data, only include descriptionPdfUrl if it exists
+      const taskData: any = {
         schoolYearId: data.schoolYearId,
         title: data.title,
         description: data.description,
-        descriptionPdfUrl,
         priority: data.priority as TaskPriority,
         maxScore: data.maxScore,
         scoreDeadline1: data.scoreDeadline1,
@@ -265,7 +265,14 @@ export const CreateTaskScreen = () => {
         createdByName: user.displayName,
         assignedTo: data.assignedTo,
         assignedToNames,
-      });
+      };
+
+      // Only add descriptionPdfUrl if it was uploaded
+      if (descriptionPdfUrl) {
+        taskData.descriptionPdfUrl = descriptionPdfUrl;
+      }
+
+      await taskService.createTask(taskData);
 
       toast({
         title: 'Thành công',
