@@ -15,15 +15,9 @@ export const useServiceWorker = () => {
         }, 60 * 60 * 1000); // Check every hour
       });
 
-      // Listen for controller change (new service worker activated)
-      // Use a flag to prevent reload loops
-      let refreshing = false;
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (refreshing) return;
-        refreshing = true;
-        console.log('🔄 New Service Worker activated, reloading page...');
-        window.location.reload();
-      });
+      // DISABLED: Auto-reload on controllerchange (was causing infinite loop)
+      // VitePWA with registerType: 'autoUpdate' already handles updates
+      // Manual refresh by user is sufficient
     }
   }, []);
 };
