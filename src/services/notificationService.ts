@@ -65,10 +65,7 @@ export const notificationService = {
       }
       return token;
     } catch (error: any) {
-      // Only log error if it's not a permission issue
-      if (error?.code !== 'messaging/permission-blocked') {
-        console.warn('FCM initialization skipped:', error?.message || error);
-      }
+      // Silently fail - FCM is optional, app works fine without it
       return null;
     }
   },

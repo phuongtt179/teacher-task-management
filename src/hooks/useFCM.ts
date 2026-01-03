@@ -20,9 +20,8 @@ export const useFCM = () => {
           console.log('✅ FCM token obtained, saving to user document');
           // Save token to user document
           await notificationService.saveFCMToken(user.uid, token);
-        } else {
-          console.log('⚠️ FCM token not available (permission denied or not supported)');
         }
+        // If no token, silently continue - FCM is optional
 
         // Setup foreground message listener
         notificationService.setupForegroundListener((payload) => {
@@ -33,8 +32,7 @@ export const useFCM = () => {
           });
         });
       } catch (error) {
-        console.error('❌ Error setting up FCM:', error);
-        // Don't throw error - FCM is optional, app should continue working
+        // Silently fail - FCM is optional, app works fine without it
       }
     };
 
