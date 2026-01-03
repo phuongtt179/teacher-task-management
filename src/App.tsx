@@ -41,6 +41,7 @@ const DashboardRouter = () => {
   switch (user.role) {
     case 'admin':
       return <AdminDashboard />;
+    case 'principal':
     case 'vice_principal':
       return <VPDashboard />;
     case 'teacher':
