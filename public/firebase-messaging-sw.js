@@ -11,9 +11,13 @@ firebase.initializeApp({
     messagingSenderId: "181154252026",
     appId: "1:181154252026:web:05058c6adb95ca06de7543"
 });
-    
-// Retrieve an instance of Firebase Messaging
+
+// Retrieve an instance of Firebase Messaging with VAPID key
 const messaging = firebase.messaging();
+
+// IMPORTANT: Use the VAPID key from your Firebase project
+// This enables browser push notifications
+messaging.usePublicVapidKey('BFErgfIoPw1k1XSNK3cyzbQ-vrxUmG8rjN8WtRUYSHgf8IIbkR-0EngS5HuT3jlcV-WjcNyiZIGWjRL13WqXWD4');
 
 // Handle background messages
 messaging.onBackgroundMessage((payload) => {
