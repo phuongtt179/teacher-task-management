@@ -52,14 +52,17 @@ export const MyScoresScreen = () => {
         const scoresData: ScoreDetail[] = [];
         for (const doc of submissionsSnap.docs) {
           const submission = doc.data();
-          
+
+          // Skip if no scoredAt timestamp
+          if (!submission.scoredAt) continue;
+
           // Get task info
           const tasksQuery = query(
             collection(db, 'tasks'),
             where('__name__', '==', submission.taskId)
           );
           const tasksSnap = await getDocs(tasksQuery);
-          
+
           if (!tasksSnap.empty) {
             const task = tasksSnap.docs[0].data();
             scoresData.push({
@@ -67,7 +70,7 @@ export const MyScoresScreen = () => {
               score: submission.score,
               maxScore: task.maxScore,
               feedback: submission.feedback || '',
-              scoredAt: submission.scoredAt?.toDate(),
+              scoredAt: submission.scoredAt.toDate(),
               scoredByName: submission.scoredByName || 'N/A',
             });
           }
@@ -136,10 +139,10 @@ export const MyScoresScreen = () => {
   const config = performanceConfig[performanceLevel];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-4 md:space-y-6 p-4 md:p-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">Điểm của tôi</h2>
-        <p className="text-gray-600">Xem chi tiết thành tích và đánh giá</p>
+        <h2 className="text-xl md:text-2xl font-bold text-gray-900">Điểm của tôi</h2>
+        <p className="text-sm md:text-base text-gray-600">Xem chi tiết thành tích và đánh giá</p>
       </div>
 
       {/* Stats Overview */}
@@ -176,26 +179,26 @@ export const MyScoresScreen = () => {
 
       {/* Performance Card */}
       <Card className={`${config.bgColor} ${config.borderColor} border-2`}>
-        <CardContent className="pt-6">
+        <CardContent className="pt-4 md:pt-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 mb-1">Xếp hạng hiệu suất</p>
-              <p className={`text-3xl font-bold ${config.color}`}>{config.label}</p>
+              <p className="text-xs md:text-sm text-gray-600 mb-1">Xếp hạng hiệu suất</p>
+              <p className={`text-2xl md:text-3xl font-bold ${config.color}`}>{config.label}</p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-gray-600 mb-1">So với TB trường</p>
-              <div className="flex items-center gap-2">
-                <p className="text-2xl font-bold">{stats.averageScore}</p>
+              <p className="text-xs md:text-sm text-gray-600 mb-1">So với TB trường</p>
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <p className="text-xl md:text-2xl font-bold">{stats.averageScore}</p>
                 <span className="text-gray-400">/</span>
-                <p className="text-lg text-gray-600">{schoolAverage}</p>
+                <p className="text-base md:text-lg text-gray-600">{schoolAverage}</p>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <div className="flex items-center gap-2">
-              <TrendingUp className={`w-5 h-5 ${config.color}`} />
-              <p className="text-sm text-gray-700">
+          <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-gray-200">
+            <div className="flex items-start gap-2">
+              <TrendingUp className={`w-4 h-4 md:w-5 md:h-5 ${config.color} flex-shrink-0 mt-0.5`} />
+              <p className="text-xs md:text-sm text-gray-700 leading-relaxed">
                 {performanceLevel === 'excellent' && `Bạn đang đạt thành tích xuất sắc, cao hơn ${(stats.averageScore - schoolAverage).toFixed(1)} điểm so với trung bình!`}
                 {performanceLevel === 'good' && 'Bạn đang duy trì phong độ tốt, ngang bằng với mức trung bình!'}
                 {performanceLevel === 'average' && 'Tiếp tục cố gắng để đạt kết quả tốt hơn!'}
@@ -218,33 +221,33 @@ export const MyScoresScreen = () => {
               <p>Chưa có điểm nào</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3 md:space-y-4">
               {scores.map((score, index) => (
-                <div key={index} className="border rounded-lg p-4 hover:bg-gray-50">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900">{score.taskTitle}</h4>
-                      <p className="text-sm text-gray-500 mt-1">
+                <div key={index} className="border rounded-lg p-3 md:p-4 hover:bg-gray-50">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-sm md:text-base text-gray-900 truncate">{score.taskTitle}</h4>
+                      <p className="text-xs md:text-sm text-gray-500 mt-1 truncate">
                         Chấm bởi {score.scoredByName} • {format(score.scoredAt, 'dd/MM/yyyy HH:mm', { locale: vi })}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-3xl font-bold text-indigo-600">
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-2xl md:text-3xl font-bold text-indigo-600">
                         {score.score}
                       </p>
-                      <p className="text-sm text-gray-500">/ {score.maxScore}</p>
+                      <p className="text-xs md:text-sm text-gray-500">/ {score.maxScore}</p>
                     </div>
                   </div>
 
                   {score.feedback && (
-                    <div className="mt-3 p-3 bg-gray-50 rounded">
-                      <p className="text-sm font-medium text-gray-700 mb-1">Nhận xét:</p>
-                      <p className="text-sm text-gray-600">{score.feedback}</p>
+                    <div className="mt-2 md:mt-3 p-2 md:p-3 bg-gray-50 rounded">
+                      <p className="text-xs md:text-sm font-medium text-gray-700 mb-1">Nhận xét:</p>
+                      <p className="text-xs md:text-sm text-gray-600">{score.feedback}</p>
                     </div>
                   )}
 
                   {/* Score visualization */}
-                  <div className="mt-3">
+                  <div className="mt-2 md:mt-3">
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full ${
