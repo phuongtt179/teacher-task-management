@@ -1,30 +1,85 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { analyticsService } from '../../services/analyticsService';
+import { schoolYearService } from '../../services/schoolYearService';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { QuickAction } from '../../components/dashboard/QuickAction';
-import { 
-  ClipboardList, 
-  Users, 
-  CheckCircle, 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SemesterFilter, SEMESTER_FILTER_LABELS } from '../../utils/semesterUtils';
+import { SchoolYear } from '../../types';
+import {
+  ClipboardList,
+  Users,
+  CheckCircle,
   Clock,
   Plus,
   BarChart3,
-  Award
+  Award,
+  Calendar
 } from 'lucide-react';
 
 export const VPDashboard = () => {
   const { user } = useAuth();
   const [stats, setStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
+  const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
 
+  // Load school years and set initial filters
   useEffect(() => {
-    const loadStats = async () => {
+    const loadData = async () => {
       if (!user) return;
 
       try {
         setIsLoading(true);
-        const data = await analyticsService.getVPStats(user.uid);
+
+        // Load school years and active year
+        const [years, activeYear] = await Promise.all([
+          schoolYearService.getAllSchoolYears(),
+          schoolYearService.getActiveSchoolYear(),
+        ]);
+
+        setSchoolYears(years);
+
+        // Set initial filters based on active year
+        let initialSchoolYearId = 'all';
+        let initialSemester: SemesterFilter = 'all';
+
+        if (activeYear) {
+          initialSchoolYearId = activeYear.id;
+          if (activeYear.activeSemester) {
+            initialSemester = activeYear.activeSemester as SemesterFilter;
+          }
+        }
+
+        setSelectedSchoolYearId(initialSchoolYearId);
+        setSelectedSemester(initialSemester);
+
+        // Load stats with initial filters
+        const semesterParam = (initialSemester === 'all' || initialSemester === 'unassigned') ? 'all' : initialSemester;
+        const data = await analyticsService.getVPStats(user.uid, semesterParam, initialSchoolYearId);
+        setStats(data);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [user]);
+
+  // Reload stats when filters change (but not on initial load)
+  useEffect(() => {
+    // Skip if initial load hasn't completed (selectedSchoolYearId is still empty)
+    if (!user || selectedSchoolYearId === '') return;
+
+    const loadStats = async () => {
+      try {
+        setIsLoading(true);
+        const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
+        const data = await analyticsService.getVPStats(user.uid, semesterParam, selectedSchoolYearId);
         setStats(data);
       } catch (error) {
         console.error('Error loading stats:', error);
@@ -34,7 +89,7 @@ export const VPDashboard = () => {
     };
 
     loadStats();
-  }, [user]);
+  }, [selectedSemester, selectedSchoolYearId]);
 
   if (isLoading) {
     return (
@@ -46,9 +101,40 @@ export const VPDashboard = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Dashboard Hiệu trưởng</h2>
-        <p className="text-gray-600">Quản lý và theo dõi công việc</p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Dashboard Hiệu trưởng</h2>
+          <p className="text-gray-600">Quản lý và theo dõi công việc</p>
+        </div>
+
+        {/* Year and Semester Filters */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Select value={selectedSchoolYearId} onValueChange={setSelectedSchoolYearId}>
+            <SelectTrigger className="w-full sm:w-48">
+              <Calendar className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Chọn năm học" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả năm học</SelectItem>
+              {schoolYears.map((year) => (
+                <SelectItem key={year.id} value={year.id}>
+                  {year.name} {year.isActive && '(Hiện tại)'}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={selectedSemester} onValueChange={(value) => setSelectedSemester(value as SemesterFilter)}>
+            <SelectTrigger className="w-full sm:w-40">
+              <SelectValue placeholder="Chọn học kỳ" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{SEMESTER_FILTER_LABELS.all}</SelectItem>
+              <SelectItem value="HK1">{SEMESTER_FILTER_LABELS.HK1}</SelectItem>
+              <SelectItem value="HK2">{SEMESTER_FILTER_LABELS.HK2}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Stats Grid */}

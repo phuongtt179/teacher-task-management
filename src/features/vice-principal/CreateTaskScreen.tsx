@@ -20,9 +20,11 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Sparkles, TrendingUp, AlertCircle, Upload, FileText, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { TaskPriority, SchoolYear } from '../../types';
+import { Semester, SEMESTER_LABELS, getActiveSemester } from '../../utils/semesterUtils';
 
 const taskSchema = z.object({
   schoolYearId: z.string().min(1, 'Vui lòng chọn năm học'),
+  semester: z.enum(['HK1', 'HK2']),
   title: z.string().min(5, 'Tiêu đề phải có ít nhất 5 ký tự'),
   description: z.string().min(10, 'Mô tả phải có ít nhất 10 ký tự'),
   priority: z.enum(['low', 'medium', 'high']),
@@ -48,6 +50,7 @@ export const CreateTaskScreen = () => {
   const [selectedTeachers, setSelectedTeachers] = useState<string[]>([]);
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
+  const [selectedSemester, setSelectedSemester] = useState<Semester>('HK1');
   const [descriptionPdf, setDescriptionPdf] = useState<File | null>(null);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
@@ -61,6 +64,7 @@ export const CreateTaskScreen = () => {
     resolver: zodResolver(taskSchema),
     defaultValues: {
       schoolYearId: '',
+      semester: 'HK1',
       priority: 'medium',
       maxScore: 10,
       scoreDeadline1: 10,
@@ -108,6 +112,12 @@ export const CreateTaskScreen = () => {
         if (activeYear) {
           setSelectedSchoolYearId(activeYear.id);
           setValue('schoolYearId', activeYear.id, { shouldValidate: true });
+
+          // Default to active semester (set by admin)
+          if (activeYear.activeSemester) {
+            setSelectedSemester(activeYear.activeSemester);
+            setValue('semester', activeYear.activeSemester, { shouldValidate: true });
+          }
         }
       } catch (error) {
         toast({
@@ -253,6 +263,7 @@ export const CreateTaskScreen = () => {
       // Build task data, only include descriptionPdfUrl if it exists
       const taskData: any = {
         schoolYearId: data.schoolYearId,
+        semester: data.semester,
         title: data.title,
         description: data.description,
         priority: data.priority as TaskPriority,
@@ -385,6 +396,29 @@ export const CreateTaskScreen = () => {
                   </Select>
                   {errors.schoolYearId && (
                     <p className="text-sm text-red-600">{errors.schoolYearId.message}</p>
+                  )}
+                </div>
+
+                {/* Semester */}
+                <div className="space-y-2">
+                  <Label htmlFor="semester">Học kỳ *</Label>
+                  <Select
+                    value={selectedSemester}
+                    onValueChange={(value) => {
+                      setSelectedSemester(value as Semester);
+                      setValue('semester', value as Semester);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Chọn học kỳ" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="HK1">{SEMESTER_LABELS.HK1}</SelectItem>
+                      <SelectItem value="HK2">{SEMESTER_LABELS.HK2}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {errors.semester && (
+                    <p className="text-sm text-red-600">{errors.semester.message}</p>
                   )}
                 </div>
 

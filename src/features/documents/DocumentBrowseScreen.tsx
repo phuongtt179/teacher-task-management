@@ -341,6 +341,12 @@ export function DocumentBrowseScreen() {
   };
 
   const handleUpload = async () => {
+    console.log('🚀 handleUpload called');
+    console.log('📝 documentTitle:', documentTitle);
+    console.log('📁 selectedFiles:', selectedFiles);
+    console.log('📅 selectedYearId:', selectedYearId);
+    console.log('📂 selectedCategoryId:', selectedCategoryId);
+
     if (!documentTitle.trim()) {
       toast({
         title: 'Lỗi',
@@ -1526,40 +1532,40 @@ export function DocumentBrowseScreen() {
       {/* Upload Dialog */}
       {showUploadDialog && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
           onClick={() => setShowUploadDialog(false)}
         >
           <div
-            className="bg-white rounded-lg p-6 w-full max-w-md"
+            className="bg-white rounded-lg p-4 md:p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-xl font-bold mb-4">
+            <h2 className="text-lg md:text-xl font-bold mb-3 md:mb-4">
               {editingDocument ? 'Chỉnh sửa hồ sơ' : 'Thêm hồ sơ'}
             </h2>
 
-            <div className="space-y-4">
+            <div className="space-y-3 md:space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="block text-xs md:text-sm font-medium mb-1.5 md:mb-2">
                   Tên hồ sơ <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={documentTitle}
                   onChange={(e) => setDocumentTitle(e.target.value)}
-                  placeholder="VD: Kế hoạch môn học tuần 1, Kế hoạch giáo dục..."
-                  className="w-full border rounded px-3 py-2"
+                  placeholder="VD: Kế hoạch tuần 1..."
+                  className="w-full border rounded px-2.5 md:px-3 py-2 text-sm md:text-base"
                 />
               </div>
 
               {/* Existing Files (Edit Mode Only) */}
               {editingDocument && existingFiles.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="block text-xs md:text-sm font-medium mb-1.5 md:mb-2">
                     File hiện tại ({existingFiles.length})
                   </label>
-                  <div className="border rounded p-3 bg-gray-50 space-y-2 max-h-40 overflow-y-auto">
+                  <div className="border rounded p-2 md:p-3 bg-gray-50 space-y-1.5 md:space-y-2 max-h-32 md:max-h-40 overflow-y-auto">
                     {existingFiles.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between text-sm bg-white rounded px-2 py-1">
+                      <div key={index} className="flex items-center justify-between text-xs md:text-sm bg-white rounded px-2 py-1">
                         <span className="flex-1 truncate">
                           📄 {file.name} ({formatFileSize(file.size)})
                         </span>
@@ -1568,7 +1574,7 @@ export function DocumentBrowseScreen() {
                           onClick={() => removeExistingFile(file.driveFileId)}
                           className="ml-2 text-red-600 hover:text-red-800"
                         >
-                          <X className="h-4 w-4" />
+                          <X className="h-3.5 w-3.5 md:h-4 md:w-4" />
                         </button>
                       </div>
                     ))}
@@ -1577,38 +1583,38 @@ export function DocumentBrowseScreen() {
               )}
 
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="block text-xs md:text-sm font-medium mb-1.5 md:mb-2">
                   {editingDocument ? 'Thêm file mới (tùy chọn)' : 'Chọn file'} {!editingDocument && <span className="text-red-500">*</span>}
                 </label>
                 <input
                   type="file"
                   multiple
                   onChange={handleFileChange}
-                  className="w-full border rounded px-3 py-2"
+                  className="w-full border rounded px-2.5 md:px-3 py-2 text-xs md:text-sm"
                   accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.txt"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Có thể chọn nhiều file (tối đa 20 files). Định dạng: PDF, Word, Excel, PowerPoint, Ảnh
+                <p className="text-[10px] md:text-xs text-gray-500 mt-1">
+                  Tối đa 20 files. Định dạng: PDF, Word, Excel, PowerPoint, Ảnh
                 </p>
 
                 {selectedFiles.length > 0 && (
-                  <div className="mt-3 border rounded p-3 bg-gray-50">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium">
+                  <div className="mt-2 md:mt-3 border rounded p-2 md:p-3 bg-gray-50">
+                    <div className="flex items-center justify-between mb-1.5 md:mb-2">
+                      <p className="text-xs md:text-sm font-medium">
                         Đã chọn: {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''}
                       </p>
                       <button
                         type="button"
                         onClick={() => setSelectedFiles([])}
-                        className="text-xs text-red-600 hover:text-red-800"
+                        className="text-[10px] md:text-xs text-red-600 hover:text-red-800"
                       >
                         Xóa tất cả
                       </button>
                     </div>
-                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                    <div className="space-y-1 max-h-32 md:max-h-40 overflow-y-auto">
                       {selectedFiles.map((file, index) => (
-                        <div key={index} className="flex items-center justify-between text-sm bg-white rounded px-2 py-1">
-                          <span className="flex-1 truncate">
+                        <div key={index} className="flex items-center justify-between text-xs md:text-sm bg-white rounded px-2 py-1">
+                          <span className="flex-1 truncate text-[10px] md:text-xs">
                             📄 {file.name} ({formatFileSize(file.size)})
                           </span>
                           <button
@@ -1616,7 +1622,7 @@ export function DocumentBrowseScreen() {
                             onClick={() => {
                               setSelectedFiles(selectedFiles.filter((_, i) => i !== index));
                             }}
-                            className="ml-2 text-red-600 hover:text-red-800 text-xs"
+                            className="ml-2 text-red-600 hover:text-red-800 text-xs flex-shrink-0"
                           >
                             ✕
                           </button>
@@ -1646,7 +1652,7 @@ export function DocumentBrowseScreen() {
                           };
                           input.click();
                         }}
-                        className="mt-2 w-full text-sm text-blue-600 hover:text-blue-800 border border-dashed border-blue-300 rounded py-2 hover:bg-blue-50"
+                        className="mt-2 w-full text-xs md:text-sm text-blue-600 hover:text-blue-800 border border-dashed border-blue-300 rounded py-1.5 md:py-2 hover:bg-blue-50"
                       >
                         + Thêm file khác
                       </button>
@@ -1655,9 +1661,9 @@ export function DocumentBrowseScreen() {
                 )}
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
-                <p>
-                  <strong>Lưu ý:</strong> Hồ sơ của bạn sẽ được tải lên vào danh mục{' '}
+              <div className="bg-blue-50 border border-blue-200 rounded p-2 md:p-3 text-[10px] md:text-sm text-blue-800">
+                <p className="leading-relaxed">
+                  <strong>Lưu ý:</strong> Hồ sơ sẽ được tải lên vào{' '}
                   <strong>{categories.find(c => c.id === selectedCategoryId)?.name}</strong>
                   {selectedSubCategoryId && (
                     <>
@@ -1667,7 +1673,7 @@ export function DocumentBrowseScreen() {
                   )}
                 </p>
                 {(user?.role === 'teacher' || user?.role === 'department_head') && (
-                  <p className="mt-2">
+                  <p className="mt-1.5 md:mt-2 leading-relaxed">
                     Hồ sơ sẽ ở trạng thái <strong>chờ duyệt</strong> cho đến khi được Admin/Hiệu trưởng phê duyệt.
                   </p>
                 )}
@@ -1675,8 +1681,8 @@ export function DocumentBrowseScreen() {
 
               {/* Upload Progress */}
               {uploading && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
+                <div className="space-y-1.5 md:space-y-2">
+                  <div className="flex items-center justify-between text-xs md:text-sm">
                     <span className="text-gray-700">Đang tải lên...</span>
                     <span className="text-gray-600">{Math.round(uploadProgress)}%</span>
                   </div>
@@ -1690,7 +1696,7 @@ export function DocumentBrowseScreen() {
               )}
             </div>
 
-            <div className="flex gap-2 mt-6">
+            <div className="flex gap-2 mt-4 md:mt-6">
               <Button
                 onClick={editingDocument ? handleEditSubmit : handleUpload}
                 disabled={
@@ -1698,16 +1704,17 @@ export function DocumentBrowseScreen() {
                   (editingDocument ? false : selectedFiles.length === 0) ||
                   uploading
                 }
-                className="flex-1"
+                className="flex-1 text-xs md:text-sm h-9 md:h-10"
+                size="sm"
               >
                 {editingDocument ? (
                   <>
-                    <Pencil className="h-4 w-4 mr-2" />
+                    <Pencil className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
                     {uploading ? 'Đang cập nhật...' : 'Cập nhật'}
                   </>
                 ) : (
                   <>
-                    <UploadIcon className="h-4 w-4 mr-2" />
+                    <UploadIcon className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
                     {uploading ? 'Đang tải lên...' : 'Tải lên'}
                   </>
                 )}
@@ -1722,7 +1729,8 @@ export function DocumentBrowseScreen() {
                   setRemovedFileIds([]);
                 }}
                 variant="outline"
-                className="flex-1"
+                className="flex-1 text-xs md:text-sm h-9 md:h-10"
+                size="sm"
                 disabled={uploading}
               >
                 Hủy

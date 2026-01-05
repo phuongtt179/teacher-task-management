@@ -43,15 +43,15 @@ export interface SchoolStats {
 
 export const analyticsService = {
   // Get stats for a specific teacher
-  async getTeacherStats(teacherId: string): Promise<TeacherStats | null> {
+  async getTeacherStats(teacherId: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<TeacherStats | null> {
     try {
       // Get user info
       const usersSnap = await getDocs(
         query(collection(db, 'users'), where('__name__', '==', teacherId))
       );
-      
+
       if (usersSnap.empty) return null;
-      
+
       const userData = usersSnap.docs[0].data();
 
       // Get tasks assigned to teacher
@@ -60,10 +60,20 @@ export const analyticsService = {
         where('assignedTo', 'array-contains', teacherId)
       );
       const tasksSnap = await getDocs(tasksQuery);
-      const tasks = tasksSnap.docs.map(doc => ({
+      let tasks = tasksSnap.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       } as Task));
+
+      // Filter tasks by school year (client-side)
+      if (schoolYearId && schoolYearId !== 'all') {
+        tasks = tasks.filter(t => t.schoolYearId === schoolYearId);
+      }
+
+      // Filter tasks by semester (client-side)
+      if (semesterFilter && semesterFilter !== 'all') {
+        tasks = tasks.filter(t => t.semester === semesterFilter);
+      }
 
       // Get submissions and scores
       const submissionsQuery = query(
@@ -71,10 +81,15 @@ export const analyticsService = {
         where('teacherId', '==', teacherId)
       );
       const submissionsSnap = await getDocs(submissionsQuery);
-      const submissions = submissionsSnap.docs.map(doc => ({
+      let submissions = submissionsSnap.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       } as Submission));
+
+      // Filter submissions by semester (client-side)
+      if (semesterFilter && semesterFilter !== 'all') {
+        submissions = submissions.filter(s => s.semester === semesterFilter);
+      }
 
       // Calculate stats
       const completedTasks = tasks.filter(t => t.status === 'completed').length;
@@ -128,7 +143,7 @@ export const analyticsService = {
   },
 
   // Get stats for all teachers and department heads
-  async getAllTeachersStats(): Promise<TeacherStats[]> {
+  async getAllTeachersStats(semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<TeacherStats[]> {
     try {
       const teachersQuery = query(
         collection(db, 'users'),
@@ -137,7 +152,7 @@ export const analyticsService = {
       const teachersSnap = await getDocs(teachersQuery);
 
       const statsPromises = teachersSnap.docs.map(doc =>
-        this.getTeacherStats(doc.id)
+        this.getTeacherStats(doc.id, semesterFilter, schoolYearId)
       );
 
       const stats = await Promise.all(statsPromises);
@@ -149,9 +164,9 @@ export const analyticsService = {
   },
 
   // Get school-wide statistics
-  async getSchoolStats(): Promise<SchoolStats> {
+  async getSchoolStats(semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<SchoolStats> {
     try {
-      const teachersStats = await this.getAllTeachersStats();
+      const teachersStats = await this.getAllTeachersStats(semesterFilter, schoolYearId);
 
       const totalTeachers = teachersStats.length;
       const totalTasks = teachersStats.reduce((sum, t) => sum + t.totalTasks, 0);
@@ -206,7 +221,7 @@ export const analyticsService = {
   },
 
   // Get VP statistics
-  async getVPStats(vpUid: string) {
+  async getVPStats(vpUid: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string) {
     try {
       // Get tasks created by VP
       const tasksQuery = query(
@@ -214,15 +229,25 @@ export const analyticsService = {
         where('createdBy', '==', vpUid)
       );
       const tasksSnap = await getDocs(tasksQuery);
-      const tasks = tasksSnap.docs.map(doc => ({
+      let tasks = tasksSnap.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       } as Task));
 
+      // Filter tasks by school year (client-side)
+      if (schoolYearId && schoolYearId !== 'all') {
+        tasks = tasks.filter(t => t.schoolYearId === schoolYearId);
+      }
+
+      // Filter tasks by semester (client-side)
+      if (semesterFilter && semesterFilter !== 'all') {
+        tasks = tasks.filter(t => t.semester === semesterFilter);
+      }
+
       // Get all submissions for these tasks
       const taskIds = tasks.map(t => t.id);
-      const allSubmissions: Submission[] = [];
-      
+      let allSubmissions: Submission[] = [];
+
       for (const taskId of taskIds) {
         const submissionsQuery = query(
           collection(db, 'submissions'),
@@ -234,6 +259,11 @@ export const analyticsService = {
           ...doc.data()
         } as Submission));
         allSubmissions.push(...submissionsData);
+      }
+
+      // Filter submissions by semester (client-side)
+      if (semesterFilter && semesterFilter !== 'all') {
+        allSubmissions = allSubmissions.filter(s => s.semester === semesterFilter);
       }
 
       // Calculate stats

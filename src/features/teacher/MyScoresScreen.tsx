@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { analyticsService, TeacherStats } from '../../services/analyticsService';
+import { schoolYearService } from '../../services/schoolYearService';
+import { SemesterFilter, SEMESTER_FILTER_LABELS, getActiveSemester } from '../../utils/semesterUtils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +11,7 @@ import { StatsCard } from '../../components/dashboard/StatsCard';
 import { Award, TrendingUp, Target, CheckCircle, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
+import { SchoolYear } from '../../types';
 
 interface ScoreDetail {
   taskTitle: string;
@@ -24,7 +28,11 @@ export const MyScoresScreen = () => {
   const [schoolAverage, setSchoolAverage] = useState(0);
   const [scores, setScores] = useState<ScoreDetail[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
+  const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
 
+  // Load school years and initial data
   useEffect(() => {
     const loadData = async () => {
       if (!user) return;
@@ -32,16 +40,39 @@ export const MyScoresScreen = () => {
       try {
         setIsLoading(true);
 
-        // Get teacher stats
+        // Load school years and active year
+        const [years, activeYear] = await Promise.all([
+          schoolYearService.getAllSchoolYears(),
+          schoolYearService.getActiveSchoolYear(),
+        ]);
+
+        setSchoolYears(years);
+
+        // Set initial filters based on active year
+        let initialSchoolYearId = 'all';
+        let initialSemester: SemesterFilter = 'all';
+
+        if (activeYear) {
+          initialSchoolYearId = activeYear.id;
+          if (activeYear.activeSemester) {
+            initialSemester = activeYear.activeSemester as SemesterFilter;
+          }
+        }
+
+        setSelectedSchoolYearId(initialSchoolYearId);
+        setSelectedSemester(initialSemester);
+
+        // Get teacher stats with initial filters
+        const semesterParam = (initialSemester === 'all' || initialSemester === 'unassigned') ? 'all' : initialSemester;
         const [teacherStats, schoolStats] = await Promise.all([
-          analyticsService.getTeacherStats(user.uid),
-          analyticsService.getSchoolStats(),
+          analyticsService.getTeacherStats(user.uid, semesterParam, initialSchoolYearId),
+          analyticsService.getSchoolStats(semesterParam, initialSchoolYearId),
         ]);
 
         setStats(teacherStats);
         setSchoolAverage(schoolStats.averageScore);
 
-        // Get detailed scores
+        // Get detailed scores with initial filters
         const submissionsQuery = query(
           collection(db, 'submissions'),
           where('teacherId', '==', user.uid),
@@ -56,6 +87,12 @@ export const MyScoresScreen = () => {
           // Skip if no scoredAt timestamp
           if (!submission.scoredAt) continue;
 
+          // Filter by semester (client-side)
+          if (initialSemester !== 'all') {
+            if (initialSemester === 'unassigned' && submission.semester) continue;
+            if (initialSemester !== 'unassigned' && submission.semester !== initialSemester) continue;
+          }
+
           // Get task info
           const tasksQuery = query(
             collection(db, 'tasks'),
@@ -65,6 +102,89 @@ export const MyScoresScreen = () => {
 
           if (!tasksSnap.empty) {
             const task = tasksSnap.docs[0].data();
+
+            // Filter by school year (client-side)
+            if (initialSchoolYearId !== 'all' && task.schoolYearId !== initialSchoolYearId) {
+              continue;
+            }
+
+            scoresData.push({
+              taskTitle: task.title,
+              score: submission.score,
+              maxScore: task.maxScore,
+              feedback: submission.feedback || '',
+              scoredAt: submission.scoredAt.toDate(),
+              scoredByName: submission.scoredByName || 'N/A',
+            });
+          }
+        }
+
+        setScores(scoresData.sort((a, b) => b.scoredAt.getTime() - a.scoredAt.getTime()));
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [user]);
+
+  // Reload data when filters change (but not on initial load)
+  useEffect(() => {
+    // Skip if initial load hasn't completed (selectedSchoolYearId is still empty)
+    if (!user || selectedSchoolYearId === '') return;
+
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+
+        // Get teacher stats with filters
+        const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
+        const [teacherStats, schoolStats] = await Promise.all([
+          analyticsService.getTeacherStats(user.uid, semesterParam, selectedSchoolYearId),
+          analyticsService.getSchoolStats(semesterParam, selectedSchoolYearId),
+        ]);
+
+        setStats(teacherStats);
+        setSchoolAverage(schoolStats.averageScore);
+
+        // Get detailed scores with filters
+        const submissionsQuery = query(
+          collection(db, 'submissions'),
+          where('teacherId', '==', user.uid),
+          where('score', '!=', null)
+        );
+        const submissionsSnap = await getDocs(submissionsQuery);
+
+        const scoresData: ScoreDetail[] = [];
+        for (const doc of submissionsSnap.docs) {
+          const submission = doc.data();
+
+          // Skip if no scoredAt timestamp
+          if (!submission.scoredAt) continue;
+
+          // Filter by semester (client-side)
+          if (selectedSemester !== 'all') {
+            if (selectedSemester === 'unassigned' && submission.semester) continue;
+            if (selectedSemester !== 'unassigned' && submission.semester !== selectedSemester) continue;
+          }
+
+          // Get task info
+          const tasksQuery = query(
+            collection(db, 'tasks'),
+            where('__name__', '==', submission.taskId)
+          );
+          const tasksSnap = await getDocs(tasksQuery);
+
+          if (!tasksSnap.empty) {
+            const task = tasksSnap.docs[0].data();
+
+            // Filter by school year (client-side)
+            if (selectedSchoolYearId !== 'all' && task.schoolYearId !== selectedSchoolYearId) {
+              continue;
+            }
+
             scoresData.push({
               taskTitle: task.title,
               score: submission.score,
@@ -85,7 +205,7 @@ export const MyScoresScreen = () => {
     };
 
     loadData();
-  }, [user]);
+  }, [selectedSemester, selectedSchoolYearId]);
 
   if (isLoading) {
     return (
@@ -140,9 +260,40 @@ export const MyScoresScreen = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4 md:space-y-6 p-4 md:p-6">
-      <div>
-        <h2 className="text-xl md:text-2xl font-bold text-gray-900">Điểm của tôi</h2>
-        <p className="text-sm md:text-base text-gray-600">Xem chi tiết thành tích và đánh giá</p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900">Điểm của tôi</h2>
+          <p className="text-sm md:text-base text-gray-600">Xem chi tiết thành tích và đánh giá</p>
+        </div>
+
+        {/* Year and Semester Filters */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Select value={selectedSchoolYearId} onValueChange={setSelectedSchoolYearId}>
+            <SelectTrigger className="w-full sm:w-48">
+              <Calendar className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Chọn năm học" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả năm học</SelectItem>
+              {schoolYears.map((year) => (
+                <SelectItem key={year.id} value={year.id}>
+                  {year.name} {year.isActive && '(Hiện tại)'}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={selectedSemester} onValueChange={(value) => setSelectedSemester(value as SemesterFilter)}>
+            <SelectTrigger className="w-full sm:w-40">
+              <SelectValue placeholder="Chọn học kỳ" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{SEMESTER_FILTER_LABELS.all}</SelectItem>
+              <SelectItem value="HK1">{SEMESTER_FILTER_LABELS.HK1}</SelectItem>
+              <SelectItem value="HK2">{SEMESTER_FILTER_LABELS.HK2}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Stats Overview */}

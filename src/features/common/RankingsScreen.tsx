@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { rankingService, AnonymousRanking, RankingPeriod, RankingType } from '../../services/rankingService';
 import { useAuth } from '../../hooks/useAuth';
+import { SemesterFilter, SEMESTER_FILTER_LABELS } from '../../utils/semesterUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -12,13 +13,15 @@ export const RankingsScreen = () => {
   const [rankings, setRankings] = useState<AnonymousRanking[]>([]);
   const [period, setPeriod] = useState<RankingPeriod>('all_time');
   const [rankBy, setRankBy] = useState<RankingType>('total_score');
+  const [semesterFilter, setSemesterFilter] = useState<SemesterFilter>('all');
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadRankings = async () => {
       try {
         setIsLoading(true);
-        const data = await rankingService.getRankings(period, rankBy, user?.uid, user?.role);
+        const semesterParam = semesterFilter === 'all' || semesterFilter === 'unassigned' ? 'all' : semesterFilter;
+        const data = await rankingService.getRankings(period, rankBy, semesterParam, user?.uid, user?.role);
         setRankings(data);
       } catch (error) {
         console.error('Error loading rankings:', error);
@@ -28,7 +31,7 @@ export const RankingsScreen = () => {
     };
 
     loadRankings();
-  }, [period, rankBy, user]);
+  }, [period, rankBy, semesterFilter, user]);
 
   const getMedalIcon = (rank: number) => {
     switch (rank) {
@@ -150,6 +153,22 @@ export const RankingsScreen = () => {
                     <SelectItem value="total_score">Tổng điểm</SelectItem>
                     <SelectItem value="average_score">Điểm trung bình</SelectItem>
                     <SelectItem value="completion_rate">Tỷ lệ hoàn thành</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex-1">
+                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                  Học kỳ
+                </label>
+                <Select value={semesterFilter} onValueChange={(value) => setSemesterFilter(value as SemesterFilter)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{SEMESTER_FILTER_LABELS.all}</SelectItem>
+                    <SelectItem value="HK1">{SEMESTER_FILTER_LABELS.HK1}</SelectItem>
+                    <SelectItem value="HK2">{SEMESTER_FILTER_LABELS.HK2}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

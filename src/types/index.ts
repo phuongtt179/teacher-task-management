@@ -32,6 +32,7 @@ export type TaskPriority = 'low' | 'medium' | 'high';
 export interface Task {
   id: string;
   schoolYearId: string; // Năm học
+  semester?: 'HK1' | 'HK2'; // Học kì - optional for backward compatibility
   title: string;
   description: string;
   descriptionPdfUrl?: string; // URL của file PDF mô tả (Google Drive)
@@ -54,6 +55,7 @@ export interface Task {
 export interface Submission {
   id: string;
   taskId: string;
+  semester?: 'HK1' | 'HK2'; // Học kì - denormalized for analytics performance
   teacherId: string;
   teacherName: string;
   content: string; // Nội dung báo cáo
@@ -114,6 +116,7 @@ export interface SchoolYear {
   startDate: Date;
   endDate: Date;
   isActive: boolean;
+  activeSemester?: 'HK1' | 'HK2'; // Học kỳ đang active do admin thiết lập
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;

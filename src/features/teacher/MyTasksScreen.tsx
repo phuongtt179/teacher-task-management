@@ -5,6 +5,7 @@ import { schoolYearService } from '../../services/schoolYearService';
 import { useAuth } from '../../hooks/useAuth';
 import { Task, TaskStatus, SchoolYear, Submission } from '../../types';
 import { TaskCard } from '../../components/tasks/TaskCard';
+import { SemesterFilter, SEMESTER_FILTER_LABELS } from '../../utils/semesterUtils';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, Filter, Calendar, Clock, ChevronRight, AlertTriangle } from 'lucide-react';
@@ -28,6 +29,7 @@ export const MyTasksScreen = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('all');
+  const [semesterFilter, setSemesterFilter] = useState<SemesterFilter>('all');
 
   useEffect(() => {
     const loadData = async () => {
@@ -122,6 +124,15 @@ export const MyTasksScreen = () => {
       filtered = filtered.filter((task) => task.schoolYearId === selectedSchoolYearId);
     }
 
+    // Semester filter
+    if (semesterFilter !== 'all') {
+      if (semesterFilter === 'unassigned') {
+        filtered = filtered.filter((task) => !task.semester);
+      } else {
+        filtered = filtered.filter((task) => task.semester === semesterFilter);
+      }
+    }
+
     if (searchQuery) {
       filtered = filtered.filter(
         (task) =>
@@ -135,7 +146,7 @@ export const MyTasksScreen = () => {
     }
 
     setFilteredTasks(filtered);
-  }, [tasks, searchQuery, statusFilter, selectedSchoolYearId]);
+  }, [tasks, searchQuery, statusFilter, selectedSchoolYearId, semesterFilter]);
 
   const getStatusBadge = (status: TaskStatus) => {
     switch (status) {
@@ -210,6 +221,19 @@ export const MyTasksScreen = () => {
                 {year.name} {year.isActive && '(Hiện tại)'}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={semesterFilter} onValueChange={(value) => setSemesterFilter(value as SemesterFilter)}>
+          <SelectTrigger className="w-full md:w-56">
+            <Calendar className="w-4 h-4 mr-2" />
+            <SelectValue placeholder="Học kỳ" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{SEMESTER_FILTER_LABELS.all}</SelectItem>
+            <SelectItem value="HK1">{SEMESTER_FILTER_LABELS.HK1}</SelectItem>
+            <SelectItem value="HK2">{SEMESTER_FILTER_LABELS.HK2}</SelectItem>
+            <SelectItem value="unassigned">{SEMESTER_FILTER_LABELS.unassigned}</SelectItem>
           </SelectContent>
         </Select>
 

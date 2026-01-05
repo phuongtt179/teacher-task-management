@@ -6,6 +6,7 @@ import { documentTypeService } from '@/services/documentTypeService';
 import { departmentService } from '@/services/departmentService';
 import { userService } from '@/services/userService';
 import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentType, User } from '@/types';
+import { Semester, SEMESTER_LABELS } from '@/utils/semesterUtils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -27,6 +28,7 @@ export function DocumentConfigScreen() {
   const [yearStartDate, setYearStartDate] = useState('');
   const [yearEndDate, setYearEndDate] = useState('');
   const [yearIsActive, setYearIsActive] = useState(false);
+  const [yearActiveSemester, setYearActiveSemester] = useState<Semester | ''>('');
 
   // Categories
   const [categories, setCategories] = useState<DocumentCategory[]>([]);
@@ -206,6 +208,7 @@ export function DocumentConfigScreen() {
       setYearStartDate(year.startDate.toISOString().split('T')[0]);
       setYearEndDate(year.endDate.toISOString().split('T')[0]);
       setYearIsActive(year.isActive);
+      setYearActiveSemester(year.activeSemester || '');
     } else {
       // Create mode
       setEditingYearId(null);
@@ -213,6 +216,7 @@ export function DocumentConfigScreen() {
       setYearStartDate('');
       setYearEndDate('');
       setYearIsActive(false);
+      setYearActiveSemester('');
     }
     setShowYearDialog(true);
   };
@@ -235,6 +239,7 @@ export function DocumentConfigScreen() {
           startDate: new Date(yearStartDate),
           endDate: new Date(yearEndDate),
           isActive: yearIsActive,
+          activeSemester: yearActiveSemester || undefined,
         });
         toast({ title: 'Thành công', description: 'Đã cập nhật năm học' });
       } else {
@@ -244,6 +249,7 @@ export function DocumentConfigScreen() {
           startDate: new Date(yearStartDate),
           endDate: new Date(yearEndDate),
           isActive: yearIsActive,
+          activeSemester: yearActiveSemester || undefined,
           createdBy: user!.uid,
         });
         toast({ title: 'Thành công', description: 'Đã tạo năm học mới' });
@@ -591,11 +597,18 @@ export function DocumentConfigScreen() {
                         <p className="text-sm text-gray-600">
                           {year.startDate.toLocaleDateString('vi-VN')} - {year.endDate.toLocaleDateString('vi-VN')}
                         </p>
-                        {year.isActive && (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 mt-1">
-                            Đang hoạt động
-                          </span>
-                        )}
+                        <div className="flex gap-2 mt-1">
+                          {year.isActive && (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              Đang hoạt động
+                            </span>
+                          )}
+                          {year.activeSemester && (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {SEMESTER_LABELS[year.activeSemester]}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button
@@ -898,6 +911,24 @@ export function DocumentConfigScreen() {
                 <label htmlFor="isActive" className="text-sm font-medium">
                   Đang hoạt động
                 </label>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Học kỳ đang hoạt động
+                </label>
+                <select
+                  value={yearActiveSemester}
+                  onChange={(e) => setYearActiveSemester(e.target.value as Semester | '')}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  <option value="">Chưa chọn</option>
+                  <option value="HK1">{SEMESTER_LABELS.HK1}</option>
+                  <option value="HK2">{SEMESTER_LABELS.HK2}</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Học kỳ mặc định khi tạo nhiệm vụ hoặc xem thống kê
+                </p>
               </div>
             </div>
 

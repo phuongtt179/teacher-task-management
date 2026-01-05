@@ -33,6 +33,7 @@ export const rankingService = {
   async getRankings(
     period: RankingPeriod = 'all_time',
     rankBy: RankingType = 'total_score',
+    semesterFilter?: 'HK1' | 'HK2' | 'all',
     currentUserId?: string,
     currentUserRole?: string
   ): Promise<AnonymousRanking[]> {
@@ -85,6 +86,11 @@ export const rankingService = {
             });
           }
 
+          // Filter by semester (client-side)
+          if (semesterFilter && semesterFilter !== 'all') {
+            tasks = tasks.filter(t => t.semester === semesterFilter);
+          }
+
           // ✅ Get submissions with proper type casting
           const submissionsQuery = query(
             collection(db, 'submissions'),
@@ -103,6 +109,11 @@ export const rankingService = {
               const submittedAt = toDate(sub.submittedAt);
               return submittedAt >= startDate;
             });
+          }
+
+          // Filter submissions by semester (client-side)
+          if (semesterFilter && semesterFilter !== 'all') {
+            submissions = submissions.filter(s => s.semester === semesterFilter);
           }
 
           // Calculate scores
@@ -205,9 +216,9 @@ export const rankingService = {
   },
 
   // Get user's rank
-  async getUserRank(userId: string, period: RankingPeriod = 'all_time', rankBy: RankingType = 'total_score', userRole?: string): Promise<number | null> {
+  async getUserRank(userId: string, period: RankingPeriod = 'all_time', rankBy: RankingType = 'total_score', semesterFilter?: 'HK1' | 'HK2' | 'all', userRole?: string): Promise<number | null> {
     try {
-      const rankings = await this.getRankings(period, rankBy, userId, userRole);
+      const rankings = await this.getRankings(period, rankBy, semesterFilter, userId, userRole);
       const userRanking = rankings.find(r => r.actualUid === userId);
       return userRanking ? userRanking.rank : null;
     } catch (error) {
@@ -217,9 +228,9 @@ export const rankingService = {
   },
 
   // Get top performers
-  async getTopPerformers(count: number = 10, period: RankingPeriod = 'all_time', currentUserId?: string, currentUserRole?: string): Promise<AnonymousRanking[]> {
+  async getTopPerformers(count: number = 10, period: RankingPeriod = 'all_time', semesterFilter?: 'HK1' | 'HK2' | 'all', currentUserId?: string, currentUserRole?: string): Promise<AnonymousRanking[]> {
     try {
-      const rankings = await this.getRankings(period, 'total_score', currentUserId, currentUserRole);
+      const rankings = await this.getRankings(period, 'total_score', semesterFilter, currentUserId, currentUserRole);
       return rankings.slice(0, count);
     } catch (error) {
       console.error('Error getting top performers:', error);

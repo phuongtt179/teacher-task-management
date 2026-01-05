@@ -293,6 +293,7 @@ export const taskService = {
       // Create submission document
       const submissionData: any = {
         taskId,
+        semester: task.semester, // Denormalize for analytics performance
         teacherId,
         teacherName,
         content,

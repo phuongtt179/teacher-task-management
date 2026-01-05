@@ -98,6 +98,7 @@ export const schoolYearService = {
     startDate: Date;
     endDate: Date;
     isActive: boolean;
+    activeSemester?: 'HK1' | 'HK2';
     createdBy: string;
   }): Promise<string> {
     try {
@@ -106,7 +107,7 @@ export const schoolYearService = {
         await this.deactivateAllSchoolYears();
       }
 
-      const yearDoc = await addDoc(collection(db, 'schoolYears'), {
+      const yearData: any = {
         name: data.name,
         startDate: Timestamp.fromDate(data.startDate),
         endDate: Timestamp.fromDate(data.endDate),
@@ -114,7 +115,13 @@ export const schoolYearService = {
         createdBy: data.createdBy,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
-      });
+      };
+
+      if (data.activeSemester) {
+        yearData.activeSemester = data.activeSemester;
+      }
+
+      const yearDoc = await addDoc(collection(db, 'schoolYears'), yearData);
 
       return yearDoc.id;
     } catch (error) {
@@ -129,6 +136,7 @@ export const schoolYearService = {
     startDate?: Date;
     endDate?: Date;
     isActive?: boolean;
+    activeSemester?: 'HK1' | 'HK2';
   }): Promise<void> {
     try {
       // If setting to active, deactivate others first
@@ -144,6 +152,7 @@ export const schoolYearService = {
       if (data.startDate !== undefined) updateData.startDate = Timestamp.fromDate(data.startDate);
       if (data.endDate !== undefined) updateData.endDate = Timestamp.fromDate(data.endDate);
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
+      if (data.activeSemester !== undefined) updateData.activeSemester = data.activeSemester;
 
       await updateDoc(doc(db, 'schoolYears', id), updateData);
     } catch (error) {
