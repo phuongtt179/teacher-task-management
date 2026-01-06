@@ -1698,6 +1698,7 @@ export function DocumentBrowseScreen() {
 
             <div className="flex gap-2 mt-4 md:mt-6">
               <Button
+                type="button"
                 onClick={editingDocument ? handleEditSubmit : handleUpload}
                 disabled={
                   !documentTitle.trim() ||
@@ -1720,6 +1721,7 @@ export function DocumentBrowseScreen() {
                 )}
               </Button>
               <Button
+                type="button"
                 onClick={() => {
                   setShowUploadDialog(false);
                   setEditingDocument(null);
