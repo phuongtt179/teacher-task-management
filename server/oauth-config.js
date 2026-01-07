@@ -30,18 +30,31 @@ const TOKEN_PATH = path.join(__dirname, '..', 'google-oauth-tokens.json');
 
 /**
  * Load saved credentials if they exist
+ * Priority: Environment Variable -> File
  */
 function loadSavedCredentials() {
   try {
+    // Try to load from environment variable first (for Render)
+    if (process.env.GOOGLE_OAUTH_TOKENS) {
+      console.log('📦 Loading OAuth tokens from environment variable...');
+      const credentials = JSON.parse(process.env.GOOGLE_OAUTH_TOKENS);
+      oauth2Client.setCredentials(credentials);
+      console.log('✅ Loaded OAuth credentials from environment variable');
+      return true;
+    }
+
+    // Fallback to file (for local development)
     if (fs.existsSync(TOKEN_PATH)) {
       const content = fs.readFileSync(TOKEN_PATH, 'utf8');
       const credentials = JSON.parse(content);
       oauth2Client.setCredentials(credentials);
-      console.log('✅ Loaded saved OAuth credentials');
+      console.log('✅ Loaded OAuth credentials from file');
       return true;
     }
+
+    console.log('⚠️  No OAuth credentials found');
   } catch (error) {
-    console.error('Error loading saved credentials:', error);
+    console.error('❌ Error loading saved credentials:', error);
   }
   return false;
 }
@@ -84,13 +97,43 @@ async function getTokenFromCode(code) {
  */
 async function refreshAccessToken() {
   try {
+    console.log('🔄 Refreshing access token...');
     const { credentials } = await oauth2Client.refreshAccessToken();
     oauth2Client.setCredentials(credentials);
     saveCredentials(credentials);
-    console.log('✅ Access token refreshed');
+    console.log('✅ Access token refreshed successfully');
     return credentials;
   } catch (error) {
-    console.error('Error refreshing access token:', error);
+    console.error('❌ Error refreshing access token:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get OAuth2 client with valid token (auto-refresh if needed)
+ */
+async function getValidOAuth2Client() {
+  try {
+    const credentials = oauth2Client.credentials;
+
+    // Check if we have credentials
+    if (!credentials || !credentials.refresh_token) {
+      throw new Error('No OAuth credentials found. Please authorize first.');
+    }
+
+    // Check if access token is expired or about to expire (within 5 minutes)
+    const now = Date.now();
+    const expiryDate = credentials.expiry_date || 0;
+    const fiveMinutes = 5 * 60 * 1000;
+
+    if (!credentials.access_token || expiryDate < (now + fiveMinutes)) {
+      console.log('⏰ Access token expired or about to expire, refreshing...');
+      await refreshAccessToken();
+    }
+
+    return oauth2Client;
+  } catch (error) {
+    console.error('❌ Error getting valid OAuth2 client:', error);
     throw error;
   }
 }
@@ -105,4 +148,5 @@ export {
   getTokenFromCode,
   refreshAccessToken,
   loadSavedCredentials,
+  getValidOAuth2Client,
 };

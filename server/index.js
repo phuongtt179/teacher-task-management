@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import dotenv from 'dotenv';
-import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials } from './oauth-config.js';
+import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials, getValidOAuth2Client } from './oauth-config.js';
 import { sendNewTaskNotification, sendTaskScoredNotification } from './notificationService.js';
 
 // Get __dirname equivalent in ES modules
@@ -35,7 +35,7 @@ const upload = multer({
 // Google Drive configuration
 const ROOT_FOLDER_ID = process.env.ADMIN_DRIVE_FOLDER_ID;
 
-// Initialize Google Drive API with OAuth2
+// Initialize Google Drive API with OAuth2 (deprecated - use getDrive() instead)
 let drive;
 
 function initializeDrive() {
@@ -46,6 +46,19 @@ function initializeDrive() {
   } catch (error) {
     console.error('❌ Error initializing Google Drive API:', error.message);
     return false;
+  }
+}
+
+/**
+ * Get Google Drive instance with auto-refreshed token
+ */
+async function getDrive() {
+  try {
+    const validAuth = await getValidOAuth2Client();
+    return google.drive({ version: 'v3', auth: validAuth });
+  } catch (error) {
+    console.error('❌ Error getting Drive instance:', error);
+    throw error;
   }
 }
 
@@ -62,6 +75,9 @@ if (loadSavedCredentials()) {
  */
 async function getOrCreateFolder(folderName, parentId = ROOT_FOLDER_ID) {
   try {
+    // Get Drive instance with refreshed token
+    const drive = await getDrive();
+
     // Search for existing folder
     const query = `name='${folderName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
 
@@ -98,6 +114,9 @@ async function getOrCreateFolder(folderName, parentId = ROOT_FOLDER_ID) {
  */
 async function uploadFileToDrive(file, folderId) {
   try {
+    // Get Drive instance with refreshed token
+    const drive = await getDrive();
+
     // Fix UTF-8 encoding for Vietnamese filenames
     // Multer receives filename in Latin1, need to convert to UTF-8
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
@@ -140,6 +159,9 @@ async function uploadFileToDrive(file, folderId) {
  */
 async function makeFilePublic(fileId) {
   try {
+    // Get Drive instance with refreshed token
+    const drive = await getDrive();
+
     await drive.permissions.create({
       fileId: fileId,
       requestBody: {
@@ -393,11 +415,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
  */
 app.delete('/api/files/:fileId', async (req, res) => {
   try {
-    if (!drive) {
-      return res.status(500).json({
-        error: 'Google Drive not configured',
-      });
-    }
+    // Get Drive instance with refreshed token
+    const drive = await getDrive();
 
     const { fileId } = req.params;
 
