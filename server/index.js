@@ -279,12 +279,31 @@ app.get('/api/auth/google/callback', async (req, res) => {
  * Check OAuth status
  */
 app.get('/api/auth/status', (req, res) => {
-  const hasCredentials = oauth2Client.credentials && oauth2Client.credentials.access_token;
+  const hasCredentials = !!(oauth2Client.credentials && oauth2Client.credentials.access_token);
   res.json({
     authorized: hasCredentials,
     driveConfigured: !!drive,
     rootFolderId: ROOT_FOLDER_ID ? 'configured' : 'missing',
   });
+});
+
+/**
+ * TEMPORARY: Get current tokens (for updating ENV VAR)
+ * DELETE THIS ENDPOINT AFTER USE!
+ */
+app.get('/api/auth/get-tokens-temp', (req, res) => {
+  // Simple password protection
+  const password = req.query.password;
+  if (password !== 'temp-secret-123') {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  const credentials = oauth2Client.credentials;
+  if (!credentials) {
+    return res.status(404).json({ error: 'No credentials found' });
+  }
+
+  res.json(credentials);
 });
 
 // ============================================
@@ -295,7 +314,7 @@ app.get('/api/auth/status', (req, res) => {
  * Health check
  */
 app.get('/api/health', (req, res) => {
-  const hasCredentials = oauth2Client.credentials && oauth2Client.credentials.access_token;
+  const hasCredentials = !!(oauth2Client.credentials && oauth2Client.credentials.access_token);
   res.json({
     status: 'ok',
     message: 'Server is running',
