@@ -287,6 +287,34 @@ app.get('/api/auth/status', (req, res) => {
   });
 });
 
+/**
+ * ADMIN ONLY: Export current tokens for ENV VAR setup
+ * Access: /api/auth/export-tokens?secret=YOUR_SECRET_HERE
+ */
+app.get('/api/auth/export-tokens', (req, res) => {
+  const secret = req.query.secret;
+
+  // Simple password check
+  if (secret !== process.env.ADMIN_SECRET && secret !== 'temp-export-2026') {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+
+  const credentials = oauth2Client.credentials;
+  if (!credentials || !credentials.refresh_token) {
+    return res.status(404).json({
+      error: 'No credentials found. Please authorize first.',
+      authUrl: '/api/auth/google'
+    });
+  }
+
+  // Return formatted for easy copy-paste
+  res.json({
+    message: 'Copy the JSON below and paste into Render ENV VAR: GOOGLE_OAUTH_TOKENS',
+    envVarValue: JSON.stringify(credentials),
+    credentials: credentials
+  });
+});
+
 // ============================================
 // File Upload/Delete Endpoints
 // ============================================
