@@ -287,6 +287,66 @@ app.get('/api/auth/status', (req, res) => {
   });
 });
 
+/**
+ * ADMIN: Export current OAuth tokens for updating ENV VAR
+ *
+ * Usage:
+ * 1. Authorize first at: /api/auth/google
+ * 2. Then visit: /api/auth/export-tokens?secret=YOUR_ADMIN_SECRET
+ * 3. Copy the "envVarValue" and paste into Render ENV VAR: GOOGLE_OAUTH_TOKENS
+ *
+ * Security: Requires ADMIN_SECRET environment variable
+ */
+app.get('/api/auth/export-tokens', (req, res) => {
+  const secret = req.query.secret;
+  const adminSecret = process.env.ADMIN_SECRET;
+
+  // Check if admin secret is configured
+  if (!adminSecret) {
+    return res.status(500).json({
+      error: 'ADMIN_SECRET not configured',
+      message: 'Please add ADMIN_SECRET environment variable on Render'
+    });
+  }
+
+  // Verify secret
+  if (secret !== adminSecret) {
+    return res.status(403).json({ error: 'Unauthorized - Invalid secret' });
+  }
+
+  // Check if credentials exist
+  const credentials = oauth2Client.credentials;
+  if (!credentials || !credentials.refresh_token) {
+    return res.status(404).json({
+      error: 'No credentials found. Please authorize first.',
+      authUrl: '/api/auth/google',
+      instructions: [
+        '1. Visit /api/auth/google to authorize',
+        '2. After successful authorization, come back to this endpoint'
+      ]
+    });
+  }
+
+  // Return formatted for easy copy-paste
+  res.json({
+    success: true,
+    message: 'Copy the value below and update Render ENV VAR: GOOGLE_OAUTH_TOKENS',
+    instructions: [
+      '1. Go to Render Dashboard → Your Service → Environment',
+      '2. Edit GOOGLE_OAUTH_TOKENS variable',
+      '3. Replace with the value from "envVarValue" below',
+      '4. Save (Render will auto-redeploy)'
+    ],
+    envVarValue: JSON.stringify(credentials),
+    previewCredentials: {
+      hasAccessToken: !!credentials.access_token,
+      hasRefreshToken: !!credentials.refresh_token,
+      scope: credentials.scope,
+      expiryDate: new Date(credentials.expiry_date).toISOString()
+    }
+  });
+});
+
 // ============================================
 // File Upload/Delete Endpoints
 // ============================================
