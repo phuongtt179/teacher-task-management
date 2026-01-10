@@ -287,25 +287,6 @@ app.get('/api/auth/status', (req, res) => {
   });
 });
 
-/**
- * TEMPORARY: Get current tokens (for updating ENV VAR)
- * DELETE THIS ENDPOINT AFTER USE!
- */
-app.get('/api/auth/get-tokens-temp', (req, res) => {
-  // Simple password protection
-  const password = req.query.password;
-  if (password !== 'temp-secret-123') {
-    return res.status(403).json({ error: 'Unauthorized' });
-  }
-
-  const credentials = oauth2Client.credentials;
-  if (!credentials) {
-    return res.status(404).json({ error: 'No credentials found' });
-  }
-
-  res.json(credentials);
-});
-
 // ============================================
 // File Upload/Delete Endpoints
 // ============================================
