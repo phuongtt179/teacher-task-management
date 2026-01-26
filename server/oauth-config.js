@@ -30,20 +30,31 @@ const TOKEN_PATH = path.join(__dirname, '..', 'google-oauth-tokens.json');
 
 /**
  * Load saved credentials if they exist
- * Priority: Environment Variable -> File
+ * Priority: GOOGLE_REFRESH_TOKEN (recommended) -> GOOGLE_OAUTH_TOKENS -> File
  */
 function loadSavedCredentials() {
   try {
-    // Try to load from environment variable first (for Render)
+    // PRIORITY 1: Load from GOOGLE_REFRESH_TOKEN (for Render production)
+    if (process.env.GOOGLE_REFRESH_TOKEN) {
+      console.log('📦 Loading refresh token from GOOGLE_REFRESH_TOKEN...');
+      oauth2Client.setCredentials({
+        refresh_token: process.env.GOOGLE_REFRESH_TOKEN
+      });
+      console.log('✅ Loaded refresh token from environment variable');
+      console.log('🔄 Google SDK will auto-refresh access_token when needed');
+      return true;
+    }
+
+    // PRIORITY 2: Load from GOOGLE_OAUTH_TOKENS (legacy support)
     if (process.env.GOOGLE_OAUTH_TOKENS) {
-      console.log('📦 Loading OAuth tokens from environment variable...');
+      console.log('📦 Loading OAuth tokens from GOOGLE_OAUTH_TOKENS...');
       const credentials = JSON.parse(process.env.GOOGLE_OAUTH_TOKENS);
       oauth2Client.setCredentials(credentials);
       console.log('✅ Loaded OAuth credentials from environment variable');
       return true;
     }
 
-    // Fallback to file (for local development)
+    // PRIORITY 3: Fallback to file (for local development)
     if (fs.existsSync(TOKEN_PATH)) {
       const content = fs.readFileSync(TOKEN_PATH, 'utf8');
       const credentials = JSON.parse(content);
@@ -53,6 +64,7 @@ function loadSavedCredentials() {
     }
 
     console.log('⚠️  No OAuth credentials found');
+    console.log('💡 Set GOOGLE_REFRESH_TOKEN environment variable or authorize via /api/auth/google');
   } catch (error) {
     console.error('❌ Error loading saved credentials:', error);
   }
@@ -60,12 +72,27 @@ function loadSavedCredentials() {
 }
 
 /**
- * Save credentials to file
+ * Save credentials to file (PRESERVES refresh_token)
  */
 function saveCredentials(tokens) {
   try {
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
+    // Preserve refresh_token from existing credentials
+    const currentCredentials = oauth2Client.credentials || {};
+    const refreshToken = tokens.refresh_token || currentCredentials.refresh_token;
+
+    const credentialsToSave = {
+      ...tokens,
+      refresh_token: refreshToken, // Always preserve refresh_token
+    };
+
+    fs.writeFileSync(TOKEN_PATH, JSON.stringify(credentialsToSave, null, 2));
     console.log('✅ OAuth credentials saved to', TOKEN_PATH);
+
+    if (refreshToken) {
+      console.log('💾 Refresh token preserved in saved credentials');
+    } else {
+      console.warn('⚠️  No refresh token found to preserve');
+    }
   } catch (error) {
     console.error('Error saving credentials:', error);
   }
@@ -93,16 +120,27 @@ async function getTokenFromCode(code) {
 }
 
 /**
- * Refresh access token if expired
+ * Refresh access token if expired (PRESERVES refresh_token)
  */
 async function refreshAccessToken() {
   try {
     console.log('🔄 Refreshing access token...');
+
+    // Save current refresh_token before refresh
+    const currentRefreshToken = oauth2Client.credentials?.refresh_token;
+
     const { credentials } = await oauth2Client.refreshAccessToken();
-    oauth2Client.setCredentials(credentials);
-    saveCredentials(credentials);
+
+    // Merge new credentials with existing refresh_token
+    const mergedCredentials = {
+      ...credentials,
+      refresh_token: currentRefreshToken, // Preserve refresh_token
+    };
+
+    oauth2Client.setCredentials(mergedCredentials);
+    saveCredentials(mergedCredentials);
     console.log('✅ Access token refreshed successfully');
-    return credentials;
+    return mergedCredentials;
   } catch (error) {
     console.error('❌ Error refreshing access token:', error);
     throw error;
