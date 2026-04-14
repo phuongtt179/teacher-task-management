@@ -46,6 +46,7 @@ const DashboardRouter = () => {
       return <VPDashboard />;
     case 'teacher':
     case 'department_head':
+    case 'staff':
       return <TeacherDashboard />;
     default:
       return <div>Invalid role</div>;
@@ -172,7 +173,7 @@ function App() {
         <Route
           path="/vp/create-task"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
               <AppLayout>
                 <CreateTaskScreen />
               </AppLayout>
@@ -182,7 +183,7 @@ function App() {
         <Route
           path="/vp/tasks"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
               <AppLayout>
                 <TaskListScreen />
               </AppLayout>
@@ -192,7 +193,7 @@ function App() {
         <Route
           path="/vp/tasks/:taskId"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
               <AppLayout>
                 <TaskDetailScreen />
               </AppLayout>
@@ -202,7 +203,7 @@ function App() {
         <Route
           path="/vp/statistics"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
               <AppLayout>
                 <StatisticsScreen />
               </AppLayout>
@@ -212,7 +213,7 @@ function App() {
         <Route
           path="/vice-principal/statistics/task/:taskId"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
               <AppLayout>
                 <TaskDetailStatisticsScreen />
               </AppLayout>
@@ -222,7 +223,7 @@ function App() {
         <Route
           path="/vice-principal/statistics/teacher/:teacherId"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
               <AppLayout>
                 <TeacherDetailStatisticsScreen />
               </AppLayout>
@@ -318,7 +319,7 @@ function App() {
         <Route
           path="/documents/approvals"
           element={
-            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'department_head']}>
+            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'principal', 'department_head']}>
               <AppLayout>
                 <DocumentApprovalsScreen />
               </AppLayout>
@@ -338,7 +339,7 @@ function App() {
         <Route
           path="/documents/config"
           element={
-            <ProtectedRoute allowedRoles={['admin', 'vice_principal']}>
+            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'principal']}>
               <AppLayout>
                 <DocumentConfigScreen />
               </AppLayout>

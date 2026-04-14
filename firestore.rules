@@ -11,6 +11,11 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function isPrincipal() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'principal';
+    }
+
     function isVicePrincipal() {
       return isSignedIn() &&
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vice_principal';
@@ -26,9 +31,14 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
     }
 
+    function isStaff() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff';
+    }
+
     // Whitelist collection
     match /whitelist/{email} {
-      allow read: if isSignedIn(); // Let users check if they're whitelisted
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
@@ -42,19 +52,20 @@ service cloud.firestore {
     // Tasks collection
     match /tasks/{taskId} {
       allow read: if isSignedIn();
-      allow create: if isVicePrincipal() || isAdmin();
-      allow update, delete: if isVicePrincipal() || isAdmin();
+      allow create: if isVicePrincipal() || isAdmin() || isPrincipal();
+      allow update, delete: if isVicePrincipal() || isAdmin() || isPrincipal();
     }
 
     // Submissions collection (top-level, not nested)
     match /submissions/{submissionId} {
       allow read: if isSignedIn();
-      allow create: if isTeacher() || isVicePrincipal() || isAdmin();
+      allow create: if isTeacher() || isVicePrincipal() || isAdmin() || isPrincipal() || isDepartmentHead();
       allow update: if isSignedIn() &&
                     (request.auth.uid == resource.data.teacherId ||
                      isVicePrincipal() ||
-                     isAdmin());
-      allow delete: if isVicePrincipal() || isAdmin();
+                     isAdmin() ||
+                     isPrincipal());
+      allow delete: if isVicePrincipal() || isAdmin() || isPrincipal();
     }
 
     // Notifications
@@ -71,32 +82,38 @@ service cloud.firestore {
     // School Years
     match /schoolYears/{yearId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal();
+      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+    }
+
+    // Document Types
+    match /documentTypes/{typeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
     }
 
     // Document Categories
     match /documentCategories/{categoryId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal();
+      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
     }
 
     // Document Sub-Categories
     match /documentSubCategories/{subCategoryId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal();
+      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
     }
 
     // Departments
     match /departments/{departmentId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal();
+      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
     }
 
     // Documents (file metadata)
     match /documents/{documentId} {
       // Helper to get category type
       function getCategoryType(categoryId) {
-        return get(/databases/$(database)/documents/documentCategories/$(categoryId)).data.categoryType;
+        return get(/databases/$(database)/documents/documentCategories/$(categoryId)).data.get('categoryType', 'personal');
       }
 
       function getRequestCategoryType() {
@@ -119,40 +136,40 @@ service cloud.firestore {
                get(/databases/$(database)/documents/departments/$(deptId)).data.memberIds.hasAny([request.auth.uid]);
       }
 
-      // READ permissions based on category type
-      // TEMPORARY: Allow all signed-in users to read documents for testing
+      // READ permissions: all signed-in users
       allow read: if isSignedIn();
 
       // CREATE permissions based on category type
       allow create: if isSignedIn() && (
-        // Public documents: only admin/VP can upload
-        (getRequestCategoryType() == 'public' && (isAdmin() || isVicePrincipal())) ||
+        // Public documents: admin/VP/Principal can upload
+        (getRequestCategoryType() == 'public' && (isAdmin() || isVicePrincipal() || isPrincipal())) ||
 
-        // Personal documents: anyone can upload
+        // Personal documents: anyone can upload their own
         (getRequestCategoryType() == 'personal')
       );
 
-      // UPDATE permissions: Only admin can edit
-      allow update: if isAdmin();
+      // UPDATE permissions: admin, VP, or Principal
+      allow update: if isAdmin() || isVicePrincipal() || isPrincipal();
 
-      // DELETE permissions: Only admin can delete
-      allow delete: if isAdmin();
+      // DELETE permissions: admin, VP, or Principal
+      allow delete: if isAdmin() || isVicePrincipal() || isPrincipal();
     }
 
     // File Requests (delete/edit requests)
     match /fileRequests/{requestId} {
-      // Users can read their own requests, or admin/vp/dept head can read all
+      // Users can read their own requests, or admin/vp/principal/dept head can read all
       allow read: if isSignedIn() &&
                   (resource.data.requestedBy == request.auth.uid ||
                    isAdmin() ||
                    isVicePrincipal() ||
+                   isPrincipal() ||
                    isDepartmentHead());
 
       // Anyone can create requests
       allow create: if isSignedIn();
 
-      // Only admin/vp/dept head can approve/reject
-      allow update: if isAdmin() || isVicePrincipal() || isDepartmentHead();
+      // Admin/VP/Principal/dept head can approve/reject
+      allow update: if isAdmin() || isVicePrincipal() || isPrincipal() || isDepartmentHead();
 
       // Only admin can delete
       allow delete: if isAdmin();
@@ -161,7 +178,7 @@ service cloud.firestore {
     // Document Permissions
     match /documentPermissions/{permissionId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal();
+      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
     }
   }
 }

@@ -163,14 +163,30 @@ export const analyticsService = {
     }
   },
 
-  // Get school-wide statistics
-  async getSchoolStats(semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<SchoolStats> {
+  // Get school-wide statistics (filtered by VP creator when vpUid provided)
+  async getSchoolStats(semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string, vpUid?: string): Promise<SchoolStats> {
     try {
       const teachersStats = await this.getAllTeachersStats(semesterFilter, schoolYearId);
 
       const totalTeachers = teachersStats.length;
-      const totalTasks = teachersStats.reduce((sum, t) => sum + t.totalTasks, 0);
-      const completedTasks = teachersStats.reduce((sum, t) => sum + t.completedTasks, 0);
+
+      // Đếm tasks trực tiếp từ collection để tránh đếm trùng (1 task giao nhiều GV chỉ tính 1 lần)
+      // Nếu có vpUid thì chỉ lấy tasks do VP đó tạo
+      const tasksQuery = vpUid
+        ? query(collection(db, 'tasks'), where('createdBy', '==', vpUid))
+        : query(collection(db, 'tasks'));
+      const allTasksSnap = await getDocs(tasksQuery);
+      let allTasks = allTasksSnap.docs.map(d => ({ id: d.id, ...d.data() } as Task));
+
+      if (schoolYearId && schoolYearId !== 'all') {
+        allTasks = allTasks.filter(t => t.schoolYearId === schoolYearId);
+      }
+      if (semesterFilter && semesterFilter !== 'all') {
+        allTasks = allTasks.filter(t => t.semester === semesterFilter);
+      }
+
+      const totalTasks = allTasks.length;
+      const completedTasks = allTasks.filter(t => t.status === 'completed').length;
 
       // Calculate average score across all teachers
       const teachersWithScores = teachersStats.filter(t => t.scoredTasksCount > 0);

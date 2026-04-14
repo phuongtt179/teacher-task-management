@@ -218,8 +218,8 @@ export function DocumentBrowseScreen() {
 
       if (viewMode === 'personal') {
         // PERSONAL MODE: Each user sees only specific files
-        if (user?.role === 'admin' || user?.role === 'vice_principal') {
-          // Admin & Vice Principal can select any user to view
+        if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'principal') {
+          // Admin, Vice Principal & Principal can select any user to view
           if (selectedUserId) {
             // Show documents from selected user only
             filteredDocs = allDocs.filter(doc =>
@@ -256,7 +256,7 @@ export function DocumentBrowseScreen() {
         const isPersonalCategory = selectedCategory?.categoryType === 'personal';
 
         if (isPersonalCategory) {
-          if (user?.role === 'admin' || user?.role === 'vice_principal') {
+          if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'principal') {
             filteredDocs = allDocs.filter(doc =>
               doc.status === 'approved' || doc.uploadedBy === user?.uid
             );
@@ -1274,8 +1274,11 @@ export function DocumentBrowseScreen() {
                   // Admin, VP, and Principal always have upload permission
                   if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'principal') {
                     hasUploadPermission = true;
+                  } else if (currentDocumentType?.viewMode === 'personal') {
+                    // Personal viewMode: mọi user đều tự upload hồ sơ của mình
+                    hasUploadPermission = true;
                   } else if (currentDocumentType) {
-                    // NEW: Check DocumentType permissions for other users
+                    // Shared viewMode: chỉ user trong allowedUploaderUserIds mới được upload
                     hasUploadPermission = currentDocumentType.allowedUploaderUserIds.includes(user!.uid);
                   } else {
                     // Fallback: Use old category-based permissions

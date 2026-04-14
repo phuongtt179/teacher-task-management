@@ -26,7 +26,7 @@ export const StatisticsScreen = () => {
       try {
         setIsLoading(true);
         const [school, teachers, vp] = await Promise.all([
-          analyticsService.getSchoolStats(),
+          analyticsService.getSchoolStats(undefined, undefined, user.uid),
           analyticsService.getAllTeachersStats(),
           analyticsService.getVPStats(user.uid),
         ]);

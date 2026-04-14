@@ -16,7 +16,7 @@ import {
     User
   } from 'lucide-react';
   import { UserRole } from '../types';
-  
+
   export interface NavItem {
     label: string;
     shortLabel?: string; // For mobile bottom nav
@@ -24,16 +24,16 @@ import {
     icon: any;
     roles: UserRole[];
   }
-  
+
   export const navigationItems: NavItem[] = [
     // Common
     {
       label: 'Dashboard',
       path: '/',
       icon: LayoutDashboard,
-      roles: ['admin', 'vice_principal', 'teacher', 'department_head'],
+      roles: ['admin', 'vice_principal', 'principal', 'teacher', 'department_head', 'staff'],
     },
-    
+
     // Admin only
     {
       label: 'Whitelist',
@@ -47,27 +47,27 @@ import {
       icon: Users,
       roles: ['admin'],
     },
-    
-    // Vice Principal
+
+    // Vice Principal & Principal
     {
       label: 'Tạo công việc',
       path: '/vp/create-task',
       icon: ClipboardList,
-      roles: ['vice_principal'],
+      roles: ['vice_principal', 'principal'],
     },
     {
       label: 'Danh sách công việc',
       path: '/vp/tasks',
       icon: CheckSquare,
-      roles: ['vice_principal'],
+      roles: ['vice_principal', 'principal'],
     },
     {
       label: 'Thống kê',
       path: '/vp/statistics',
       icon: BarChart3,
-      roles: ['vice_principal'],
+      roles: ['vice_principal', 'principal'],
     },
-    
+
     // Teacher
     {
       label: 'Công việc của tôi',
@@ -90,13 +90,13 @@ import {
       shortLabel: 'Xếp hạng',
       path: '/rankings',
       icon: Trophy,
-      roles: ['admin', 'vice_principal', 'teacher', 'department_head'],
+      roles: ['admin', 'vice_principal', 'principal', 'teacher', 'department_head'],
     },
     {
       label: 'Thông báo',
       path: '/notifications',
       icon: Bell,
-      roles: ['admin', 'vice_principal', 'teacher', 'department_head'],
+      roles: ['admin', 'vice_principal', 'principal', 'teacher', 'department_head', 'staff'],
     },
 
     // Document Management - Common
@@ -104,34 +104,34 @@ import {
       label: 'Hồ sơ điện tử',
       path: '/documents',
       icon: FolderOpen,
-      roles: ['admin', 'vice_principal', 'teacher', 'department_head'],
+      roles: ['admin', 'vice_principal', 'principal', 'teacher', 'department_head', 'staff'],
     },
 
-    // Document Management - Approval (Department Head, Admin, VP)
+    // Document Management - Approval (Department Head, Admin, VP, Principal)
     {
       label: 'Phê duyệt hồ sơ',
       path: '/documents/approvals',
       icon: FileCheck,
-      roles: ['admin', 'vice_principal', 'department_head'],
+      roles: ['admin', 'vice_principal', 'principal', 'department_head'],
     },
 
-    // Document Management - My Requests (Teacher only)
+    // Document Management - My Requests (Teacher, Staff, Department Head)
     {
       label: 'Yêu cầu của tôi',
       path: '/documents/my-requests',
       icon: FileText,
-      roles: ['teacher'],
+      roles: ['teacher', 'department_head', 'staff'],
     },
 
-    // Document Management - Config (Admin, VP)
+    // Document Management - Config (Admin, VP, Principal)
     {
       label: 'Cấu hình hồ sơ',
       path: '/documents/config',
       icon: Cog,
-      roles: ['admin', 'vice_principal'],
+      roles: ['admin', 'vice_principal', 'principal'],
     },
   ];
-  
+
   export const getNavigationForRole = (role: UserRole): NavItem[] => {
     return navigationItems.filter(item => item.roles.includes(role));
   };
