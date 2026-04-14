@@ -53,7 +53,9 @@ service cloud.firestore {
     match /tasks/{taskId} {
       allow read: if isSignedIn();
       allow create: if isVicePrincipal() || isAdmin() || isPrincipal();
-      allow update, delete: if isVicePrincipal() || isAdmin() || isPrincipal();
+      // Teachers/dept heads need update to change task status when submitting reports
+      allow update: if isVicePrincipal() || isAdmin() || isPrincipal() || isTeacher() || isDepartmentHead();
+      allow delete: if isVicePrincipal() || isAdmin() || isPrincipal();
     }
 
     // Submissions collection (top-level, not nested)
