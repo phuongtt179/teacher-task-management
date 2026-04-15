@@ -150,8 +150,9 @@ service cloud.firestore {
         (getRequestCategoryType() == 'personal')
       );
 
-      // UPDATE permissions: admin, VP, or Principal
-      allow update: if isAdmin() || isVicePrincipal() || isPrincipal();
+      // UPDATE permissions: admin/VP/Principal, or the uploader editing their own document
+      allow update: if isAdmin() || isVicePrincipal() || isPrincipal() ||
+                    (isSignedIn() && resource.data.uploadedBy == request.auth.uid);
 
       // DELETE permissions: admin, VP, or Principal
       allow delete: if isAdmin() || isVicePrincipal() || isPrincipal();
