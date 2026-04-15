@@ -86,6 +86,17 @@ export const analyticsService = {
         ...doc.data()
       } as Submission));
 
+      // Filter submissions by school year:
+      // - New submissions: use denormalized schoolYearId field (PA2)
+      // - Old submissions without schoolYearId: cross-reference with filtered task IDs (PA1 fallback)
+      if (schoolYearId && schoolYearId !== 'all') {
+        const taskIdSet = new Set(tasks.map(t => t.id));
+        submissions = submissions.filter(s =>
+          s.schoolYearId === schoolYearId ||
+          (!s.schoolYearId && taskIdSet.has(s.taskId))
+        );
+      }
+
       // Filter submissions by semester (client-side)
       if (semesterFilter && semesterFilter !== 'all') {
         submissions = submissions.filter(s => s.semester === semesterFilter);

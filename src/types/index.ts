@@ -55,6 +55,7 @@ export interface Task {
 export interface Submission {
   id: string;
   taskId: string;
+  schoolYearId?: string; // Năm học - denormalized for analytics performance
   semester?: 'HK1' | 'HK2'; // Học kì - denormalized for analytics performance
   teacherId: string;
   teacherName: string;
