@@ -15,7 +15,8 @@ import {
   Plus,
   BarChart3,
   Award,
-  Calendar
+  Calendar,
+  FileText
 } from 'lucide-react';
 
 export const VPDashboard = () => {
@@ -175,20 +176,26 @@ export const VPDashboard = () => {
       )}
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <QuickAction
           label="Tạo công việc mới"
           icon={Plus}
           path="/vp/create-task"
           variant="default"
         />
-        
+
+        <QuickAction
+          label="Import từ văn bản"
+          icon={FileText}
+          path="/vp/import-tasks"
+        />
+
         <QuickAction
           label="Danh sách công việc"
           icon={ClipboardList}
           path="/vp/tasks"
         />
-        
+
         <QuickAction
           label="Xem thống kê"
           icon={BarChart3}

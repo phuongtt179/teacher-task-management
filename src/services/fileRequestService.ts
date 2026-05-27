@@ -12,7 +12,8 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { FileRequest, FileRequestType, FileRequestStatus } from '@/types';
+import { FileRequest, FileRequestType, FileRequestStatus, DocumentFile } from '@/types';
+import { googleDriveServiceBackend } from './googleDriveServiceBackend';
 
 export const fileRequestService = {
   // Get all requests (with filters)
@@ -227,12 +228,17 @@ export const fileRequestService = {
 
       // Execute the actual operation
       if (request.requestType === 'delete') {
+        // Delete all files from Google Drive before removing Firestore record
+        const docSnap = await getDoc(doc(db, 'documents', request.documentId));
+        if (docSnap.exists()) {
+          const files: DocumentFile[] = docSnap.data().files || [];
+          await Promise.allSettled(
+            files.map(f => googleDriveServiceBackend.deleteFile(f.driveFileId))
+          );
+        }
+
         // Delete the document from Firestore
         await deleteDoc(doc(db, 'documents', request.documentId));
-
-        // TODO: Also delete from Google Drive
-        // This would require calling the backend service to delete the file
-        // await googleDriveServiceBackend.deleteFile(documentData.driveFileId);
       } else if (request.requestType === 'edit') {
         // Update the document
         const updateData: any = {};

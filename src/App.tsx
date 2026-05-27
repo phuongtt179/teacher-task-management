@@ -9,6 +9,7 @@ import UserManagementScreen from './features/admin/UserManagementScreen';
 import { DocumentTypesScreen } from './features/admin/DocumentTypesScreen';
 import { VPDashboard } from './features/vice-principal/VPDashboard';
 import { CreateTaskScreen } from './features/vice-principal/CreateTaskScreen';
+import { ImportTasksScreen } from './features/vice-principal/ImportTasksScreen';
 import { TaskListScreen } from './features/vice-principal/TaskListScreen';
 import { TaskDetailScreen } from './features/vice-principal/TaskDetailScreen';
 import { StatisticsScreen } from './features/vice-principal/StatisticsScreen';
@@ -176,6 +177,16 @@ function App() {
             <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
               <AppLayout>
                 <CreateTaskScreen />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/vp/import-tasks"
+          element={
+            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
+              <AppLayout>
+                <ImportTasksScreen />
               </AppLayout>
             </ProtectedRoute>
           }

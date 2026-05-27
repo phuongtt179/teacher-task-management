@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import { google } from 'googleapis';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -494,6 +495,86 @@ app.delete('/api/files/:fileId', async (req, res) => {
       error: 'Delete failed',
       message: error.message,
     });
+  }
+});
+
+/**
+ * Parse tasks from text using Gemini AI
+ */
+app.post('/api/parse-tasks', express.json(), async (req, res) => {
+  try {
+    const { text, teachers } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Vui lòng cung cấp văn bản cần phân tích' });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY chưa được cấu hình' });
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+    });
+
+    const teacherListText = teachers && teachers.length > 0
+      ? teachers.map(t => `- "${t.displayName}" (uid: ${t.uid})`).join('\n')
+      : '(Không có danh sách giáo viên)';
+
+    const prompt = `Bạn là hệ thống phân tích văn bản phân công công việc trường học Việt Nam.
+
+DANH SÁCH GIÁO VIÊN TRONG HỆ THỐNG:
+${teacherListText}
+
+VĂN BẢN PHÂN CÔNG:
+${text}
+
+NHIỆM VỤ:
+Trích xuất các CÔNG VIỆC CHÍNH từ văn bản (không liệt kê từng chi tiết nhỏ lẻ như mua từng món ăn riêng lẻ).
+Gom nhóm các công việc liên quan thành 1 task có ý nghĩa.
+
+Với mỗi công việc:
+1. Tóm tắt tiêu đề ngắn gọn (dưới 80 ký tự)
+2. Mô tả chi tiết đầy đủ nội dung
+3. Tìm tên người phụ trách chính - so sánh không phân biệt hoa thường, bỏ qua "cô/thầy/anh/chị" phía trước
+4. Xác định deadline rõ ràng nhất (YYYY-MM-DD), ưu tiên ngày tổ chức sự kiện nếu không có deadline riêng
+5. Mức ưu tiên: high (quan trọng/cần nhiều người), medium (thông thường), low (hỗ trợ)
+
+Quy tắc khớp tên giáo viên:
+- "cô Bình" → tìm giáo viên có tên chứa "Bình"
+- Nếu có nhiều giáo viên trùng tên, lấy uid đầu tiên khớp
+- Nếu không khớp → matchedTeacherIds để null tại vị trí đó
+
+CHỈ trả về JSON array thuần túy, KHÔNG có markdown, KHÔNG có text khác:
+[
+  {
+    "title": "Tên công việc ngắn gọn",
+    "description": "Mô tả chi tiết công việc",
+    "assigneeNames": ["Tên đầy đủ như trong văn bản"],
+    "matchedTeacherIds": ["uid hoặc null"],
+    "deadline": "YYYY-MM-DD hoặc null",
+    "priority": "high|medium|low"
+  }
+]`;
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+
+    // Extract JSON array from response
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new Error('AI không trả về dữ liệu JSON hợp lệ');
+    }
+
+    const tasks = JSON.parse(jsonMatch[0]);
+
+    res.json({ success: true, tasks });
+  } catch (error) {
+    console.error('❌ Parse tasks error:', error);
+    res.status(500).json({ error: 'Phân tích thất bại', message: error.message });
   }
 });
 

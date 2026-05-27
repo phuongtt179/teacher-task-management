@@ -62,7 +62,7 @@ export const MyTasksScreen = () => {
               }
             } else {
               // No submission yet
-              if (now > task.deadline) {
+              if (now > (task.deadline2 ?? task.deadline)) {
                 teacherStatus = 'overdue'; // Past deadline
               } else {
                 teacherStatus = 'assigned'; // Not yet submitted
