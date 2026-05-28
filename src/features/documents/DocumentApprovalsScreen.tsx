@@ -7,7 +7,7 @@ import { Document, FileRequest } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Check, X, FileText, Eye, Download } from 'lucide-react';
+import { Check, X, FileText, Eye, Download, CheckCheck, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export function DocumentApprovalsScreen() {
@@ -18,127 +18,157 @@ export function DocumentApprovalsScreen() {
   const [pendingRequests, setPendingRequests] = useState<FileRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
+  const [selectedReqIds, setSelectedReqIds] = useState<Set<string>>(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+
   useEffect(() => {
     loadPendingItems();
   }, [user]);
 
   const loadPendingItems = async () => {
     if (!user) return;
-
     try {
       setLoading(true);
+      setSelectedDocIds(new Set());
+      setSelectedReqIds(new Set());
 
-      // Get user's department (for department heads)
       let departmentId: string | undefined;
       if (user.role === 'teacher' || user.role === 'department_head') {
         const dept = await departmentService.getDepartmentByUserId(user.uid);
         departmentId = dept?.id;
       }
 
-      // Load pending documents
       if (departmentId) {
-        const docs = await documentService.getPendingDocumentsByDepartment(departmentId);
+        const [docs, reqs] = await Promise.all([
+          documentService.getPendingDocumentsByDepartment(departmentId),
+          fileRequestService.getPendingRequestsByDepartment(departmentId),
+        ]);
         setPendingDocuments(docs);
-      } else {
-        // Admin/VP can see all pending
-        const docs = await documentService.getDocuments({ status: 'pending' });
-        setPendingDocuments(docs);
-      }
-
-      // Load pending requests
-      if (departmentId) {
-        const reqs = await fileRequestService.getPendingRequestsByDepartment(departmentId);
         setPendingRequests(reqs);
       } else {
-        // Admin/VP can see all pending
-        const reqs = await fileRequestService.getRequests({ status: 'pending' });
+        const [docs, reqs] = await Promise.all([
+          documentService.getDocuments({ status: 'pending' }),
+          fileRequestService.getRequests({ status: 'pending' }),
+        ]);
+        setPendingDocuments(docs);
         setPendingRequests(reqs);
       }
     } catch (error) {
-      console.error('Error loading pending items:', error);
-      toast({
-        title: 'Lỗi',
-        description: 'Không thể tải danh sách chờ phê duyệt',
-        variant: 'destructive',
-      });
+      toast({ title: 'Lỗi', description: 'Không thể tải danh sách chờ phê duyệt', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Single actions ──────────────────────────────────────────
   const handleApproveDocument = async (doc: Document) => {
-    // Confirmation dialog
-    if (!confirm(`Xác nhận phê duyệt hồ sơ "${doc.title}" của ${doc.uploadedByName}?`)) {
-      return;
-    }
-
+    setProcessingId(doc.id);
     try {
       await documentService.approveDocument(doc.id, user!.uid, user!.displayName);
-      toast({ title: 'Thành công', description: 'Đã phê duyệt hồ sơ' });
+      toast({ title: `Đã duyệt: ${doc.title}` });
       loadPendingItems();
-    } catch (error) {
-      toast({
-        title: 'Lỗi',
-        description: 'Không thể phê duyệt hồ sơ',
-        variant: 'destructive',
-      });
+    } catch {
+      toast({ title: 'Lỗi phê duyệt', variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
     }
   };
 
   const handleRejectDocument = async (doc: Document) => {
-    // Confirmation dialog
-    if (!confirm(`Xác nhận từ chối hồ sơ "${doc.title}" của ${doc.uploadedByName}?`)) {
-      return;
-    }
-
     const reason = prompt('Lý do từ chối:');
     if (!reason) return;
-
+    setProcessingId(doc.id);
     try {
       await documentService.rejectDocument(doc.id, user!.uid, user!.displayName, reason);
-      toast({ title: 'Thành công', description: 'Đã từ chối hồ sơ' });
+      toast({ title: `Đã từ chối: ${doc.title}` });
       loadPendingItems();
-    } catch (error) {
-      toast({
-        title: 'Lỗi',
-        description: 'Không thể từ chối hồ sơ',
-        variant: 'destructive',
-      });
+    } catch {
+      toast({ title: 'Lỗi từ chối', variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
     }
   };
 
   const handleApproveRequest = async (req: FileRequest) => {
-    const note = prompt('Ghi chú (tùy chọn):') || '';
-
+    setProcessingId(req.id);
     try {
-      await fileRequestService.approveRequest(req.id, user!.uid, user!.displayName, note);
-      toast({ title: 'Thành công', description: 'Đã phê duyệt yêu cầu' });
+      await fileRequestService.approveRequest(req.id, user!.uid, user!.displayName, '');
+      toast({ title: `Đã duyệt yêu cầu: ${req.documentName}` });
       loadPendingItems();
-    } catch (error) {
-      toast({
-        title: 'Lỗi',
-        description: 'Không thể phê duyệt yêu cầu',
-        variant: 'destructive',
-      });
+    } catch {
+      toast({ title: 'Lỗi phê duyệt', variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
     }
   };
 
   const handleRejectRequest = async (req: FileRequest) => {
     const note = prompt('Lý do từ chối:');
     if (!note) return;
-
+    setProcessingId(req.id);
     try {
       await fileRequestService.rejectRequest(req.id, user!.uid, user!.displayName, note);
-      toast({ title: 'Thành công', description: 'Đã từ chối yêu cầu' });
+      toast({ title: `Đã từ chối yêu cầu: ${req.documentName}` });
       loadPendingItems();
-    } catch (error) {
-      toast({
-        title: 'Lỗi',
-        description: 'Không thể từ chối yêu cầu',
-        variant: 'destructive',
-      });
+    } catch {
+      toast({ title: 'Lỗi từ chối', variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
     }
   };
+
+  // ── Bulk actions ────────────────────────────────────────────
+  const handleBulkApproveDocuments = async () => {
+    if (selectedDocIds.size === 0) return;
+    setBulkProcessing(true);
+    const ids = Array.from(selectedDocIds);
+    const results = await Promise.allSettled(
+      ids.map(id => documentService.approveDocument(id, user!.uid, user!.displayName))
+    );
+    const ok = results.filter(r => r.status === 'fulfilled').length;
+    const fail = results.filter(r => r.status === 'rejected').length;
+    toast({ title: `Duyệt hàng loạt: ${ok} thành công${fail > 0 ? `, ${fail} lỗi` : ''}` });
+    setBulkProcessing(false);
+    loadPendingItems();
+  };
+
+  const handleBulkApproveRequests = async () => {
+    if (selectedReqIds.size === 0) return;
+    setBulkProcessing(true);
+    const ids = Array.from(selectedReqIds);
+    const results = await Promise.allSettled(
+      ids.map(id => fileRequestService.approveRequest(id, user!.uid, user!.displayName, ''))
+    );
+    const ok = results.filter(r => r.status === 'fulfilled').length;
+    const fail = results.filter(r => r.status === 'rejected').length;
+    toast({ title: `Duyệt hàng loạt: ${ok} thành công${fail > 0 ? `, ${fail} lỗi` : ''}` });
+    setBulkProcessing(false);
+    loadPendingItems();
+  };
+
+  // ── Selection helpers ───────────────────────────────────────
+  const toggleDocSelect = (id: string) => {
+    setSelectedDocIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleReqSelect = (id: string) => {
+    setSelectedReqIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllDocs = () => setSelectedDocIds(new Set(pendingDocuments.map(d => d.id)));
+  const clearDocSelection = () => setSelectedDocIds(new Set());
+  const selectAllReqs = () => setSelectedReqIds(new Set(pendingRequests.map(r => r.id)));
+  const clearReqSelection = () => setSelectedReqIds(new Set());
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
@@ -167,7 +197,32 @@ export function DocumentApprovalsScreen() {
         <TabsContent value="documents">
           <Card>
             <CardHeader>
-              <CardTitle>Hồ sơ chờ phê duyệt</CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <CardTitle>Hồ sơ chờ phê duyệt</CardTitle>
+                {pendingDocuments.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-gray-500">
+                      Đã chọn: {selectedDocIds.size}/{pendingDocuments.length}
+                    </span>
+                    <Button variant="outline" size="sm" onClick={selectedDocIds.size === pendingDocuments.length ? clearDocSelection : selectAllDocs}>
+                      {selectedDocIds.size === pendingDocuments.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                    </Button>
+                    {selectedDocIds.size > 0 && (
+                      <Button
+                        size="sm"
+                        onClick={handleBulkApproveDocuments}
+                        disabled={bulkProcessing}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        {bulkProcessing
+                          ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Đang duyệt...</>
+                          : <><CheckCheck className="h-4 w-4 mr-1" /> Duyệt {selectedDocIds.size} hồ sơ</>
+                        }
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -177,76 +232,70 @@ export function DocumentApprovalsScreen() {
               ) : (
                 <div className="space-y-3">
                   {pendingDocuments.map(doc => (
-                    <div key={doc.id} className="border rounded-lg p-4">
+                    <div
+                      key={doc.id}
+                      className={`border rounded-lg p-4 transition-colors ${selectedDocIds.has(doc.id) ? 'border-indigo-300 bg-indigo-50/40' : 'border-gray-200'}`}
+                    >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-start gap-3 flex-1">
-                          <FileText className="h-8 w-8 text-blue-600 mt-1" />
+                          <input
+                            type="checkbox"
+                            checked={selectedDocIds.has(doc.id)}
+                            onChange={() => toggleDocSelect(doc.id)}
+                            className="mt-1.5 h-4 w-4 rounded border-gray-300 text-indigo-600"
+                          />
+                          <FileText className="h-8 w-8 text-blue-600 mt-1 flex-shrink-0" />
                           <div className="flex-1">
                             <h3 className="font-semibold">{doc.title}</h3>
-                            <p className="text-sm text-gray-500">{doc.files?.length || 0} file(s)</p>
-                            <p className="text-sm text-gray-600 mt-1">
-                              Tải lên bởi: {doc.uploadedByName}
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              Ngày: {doc.uploadedAt.toLocaleDateString('vi-VN')}
-                            </p>
+                            <p className="text-sm text-gray-500">{doc.files?.length || 0} file</p>
+                            <p className="text-sm text-gray-600 mt-1">Tải lên bởi: {doc.uploadedByName}</p>
+                            <p className="text-sm text-gray-600">Ngày: {doc.uploadedAt.toLocaleDateString('vi-VN')}</p>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-shrink-0">
                           <Button
                             size="sm"
                             variant="default"
                             onClick={() => handleApproveDocument(doc)}
+                            disabled={processingId === doc.id || bulkProcessing}
                           >
-                            <Check className="h-4 w-4 mr-1" />
-                            Duyệt
+                            {processingId === doc.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <><Check className="h-4 w-4 mr-1" /> Duyệt</>
+                            }
                           </Button>
                           <Button
                             size="sm"
                             variant="destructive"
                             onClick={() => handleRejectDocument(doc)}
+                            disabled={processingId === doc.id || bulkProcessing}
                           >
-                            <X className="h-4 w-4 mr-1" />
-                            Từ chối
+                            <X className="h-4 w-4 mr-1" /> Từ chối
                           </Button>
                         </div>
                       </div>
 
-                      {/* Files List */}
                       {doc.files && doc.files.length > 0 && (
                         <div className="ml-11 space-y-1">
                           {doc.files.map((file, idx) => (
                             <div key={idx} className="flex items-center justify-between text-xs bg-gray-50 border rounded px-3 py-2">
                               <div className="flex items-center gap-2 flex-1 min-w-0">
                                 <FileText className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                                <span className="truncate" title={file.name}>
-                                  {file.name}
-                                </span>
-                                <span className="text-gray-400 flex-shrink-0">
-                                  ({formatFileSize(file.size)})
-                                </span>
+                                <span className="truncate" title={file.name}>{file.name}</span>
+                                <span className="text-gray-400 flex-shrink-0">({formatFileSize(file.size)})</span>
                               </div>
                               <div className="flex gap-2 ml-3">
                                 <button
                                   onClick={() => window.open(file.driveFileUrl, '_blank')}
                                   className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                                  title="Xem file"
                                 >
-                                  <Eye className="h-3 w-3" />
-                                  <span>Xem</span>
+                                  <Eye className="h-3 w-3" /> Xem
                                 </button>
                                 <button
-                                  onClick={() => {
-                                    const link = document.createElement('a');
-                                    link.href = file.driveFileUrl;
-                                    link.download = file.name;
-                                    link.click();
-                                  }}
+                                  onClick={() => { const a = document.createElement('a'); a.href = file.driveFileUrl; a.download = file.name; a.click(); }}
                                   className="text-green-600 hover:text-green-800 flex items-center gap-1"
-                                  title="Tải xuống"
                                 >
-                                  <Download className="h-3 w-3" />
-                                  <span>Tải</span>
+                                  <Download className="h-3 w-3" /> Tải
                                 </button>
                               </div>
                             </div>
@@ -265,7 +314,32 @@ export function DocumentApprovalsScreen() {
         <TabsContent value="requests">
           <Card>
             <CardHeader>
-              <CardTitle>Yêu cầu chờ phê duyệt</CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <CardTitle>Yêu cầu chờ phê duyệt</CardTitle>
+                {pendingRequests.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-gray-500">
+                      Đã chọn: {selectedReqIds.size}/{pendingRequests.length}
+                    </span>
+                    <Button variant="outline" size="sm" onClick={selectedReqIds.size === pendingRequests.length ? clearReqSelection : selectAllReqs}>
+                      {selectedReqIds.size === pendingRequests.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                    </Button>
+                    {selectedReqIds.size > 0 && (
+                      <Button
+                        size="sm"
+                        onClick={handleBulkApproveRequests}
+                        disabled={bulkProcessing}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        {bulkProcessing
+                          ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Đang duyệt...</>
+                          : <><CheckCheck className="h-4 w-4 mr-1" /> Duyệt {selectedReqIds.size} yêu cầu</>
+                        }
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -275,45 +349,49 @@ export function DocumentApprovalsScreen() {
               ) : (
                 <div className="space-y-3">
                   {pendingRequests.map(req => (
-                    <div key={req.id} className="border rounded-lg p-4">
+                    <div
+                      key={req.id}
+                      className={`border rounded-lg p-4 transition-colors ${selectedReqIds.has(req.id) ? 'border-indigo-300 bg-indigo-50/40' : 'border-gray-200'}`}
+                    >
                       <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              req.requestType === 'delete'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-blue-100 text-blue-800'
-                            }`}>
-                              {req.requestType === 'delete' ? 'XÓA' : 'SỬA'}
-                            </span>
-                            <h3 className="font-semibold">{req.documentName}</h3>
+                        <div className="flex items-start gap-3 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedReqIds.has(req.id)}
+                            onChange={() => toggleReqSelect(req.id)}
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${req.requestType === 'delete' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
+                                {req.requestType === 'delete' ? 'XÓA' : 'SỬA'}
+                              </span>
+                              <h3 className="font-semibold">{req.documentName}</h3>
+                            </div>
+                            <p className="text-sm text-gray-600">Người yêu cầu: {req.requestedByName}</p>
+                            <p className="text-sm text-gray-600">Lý do: {req.reason}</p>
+                            <p className="text-sm text-gray-600">Ngày: {req.requestedAt.toLocaleDateString('vi-VN')}</p>
                           </div>
-                          <p className="text-sm text-gray-600">
-                            Người yêu cầu: {req.requestedByName}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            Lý do: {req.reason}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            Ngày: {req.requestedAt.toLocaleDateString('vi-VN')}
-                          </p>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-shrink-0">
                           <Button
                             size="sm"
                             variant="default"
                             onClick={() => handleApproveRequest(req)}
+                            disabled={processingId === req.id || bulkProcessing}
                           >
-                            <Check className="h-4 w-4 mr-1" />
-                            Duyệt
+                            {processingId === req.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <><Check className="h-4 w-4 mr-1" /> Duyệt</>
+                            }
                           </Button>
                           <Button
                             size="sm"
                             variant="destructive"
                             onClick={() => handleRejectRequest(req)}
+                            disabled={processingId === req.id || bulkProcessing}
                           >
-                            <X className="h-4 w-4 mr-1" />
-                            Từ chối
+                            <X className="h-4 w-4 mr-1" /> Từ chối
                           </Button>
                         </div>
                       </div>
