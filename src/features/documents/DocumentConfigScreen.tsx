@@ -45,6 +45,9 @@ export function DocumentConfigScreen() {
   const [categoryViewUserIds, setCategoryViewUserIds] = useState<string[]>([]);
   const [viewPermissionDepartmentFilter, setViewPermissionDepartmentFilter] = useState<string>(''); // For filtering users by department
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
+  const [showCopyDialog, setShowCopyDialog] = useState(false);
+  const [copyTargetYearId, setCopyTargetYearId] = useState<string>('');
+  const [copying, setCopying] = useState(false);
 
   // Document Types (NEW)
   const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
@@ -367,6 +370,49 @@ export function DocumentConfigScreen() {
     }
   };
 
+  const handleOpenCopyDialog = () => {
+    setCopyTargetYearId('');
+    setShowCopyDialog(true);
+  };
+
+  const handleCopyCategories = async () => {
+    if (!copyTargetYearId) {
+      toast({
+        title: 'Lỗi',
+        description: 'Vui lòng chọn năm học đích',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setCopying(true);
+      const count = await documentCategoryService.copyCategoriesToSchoolYear(
+        selectedYearId,
+        copyTargetYearId,
+        user!.uid
+      );
+      toast({
+        title: 'Thành công',
+        description: `Đã sao chép ${count} danh mục sang năm học mới`,
+      });
+      setShowCopyDialog(false);
+
+      if (copyTargetYearId === selectedYearId) {
+        loadCategories(selectedYearId);
+      }
+    } catch (error) {
+      console.error('Error copying categories:', error);
+      toast({
+        title: 'Lỗi',
+        description: 'Không thể sao chép danh mục: ' + (error as Error).message,
+        variant: 'destructive',
+      });
+    } finally {
+      setCopying(false);
+    }
+  };
+
   // ============ SUBCATEGORY FUNCTIONS ============
 
   const loadSubCategories = async (categoryId: string) => {
@@ -655,6 +701,15 @@ export function DocumentConfigScreen() {
                 <Button size="sm" disabled={!selectedYearId} onClick={() => handleOpenCategoryDialog()} className="w-full sm:w-auto">
                   <Plus className="h-4 w-4 mr-2" />
                   Thêm danh mục
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!selectedYearId || categories.length === 0}
+                  onClick={handleOpenCopyDialog}
+                  className="w-full sm:w-auto"
+                >
+                  Sao chép sang năm khác
                 </Button>
               </div>
             </CardHeader>
@@ -1026,6 +1081,67 @@ export function DocumentConfigScreen() {
                 onClick={() => setShowCategoryDialog(false)}
                 variant="outline"
                 className="flex-1"
+              >
+                Hủy
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Copy Categories Dialog */}
+      {showCopyDialog && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => setShowCopyDialog(false)}
+        >
+          <div
+            className="bg-white rounded-lg p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">Sao chép danh mục sang năm học khác</h2>
+
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Sẽ sao chép toàn bộ {categories.length} danh mục (và mục con) từ năm học{' '}
+                <strong>{schoolYears.find(y => y.id === selectedYearId)?.name}</strong> sang năm học đích bên dưới.
+                Danh mục ở năm học nguồn vẫn được giữ nguyên.
+              </p>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Năm học đích <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={copyTargetYearId}
+                  onChange={(e) => setCopyTargetYearId(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  <option value="">-- Chọn năm học --</option>
+                  {schoolYears
+                    .filter(y => y.id !== selectedYearId)
+                    .map(year => (
+                      <option key={year.id} value={year.id}>
+                        {year.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <Button
+                onClick={handleCopyCategories}
+                disabled={!copyTargetYearId || copying}
+                className="flex-1"
+              >
+                {copying ? 'Đang sao chép...' : 'Sao chép'}
+              </Button>
+              <Button
+                onClick={() => setShowCopyDialog(false)}
+                variant="outline"
+                className="flex-1"
+                disabled={copying}
               >
                 Hủy
               </Button>

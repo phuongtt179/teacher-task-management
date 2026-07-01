@@ -142,6 +142,62 @@ export const documentCategoryService = {
     }
   },
 
+  // Copy all categories (and their subcategories) from one school year to another
+  async copyCategoriesToSchoolYear(
+    sourceYearId: string,
+    targetYearId: string,
+    createdBy: string
+  ): Promise<number> {
+    try {
+      const sourceCategories = await this.getCategoriesBySchoolYear(sourceYearId);
+
+      for (const category of sourceCategories) {
+        const newCategoryData: any = {
+          schoolYearId: targetYearId,
+          name: category.name,
+          hasSubCategories: category.hasSubCategories,
+          order: category.order,
+          createdBy,
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        };
+
+        if (category.categoryType) {
+          newCategoryData.categoryType = category.categoryType;
+        }
+        if (category.documentTypeId) {
+          newCategoryData.documentTypeId = category.documentTypeId;
+        }
+        if (category.allowedUploaders && category.allowedUploaders.length > 0) {
+          newCategoryData.allowedUploaders = category.allowedUploaders;
+        }
+        if (category.viewPermissions) {
+          newCategoryData.viewPermissions = category.viewPermissions;
+        }
+
+        const newCategoryDoc = await addDoc(collection(db, 'documentCategories'), newCategoryData);
+
+        if (category.hasSubCategories) {
+          const subCategories = await this.getSubCategories(category.id);
+          for (const sub of subCategories) {
+            await addDoc(collection(db, 'documentSubCategories'), {
+              categoryId: newCategoryDoc.id,
+              name: sub.name,
+              order: sub.order,
+              createdAt: Timestamp.now(),
+              updatedAt: Timestamp.now(),
+            });
+          }
+        }
+      }
+
+      return sourceCategories.length;
+    } catch (error) {
+      console.error('Error copying categories:', error);
+      throw error;
+    }
+  },
+
   // Delete category
   async deleteCategory(id: string): Promise<void> {
     try {
