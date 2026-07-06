@@ -5,17 +5,25 @@ import { getNavigationForRole } from '../../lib/navigation';
 import { cn } from '@/lib/utils';
 import { Menu, X } from 'lucide-react';
 
-export const MobileMenu = () => {
+interface MobileMenuProps {
+  // Khi true, hiện nút menu này ở MỌI kích thước màn hình (không chỉ mobile) —
+  // dùng khi Sidebar gốc đang bị ẩn (chế độ chat) để vẫn có lối vào Bảng xếp
+  // hạng/Hồ sơ điện tử/Yêu cầu của tôi trên desktop.
+  forceVisible?: boolean;
+}
+
+export const MobileMenu = ({ forceVisible }: MobileMenuProps) => {
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const navItems = user ? getNavigationForRole(user.role) : [];
+  const visibilityClass = forceVisible ? '' : 'lg:hidden';
 
   return (
     <>
       {/* Hamburger Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="lg:hidden p-2 text-gray-700 hover:text-indigo-600 transition-colors"
+        className={`${visibilityClass} p-2 text-gray-700 hover:text-indigo-600 transition-colors`}
         aria-label="Open menu"
       >
         <Menu className="w-6 h-6" />
@@ -23,7 +31,7 @@ export const MobileMenu = () => {
 
       {/* Mobile Menu Overlay */}
       {isOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 bg-black/50" onClick={() => setIsOpen(false)}>
+        <div className={`${visibilityClass} fixed inset-0 z-50 bg-black/50`} onClick={() => setIsOpen(false)}>
           {/* Menu Drawer */}
           <div
             className="fixed inset-y-0 left-0 w-64 bg-white shadow-xl"

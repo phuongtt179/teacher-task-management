@@ -16,7 +16,13 @@ import { Badge } from '@/components/ui/badge';
 import { LogOut, User, Settings, Bell } from 'lucide-react';
 import { MobileMenu } from './MobileMenu';
 
-export const Header = () => {
+interface HeaderProps {
+  // Khi true, Sidebar gốc đang ẩn (chế độ chat) — Header cần cho MobileMenu
+  // hiện luôn ở mọi kích thước màn hình để không mất lối vào các trang khác.
+  hideSidebar?: boolean;
+}
+
+export const Header = ({ hideSidebar }: HeaderProps) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -66,7 +72,7 @@ export const Header = () => {
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3">
           {/* Mobile Menu Button */}
-          <MobileMenu />
+          <MobileMenu forceVisible={hideSidebar} />
 
           <div>
             <h1 className="text-xl font-bold text-gray-900">Quản lý Công việc</h1>
