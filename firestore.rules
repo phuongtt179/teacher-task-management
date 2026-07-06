@@ -42,6 +42,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // App-wide feature flags (e.g. chat UI beta rollout)
+    match /config/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     // Users collection
     match /users/{userId} {
       allow read: if isSignedIn();

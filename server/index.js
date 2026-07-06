@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import { google } from 'googleapis';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,6 +9,8 @@ import { dirname } from 'path';
 import dotenv from 'dotenv';
 import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials, getValidOAuth2Client } from './oauth-config.js';
 import { sendNewTaskNotification, sendTaskScoredNotification } from './notificationService.js';
+import admin, { db as adminDb } from './firebase-config.js';
+import { getGeminiKeys, callGeminiRotate, isDailyLimit } from './_gemini.js';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -509,16 +510,10 @@ app.post('/api/parse-tasks', express.json(), async (req, res) => {
       return res.status(400).json({ error: 'Vui lòng cung cấp văn bản cần phân tích' });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const keys = getGeminiKeys();
+    if (!keys.length) {
       return res.status(500).json({ error: 'GEMINI_API_KEY chưa được cấu hình' });
     }
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-3.1-flash-lite',
-      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
-    });
 
     const teacherListText = teachers && teachers.length > 0
       ? teachers.map(t => `- "${t.displayName}" (uid: ${t.uid})`).join('\n')
@@ -560,8 +555,28 @@ CHỈ trả về JSON array thuần túy, KHÔNG có markdown, KHÔNG có text k
   }
 ]`;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    const payload = JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+    });
+
+    const geminiRes = await callGeminiRotate({ model: 'gemini-3.1-flash-lite', keys, payload });
+
+    if (geminiRes.status === 429) {
+      const errBody = await geminiRes.json().catch(() => ({}));
+      return res.status(429).json({
+        error: isDailyLimit(errBody)
+          ? 'Đã hết lượt phân tích AI hôm nay, thử lại vào ngày mai'
+          : 'Đang có nhiều yêu cầu, thử lại sau ít phút',
+      });
+    }
+    if (!geminiRes.ok) {
+      const body = await geminiRes.json().catch(() => ({}));
+      throw new Error(body?.error?.message || 'Gemini API error');
+    }
+
+    const data = await geminiRes.json();
+    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     // Extract JSON array from response
     const jsonMatch = responseText.match(/\[[\s\S]*\]/);
@@ -575,6 +590,172 @@ CHỈ trả về JSON array thuần túy, KHÔNG có markdown, KHÔNG có text k
   } catch (error) {
     console.error('❌ Parse tasks error:', error);
     res.status(500).json({ error: 'Phân tích thất bại', message: error.message });
+  }
+});
+
+/**
+ * Chat AI cho giáo viên — dùng Gemini function calling để vừa trò chuyện
+ * vừa thực thi hành động thật (đọc công việc/điểm qua Admin SDK).
+ * Giai đoạn 1: chỉ có các hàm ĐỌC dữ liệu, chưa có hàm ghi (hoàn thành việc, nộp tài liệu).
+ */
+const CHAT_MODEL = 'gemini-3.1-flash-lite';
+
+const CHAT_TOOLS = [{
+  functionDeclarations: [
+    {
+      name: 'list_my_tasks',
+      description: 'Liệt kê công việc được giao cho giáo viên đang hỏi, kèm trạng thái (assigned=đã giao chưa nộp, submitted=đã nộp chờ chấm, completed=đã có điểm, overdue=quá hạn chưa nộp), mức ưu tiên và hạn nộp.',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
+    {
+      name: 'get_my_scores',
+      description: 'Lấy lịch sử điểm các công việc đã được chấm điểm của giáo viên đang hỏi, kèm nhận xét (nếu có).',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
+  ],
+}];
+
+function computeTeacherStatus(deadline, deadline2, submission) {
+  if (submission) {
+    return (submission.score !== undefined && submission.score !== null) ? 'completed' : 'submitted';
+  }
+  const finalDeadline = deadline2 || deadline;
+  if (finalDeadline && new Date() > finalDeadline) return 'overdue';
+  return 'assigned';
+}
+
+async function toolListMyTasks(uid) {
+  const [tasksSnap, subsSnap] = await Promise.all([
+    adminDb.collection('tasks').where('assignedTo', 'array-contains', uid).get(),
+    adminDb.collection('submissions').where('teacherId', '==', uid).get(),
+  ]);
+
+  const latestSubByTask = new Map();
+  subsSnap.docs.forEach(d => {
+    const s = d.data();
+    if (s.isLatest === false) return;
+    latestSubByTask.set(s.taskId, s);
+  });
+
+  const tasks = tasksSnap.docs.map(d => {
+    const t = d.data();
+    const deadline = t.deadline?.toDate ? t.deadline.toDate() : null;
+    const deadline2 = t.deadline2?.toDate ? t.deadline2.toDate() : null;
+    const submission = latestSubByTask.get(d.id);
+    return {
+      title: t.title,
+      priority: t.priority || 'medium',
+      deadline: deadline ? deadline.toISOString().slice(0, 10) : null,
+      status: computeTeacherStatus(deadline, deadline2, submission),
+      score: submission?.score ?? null,
+    };
+  });
+
+  return { tasks };
+}
+
+async function toolGetMyScores(uid) {
+  const subsSnap = await adminDb.collection('submissions').where('teacherId', '==', uid).get();
+  const scored = subsSnap.docs
+    .map(d => d.data())
+    .filter(s => s.isLatest !== false && s.score !== undefined && s.score !== null);
+
+  const taskIds = [...new Set(scored.map(s => s.taskId))];
+  const taskTitles = {};
+  await Promise.all(taskIds.map(async id => {
+    const t = await adminDb.collection('tasks').doc(id).get();
+    taskTitles[id] = t.exists ? t.data().title : '(không rõ)';
+  }));
+
+  const scores = scored.map(s => ({
+    taskTitle: taskTitles[s.taskId] || '(không rõ)',
+    score: s.score,
+    feedback: s.feedback || null,
+  }));
+
+  return { scores };
+}
+
+async function executeChatTool(name, uid) {
+  switch (name) {
+    case 'list_my_tasks': return toolListMyTasks(uid);
+    case 'get_my_scores': return toolGetMyScores(uid);
+    default: return { error: 'unknown_tool' };
+  }
+}
+
+app.post('/api/chat', express.json(), async (req, res) => {
+  try {
+    const { uid, displayName, messages } = req.body || {};
+    if (!uid) return res.status(400).json({ error: 'missing_uid' });
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'no_message' });
+    }
+
+    const keys = getGeminiKeys();
+    if (!keys.length) return res.status(500).json({ error: 'no_api_key' });
+
+    const systemPrompt = `Bạn là trợ lý AI thân thiện cho giáo viên "${displayName || ''}" trong ứng dụng quản lý công việc trường học.
+Trả lời ngắn gọn, tiếng Việt, lịch sự.
+Khi giáo viên hỏi về công việc/nhiệm vụ của mình, hoặc việc nào cần làm/ưu tiên, hãy gọi hàm list_my_tasks rồi dựa vào priority và deadline trong dữ liệu trả về để tư vấn — KHÔNG tự bịa công việc.
+Khi giáo viên hỏi về điểm số, hãy gọi hàm get_my_scores.
+Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.`;
+
+    const contents = messages.map(m => ({
+      role: m.role === 'model' ? 'model' : 'user',
+      parts: [{ text: String(m.content || '') }],
+    }));
+
+    const callOnce = () => {
+      const payload = JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents,
+        tools: CHAT_TOOLS,
+        generationConfig: { temperature: 0.3, maxOutputTokens: 1024 },
+      });
+      return callGeminiRotate({ model: CHAT_MODEL, keys, payload });
+    };
+
+    let geminiRes = await callOnce();
+    if (geminiRes.status === 429) {
+      const errBody = await geminiRes.json().catch(() => ({}));
+      return res.status(429).json({ error: isDailyLimit(errBody) ? 'quota_rpd' : 'quota_rpm' });
+    }
+    if (!geminiRes.ok) {
+      const body = await geminiRes.json().catch(() => ({}));
+      return res.status(500).json({ error: 'gemini_error', details: body });
+    }
+
+    let data = await geminiRes.json();
+    let parts = data.candidates?.[0]?.content?.parts || [];
+    const functionCalls = parts.filter(p => p.functionCall).map(p => p.functionCall);
+
+    if (functionCalls.length > 0) {
+      contents.push({ role: 'model', parts });
+
+      const responseParts = [];
+      for (const fc of functionCalls) {
+        const result = await executeChatTool(fc.name, uid);
+        responseParts.push({ functionResponse: { name: fc.name, response: result } });
+      }
+      contents.push({ role: 'function', parts: responseParts });
+
+      geminiRes = await callOnce();
+      if (!geminiRes.ok) {
+        const body = await geminiRes.json().catch(() => ({}));
+        return res.status(500).json({ error: 'gemini_error', details: body });
+      }
+      data = await geminiRes.json();
+      parts = data.candidates?.[0]?.content?.parts || [];
+    }
+
+    const answer = (parts.find(p => p.text)?.text || '').trim();
+    if (!answer) return res.status(500).json({ error: 'empty' });
+
+    return res.json({ success: true, answer });
+  } catch (error) {
+    console.error('❌ Chat error:', error);
+    res.status(500).json({ error: 'chat_failed', message: error.message });
   }
 });
 

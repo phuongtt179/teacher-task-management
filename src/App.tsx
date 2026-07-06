@@ -16,6 +16,8 @@ import { StatisticsScreen } from './features/vice-principal/StatisticsScreen';
 import { TaskDetailStatisticsScreen } from './features/vice-principal/TaskDetailStatisticsScreen';
 import { TeacherDetailStatisticsScreen } from './features/vice-principal/TeacherDetailStatisticsScreen';
 import { TeacherDashboard } from './features/teacher/TeacherDashboard';
+import { ChatScreen } from './features/teacher/ChatScreen';
+import { useChatUIEnabled } from './hooks/useFeatureFlags';
 import { MyTasksScreen } from './features/teacher/MyTasksScreen';
 import { SubmitReportScreen } from './features/teacher/SubmitReportScreen';
 import { MyScoresScreen } from './features/teacher/MyScoresScreen';
@@ -34,24 +36,38 @@ import { MyRequestsScreen } from './features/documents/MyRequestsScreen';
 import { TeacherProfileScreen } from './features/teacher/TeacherProfileScreen';
 import { deadlineCheckerService } from './services/deadlineCheckerService';
 // Dashboard router based on role
-const DashboardRouter = () => {
+const DashboardRouter = ({ chatMode }: { chatMode: boolean }) => {
   const { user } = useAuth();
 
   if (!user) return null;
 
   switch (user.role) {
     case 'admin':
-      return <AdminDashboard />;
+      return chatMode ? <ChatScreen /> : <AdminDashboard />;
     case 'principal':
     case 'vice_principal':
-      return <VPDashboard />;
+      return chatMode ? <ChatScreen /> : <VPDashboard />;
     case 'teacher':
     case 'department_head':
     case 'staff':
-      return <TeacherDashboard />;
+      return chatMode ? <ChatScreen /> : <TeacherDashboard />;
     default:
       return <div>Invalid role</div>;
   }
+};
+
+// Wraps DashboardRouter, deciding once whether chat mode is active so AppLayout
+// knows whether to hide its own Sidebar/BottomNav in favor of ChatScreen's own layout.
+const HomeScreen = () => {
+  const { user } = useAuth();
+  const chatUIEnabled = useChatUIEnabled(user?.email);
+  const chatMode = !!chatUIEnabled;
+
+  return (
+    <AppLayout hideSidebar={chatMode}>
+      <DashboardRouter chatMode={chatMode} />
+    </AppLayout>
+  );
 };
 
 // Placeholder components
@@ -131,9 +147,7 @@ function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <AppLayout>
-                <DashboardRouter />
-              </AppLayout>
+              <HomeScreen />
             </ProtectedRoute>
           }
         />

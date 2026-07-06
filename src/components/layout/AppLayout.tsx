@@ -5,9 +5,23 @@ import { BottomNav } from './BottomNav';
 
 interface AppLayoutProps {
   children: ReactNode;
+  // Khi true: bỏ Sidebar/BottomNav của app, cho children (vd: ChatScreen) tự quản lý
+  // toàn bộ vùng bên trái và chiếm hết chiều cao còn lại dưới Header.
+  hideSidebar?: boolean;
 }
 
-export const AppLayout = ({ children }: AppLayoutProps) => {
+export const AppLayout = ({ children, hideSidebar }: AppLayoutProps) => {
+  if (hideSidebar) {
+    return (
+      <div className="h-screen flex flex-col bg-gray-50">
+        <Header />
+        <main className="flex-1 overflow-hidden">
+          {children}
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sidebar for desktop */}
@@ -16,7 +30,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       {/* Main content */}
       <div className="lg:pl-64">
         <Header />
-        
+
         <main className="p-4 pb-20 lg:pb-4">
           {children}
         </main>
