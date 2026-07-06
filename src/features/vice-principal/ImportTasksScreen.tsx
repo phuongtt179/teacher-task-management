@@ -41,6 +41,7 @@ interface ParsedTask {
   description: string;
   assigneeNames: string[];
   matchedTeacherIds: (string | null)[];
+  assigneeResolutions: (string | null)[];
   deadline: string | null;
   priority: TaskPriority;
   selected: boolean;
@@ -81,6 +82,13 @@ export const ImportTasksScreen = () => {
     load();
   }, []);
 
+  // Find all teachers whose name contains the given assignee name (honorifics stripped)
+  const findCandidates = (name: string): Teacher[] => {
+    const normalized = name.toLowerCase().replace(/^(cô|thầy|anh|chị)\s+/i, '').trim();
+    if (!normalized) return [];
+    return teachers.filter(t => t.displayName.toLowerCase().includes(normalized));
+  };
+
   const handleAnalyze = async () => {
     if (!pastedText.trim()) {
       toast({ title: 'Vui lòng dán văn bản vào ô bên dưới', variant: 'destructive' });
@@ -96,16 +104,27 @@ export const ImportTasksScreen = () => {
       const data = await res.json();
       if (!data.success) throw new Error(data.message || 'Phân tích thất bại');
 
-      const tasks: ParsedTask[] = data.tasks.map((t: any, i: number) => ({
-        localId: `task-${i}`,
-        title: t.title || '',
-        description: t.description || '',
-        assigneeNames: t.assigneeNames || [],
-        matchedTeacherIds: t.matchedTeacherIds || [],
-        deadline: t.deadline || null,
-        priority: (['high', 'medium', 'low'].includes(t.priority) ? t.priority : 'medium') as TaskPriority,
-        selected: true,
-      }));
+      const tasks: ParsedTask[] = data.tasks.map((t: any, i: number) => {
+        const assigneeNames: string[] = t.assigneeNames || [];
+        const matchedTeacherIds: (string | null)[] = t.matchedTeacherIds || [];
+        const assigneeResolutions = assigneeNames.map((name, j) => {
+          const candidates = findCandidates(name);
+          if (candidates.length === 1) return candidates[0].uid;
+          if (candidates.length === 0) return matchedTeacherIds[j] || null;
+          return null; // ambiguous: multiple teachers share this name, require manual pick
+        });
+        return {
+          localId: `task-${i}`,
+          title: t.title || '',
+          description: t.description || '',
+          assigneeNames,
+          matchedTeacherIds,
+          assigneeResolutions,
+          deadline: t.deadline || null,
+          priority: (['high', 'medium', 'low'].includes(t.priority) ? t.priority : 'medium') as TaskPriority,
+          selected: true,
+        };
+      });
       setParsedTasks(tasks);
       toast({ title: `Phân tích xong! Tìm thấy ${tasks.length} công việc` });
     } catch (err: any) {
@@ -127,24 +146,22 @@ export const ImportTasksScreen = () => {
     setParsedTasks(prev => prev.map(t => ({ ...t, selected })));
   };
 
+  const updateAssigneeResolution = (localId: string, index: number, uid: string) => {
+    setParsedTasks(prev => prev.map(t => {
+      if (t.localId !== localId) return t;
+      const next = [...t.assigneeResolutions];
+      next[index] = uid;
+      return { ...t, assigneeResolutions: next };
+    }));
+  };
+
   const getResolvedAssignees = (task: ParsedTask) => {
     const ids: string[] = [];
     const names: string[] = [];
-    task.assigneeNames.forEach((name, i) => {
-      const uid = task.matchedTeacherIds[i];
-      if (uid) {
-        const teacher = teachers.find(t => t.uid === uid);
-        if (teacher) {
-          ids.push(uid);
-          names.push(teacher.displayName);
-          return;
-        }
-      }
-      // fallback: search by name
-      const found = teachers.find(t =>
-        t.displayName.toLowerCase().includes(name.toLowerCase().replace(/^(cô|thầy|anh|chị)\s+/i, ''))
-      );
-      if (found) { ids.push(found.uid); names.push(found.displayName); }
+    task.assigneeResolutions.forEach(uid => {
+      if (!uid) return;
+      const teacher = teachers.find(t => t.uid === uid);
+      if (teacher) { ids.push(uid); names.push(teacher.displayName); }
     });
     return { ids, names };
   };
@@ -163,6 +180,18 @@ export const ImportTasksScreen = () => {
     const invalid = selected.filter(t => !t.title.trim() || !t.deadline);
     if (invalid.length > 0) {
       toast({ title: `${invalid.length} công việc thiếu tiêu đề hoặc deadline`, variant: 'destructive' });
+      return;
+    }
+
+    const hasUnresolvedDuplicateName = selected.some(t =>
+      t.assigneeNames.some((name, i) => findCandidates(name).length > 1 && !t.assigneeResolutions[i])
+    );
+    if (hasUnresolvedDuplicateName) {
+      toast({
+        title: 'Có tên trùng với nhiều giáo viên chưa được chọn cụ thể',
+        description: 'Vui lòng chọn đúng người trong ô dropdown (viền cam) trước khi tạo',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -208,7 +237,7 @@ export const ImportTasksScreen = () => {
 
   const selectedCount = parsedTasks.filter(t => t.selected).length;
   const unmatchedCount = parsedTasks.filter(t =>
-    t.selected && t.assigneeNames.length > 0 && t.matchedTeacherIds.every(id => !id)
+    t.selected && t.assigneeNames.length > 0 && t.assigneeResolutions.every(id => !id)
   ).length;
 
   return (
@@ -341,16 +370,64 @@ export const ImportTasksScreen = () => {
                             <span className="text-xs text-gray-400">Chưa có</span>
                           )}
                           {task.assigneeNames.map((name, i) => {
-                            const matched = !!task.matchedTeacherIds[i];
+                            const candidates = findCandidates(name);
+                            const resolvedId = task.assigneeResolutions[i];
+
+                            if (candidates.length > 1) {
+                              // Ambiguous: multiple teachers share this name — require manual selection
+                              return (
+                                <Select
+                                  key={i}
+                                  value={resolvedId || undefined}
+                                  onValueChange={v => updateAssigneeResolution(task.localId, i, v)}
+                                >
+                                  <SelectTrigger
+                                    className={`h-7 text-xs w-44 ${resolvedId ? 'border-green-300' : 'border-amber-400 text-amber-700'}`}
+                                  >
+                                    <SelectValue placeholder={`"${name}" trùng tên — chọn người`} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {candidates.map(c => (
+                                      <SelectItem key={c.uid} value={c.uid}>
+                                        {c.displayName}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              );
+                            }
+
+                            if (candidates.length === 0) {
+                              // No automatic match — let admin pick manually from the full teacher list (optional)
+                              return (
+                                <Select
+                                  key={i}
+                                  value={resolvedId || undefined}
+                                  onValueChange={v => updateAssigneeResolution(task.localId, i, v)}
+                                >
+                                  <SelectTrigger
+                                    className={`h-7 text-xs w-48 ${resolvedId ? 'border-green-300' : 'border-amber-400 text-amber-700'}`}
+                                  >
+                                    <SelectValue placeholder={`"${name}" chưa khớp — chọn thủ công`} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {teachers.map(t => (
+                                      <SelectItem key={t.uid} value={t.uid}>
+                                        {t.displayName}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              );
+                            }
+
                             return (
                               <Badge
                                 key={i}
                                 variant="outline"
-                                className={matched
-                                  ? 'bg-green-50 text-green-700 border-green-200 text-xs'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200 text-xs'}
+                                className="bg-green-50 text-green-700 border-green-200 text-xs"
                               >
-                                {matched ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <AlertCircle className="w-3 h-3 mr-1" />}
+                                <CheckCircle2 className="w-3 h-3 mr-1" />
                                 {name}
                               </Badge>
                             );
