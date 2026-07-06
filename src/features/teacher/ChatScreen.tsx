@@ -168,6 +168,17 @@ export function ChatScreen() {
     }
   };
 
+  // Kênh mặc định ("Trợ lý AI") đã active sẵn từ đầu nên không đi qua selectChannel
+  // khi mở màn hình — kích hoạt lời chào tự động ở đây thay vì chờ người dùng bấm.
+  useEffect(() => {
+    if (!user) return;
+    const defaultChannel = CHANNELS[0];
+    if (defaultChannel.autoSend) {
+      sendMessage(defaultChannel.id, defaultChannel.autoSend);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
   const openCompleteForm = (task: ChatTask) => {
     setCompletingTask(task);
     setCompleteContent('');
