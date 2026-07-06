@@ -612,6 +612,11 @@ const CHAT_TOOLS = [{
       description: 'Lấy lịch sử điểm các công việc đã được chấm điểm của giáo viên đang hỏi, kèm nhận xét (nếu có).',
       parameters: { type: 'OBJECT', properties: {} },
     },
+    {
+      name: 'get_recent_notifications',
+      description: 'Lấy các thông báo CHƯA ĐỌC gần đây của giáo viên đang hỏi (việc mới được giao, đã chấm điểm...). Dùng để chào hỏi đầu phiên trò chuyện.',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
   ],
 }];
 
@@ -677,10 +682,24 @@ async function toolGetMyScores(uid) {
   return { scores };
 }
 
+async function toolGetRecentNotifications(uid) {
+  // Chỉ lọc theo userId (equality đơn) để tránh cần composite index; lọc/sắp xếp còn lại làm ở JS.
+  const snap = await adminDb.collection('notifications').where('userId', '==', uid).get();
+  const unread = snap.docs
+    .map(d => d.data())
+    .filter(n => n.read !== true)
+    .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0))
+    .slice(0, 5)
+    .map(n => ({ title: n.title, message: n.message }));
+
+  return { notifications: unread };
+}
+
 async function executeChatTool(name, uid) {
   switch (name) {
     case 'list_my_tasks': return toolListMyTasks(uid);
     case 'get_my_scores': return toolGetMyScores(uid);
+    case 'get_recent_notifications': return toolGetRecentNotifications(uid);
     default: return { error: 'unknown_tool' };
   }
 }
@@ -696,12 +715,14 @@ app.post('/api/chat', express.json(), async (req, res) => {
     const keys = getGeminiKeys();
     if (!keys.length) return res.status(500).json({ error: 'no_api_key' });
 
+    const isFirstMessage = messages.length === 1;
     const systemPrompt = `Bạn là trợ lý AI thân thiện cho giáo viên "${displayName || ''}" trong ứng dụng quản lý công việc trường học.
 Trả lời ngắn gọn, tiếng Việt, lịch sự.
 Khi giáo viên hỏi về công việc/nhiệm vụ của mình, hoặc việc nào cần làm/ưu tiên, hãy gọi hàm list_my_tasks rồi dựa vào priority và deadline trong dữ liệu trả về để tư vấn — KHÔNG tự bịa công việc.
 Mặc định khi liệt kê, CHỈ nêu các việc có status "assigned" hoặc "overdue" (chưa hoàn thành) — không nhắc tới việc "submitted"/"completed" trừ khi giáo viên hỏi rõ về việc đã nộp/đã hoàn thành.
 Khi giáo viên hỏi về điểm số, hãy gọi hàm get_my_scores.
-Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.`;
+${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện — TRƯỚC KHI trả lời, LUÔN gọi hàm get_recent_notifications trước. Chào hỏi thân thiện, và nếu có thông báo chưa đọc thì tóm tắt ngắn gọn số lượng + nội dung chính (ví dụ: "cô có 2 thông báo mới: ..."), nếu không có thông báo nào thì chào bình thường không cần nhắc tới việc không có thông báo.
+` : ''}Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.`;
 
     const contents = messages.map(m => ({
       role: m.role === 'model' ? 'model' : 'user',

@@ -40,6 +40,7 @@ const CHANNELS: Channel[] = [
     subtitle: 'Hỏi bất kỳ điều gì',
     icon: Sparkles,
     color: 'bg-indigo-500',
+    autoSend: 'Xin chào',
   },
   {
     id: 'tasks',
