@@ -617,6 +617,17 @@ const CHAT_TOOLS = [{
       description: 'Lấy các thông báo CHƯA ĐỌC gần đây của giáo viên đang hỏi (việc mới được giao, đã chấm điểm...). Dùng để chào hỏi đầu phiên trò chuyện.',
       parameters: { type: 'OBJECT', properties: {} },
     },
+    {
+      name: 'search_public_documents',
+      description: 'Tìm tài liệu/công văn/hồ sơ CÔNG KHAI (không phải hồ sơ cá nhân) theo từ khóa trong tên tài liệu. Trích xuất từ khóa quan trọng nhất từ câu hỏi, ví dụ "tìm công văn về tuyển sinh" → keyword="tuyển sinh".',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          keyword: { type: 'STRING', description: 'Từ khóa cần tìm trong tên tài liệu' },
+        },
+        required: ['keyword'],
+      },
+    },
   ],
 }];
 
@@ -682,6 +693,46 @@ async function toolGetMyScores(uid) {
   return { scores };
 }
 
+async function toolSearchPublicDocuments(keyword) {
+  const kw = String(keyword || '').trim().toLowerCase();
+  if (!kw) return { documents: [] };
+
+  const [categoriesSnap, typesSnap, documentsSnap] = await Promise.all([
+    adminDb.collection('documentCategories').get(),
+    adminDb.collection('documentTypes').get(),
+    adminDb.collection('documents').where('status', '==', 'approved').get(),
+  ]);
+
+  const typeById = new Map();
+  typesSnap.docs.forEach(d => typeById.set(d.id, d.data()));
+
+  const categoryById = new Map();
+  const publicCategoryIds = new Set();
+  categoriesSnap.docs.forEach(d => {
+    const c = d.data();
+    categoryById.set(d.id, c);
+
+    const docType = c.documentTypeId ? typeById.get(c.documentTypeId) : null;
+    const isPublic = docType
+      ? docType.viewPermissionType === 'everyone'
+      : (c.viewPermissions ? c.viewPermissions.type === 'everyone' : c.categoryType === 'public');
+    if (isPublic) publicCategoryIds.add(d.id);
+  });
+
+  const results = documentsSnap.docs
+    .map(d => d.data())
+    .filter(doc => publicCategoryIds.has(doc.categoryId) && (doc.title || '').toLowerCase().includes(kw))
+    .slice(0, 10)
+    .map(doc => ({
+      title: doc.title,
+      category: categoryById.get(doc.categoryId)?.name || '(không rõ)',
+      fileUrl: doc.files?.[0]?.driveFileUrl || null,
+      fileName: doc.files?.[0]?.name || null,
+    }));
+
+  return { documents: results };
+}
+
 async function toolGetRecentNotifications(uid) {
   // Chỉ lọc theo userId (equality đơn) để tránh cần composite index; lọc/sắp xếp còn lại làm ở JS.
   const snap = await adminDb.collection('notifications').where('userId', '==', uid).get();
@@ -695,11 +746,12 @@ async function toolGetRecentNotifications(uid) {
   return { notifications: unread };
 }
 
-async function executeChatTool(name, uid) {
+async function executeChatTool(name, uid, args) {
   switch (name) {
     case 'list_my_tasks': return toolListMyTasks(uid);
     case 'get_my_scores': return toolGetMyScores(uid);
     case 'get_recent_notifications': return toolGetRecentNotifications(uid);
+    case 'search_public_documents': return toolSearchPublicDocuments(args?.keyword);
     default: return { error: 'unknown_tool' };
   }
 }
@@ -721,6 +773,7 @@ Trả lời ngắn gọn, tiếng Việt, lịch sự.
 Khi giáo viên hỏi về công việc/nhiệm vụ của mình, hoặc việc nào cần làm/ưu tiên, hãy gọi hàm list_my_tasks rồi dựa vào priority và deadline trong dữ liệu trả về để tư vấn — KHÔNG tự bịa công việc.
 Mặc định khi liệt kê, CHỈ nêu các việc có status "assigned" hoặc "overdue" (chưa hoàn thành) — không nhắc tới việc "submitted"/"completed" trừ khi giáo viên hỏi rõ về việc đã nộp/đã hoàn thành.
 Khi giáo viên hỏi về điểm số, hãy gọi hàm get_my_scores.
+Khi giáo viên muốn tìm công văn/tài liệu/hồ sơ công khai nào đó (ví dụ "tìm công văn về...", "có tài liệu nào về... không"), hãy gọi hàm search_public_documents với từ khóa phù hợp. Nếu không tìm thấy, báo thẳng là chưa tìm thấy, đừng bịa tài liệu không có thật.
 ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện — TRƯỚC KHI trả lời, LUÔN gọi hàm get_recent_notifications trước. Chào hỏi thân thiện, và nếu có thông báo chưa đọc thì tóm tắt ngắn gọn số lượng + nội dung chính (ví dụ: "cô có 2 thông báo mới: ..."), nếu không có thông báo nào thì chào bình thường không cần nhắc tới việc không có thông báo.
 ` : ''}Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.`;
 
@@ -753,15 +806,19 @@ ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện
     let parts = data.candidates?.[0]?.content?.parts || [];
     const functionCalls = parts.filter(p => p.functionCall).map(p => p.functionCall);
     let taskListForUI = null;
+    let documentListForUI = null;
 
     if (functionCalls.length > 0) {
       contents.push({ role: 'model', parts });
 
       const responseParts = [];
       for (const fc of functionCalls) {
-        const result = await executeChatTool(fc.name, uid);
+        const result = await executeChatTool(fc.name, uid, fc.args);
         if (fc.name === 'list_my_tasks' && Array.isArray(result.tasks)) {
           taskListForUI = result.tasks.filter(t => t.status === 'assigned' || t.status === 'overdue');
+        }
+        if (fc.name === 'search_public_documents' && Array.isArray(result.documents)) {
+          documentListForUI = result.documents;
         }
         responseParts.push({ functionResponse: { name: fc.name, response: result } });
       }
@@ -781,6 +838,7 @@ ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện
 
     const responseBody = { success: true, answer };
     if (taskListForUI) responseBody.taskList = taskListForUI;
+    if (documentListForUI) responseBody.documentList = documentListForUI;
     return res.json(responseBody);
   } catch (error) {
     console.error('❌ Chat error:', error);

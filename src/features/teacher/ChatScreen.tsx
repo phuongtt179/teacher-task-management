@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { taskService, removeVietnameseTones } from '@/services/taskService';
 import { schoolYearService } from '@/services/schoolYearService';
 import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
-import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip } from 'lucide-react';
+import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip, ExternalLink } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -17,10 +17,18 @@ interface ChatTask {
   status: string;
 }
 
+interface ChatDocument {
+  title: string;
+  category: string;
+  fileUrl: string | null;
+  fileName: string | null;
+}
+
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
   taskList?: ChatTask[];
+  documentList?: ChatDocument[];
 }
 
 interface Channel {
@@ -69,10 +77,9 @@ const CHANNELS: Channel[] = [
   {
     id: 'find-doc',
     label: 'Tài liệu công khai',
-    subtitle: 'Sắp ra mắt',
+    subtitle: 'Tìm công văn, tài liệu...',
     icon: FolderSearch,
     color: 'bg-purple-500',
-    comingSoon: true,
   },
 ];
 
@@ -150,7 +157,12 @@ export function ChatScreen() {
 
       setMessagesByChannel(prev => ({
         ...prev,
-        [channelId]: [...(prev[channelId] || newMessages), { role: 'model', content: data.answer, taskList: data.taskList }],
+        [channelId]: [...(prev[channelId] || newMessages), {
+          role: 'model',
+          content: data.answer,
+          taskList: data.taskList,
+          documentList: data.documentList,
+        }],
       }));
     } catch {
       toast({ title: 'Có lỗi xảy ra, thử lại nhé', variant: 'destructive' });
@@ -355,6 +367,32 @@ export function ChatScreen() {
                             <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
                             Đánh dấu hoàn thành
                           </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(m.documentList || []).length > 0 && (
+                    <div className="space-y-2">
+                      {m.documentList!.map((doc, di) => (
+                        <div key={di} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-sm text-gray-900">{doc.title}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                              {doc.category}
+                            </span>
+                          </div>
+                          {doc.fileName && (
+                            <p className="text-xs text-gray-400 mt-1 truncate">{doc.fileName}</p>
+                          )}
+                          {doc.fileUrl && (
+                            <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">
+                              <Button size="sm" variant="outline" className="mt-2 h-7 text-xs">
+                                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                                Mở tài liệu
+                              </Button>
+                            </a>
+                          )}
                         </div>
                       ))}
                     </div>
