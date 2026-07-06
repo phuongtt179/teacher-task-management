@@ -643,6 +643,7 @@ async function toolListMyTasks(uid) {
     const deadline2 = t.deadline2?.toDate ? t.deadline2.toDate() : null;
     const submission = latestSubByTask.get(d.id);
     return {
+      id: d.id,
       title: t.title,
       priority: t.priority || 'medium',
       deadline: deadline ? deadline.toISOString().slice(0, 10) : null,
@@ -698,6 +699,7 @@ app.post('/api/chat', express.json(), async (req, res) => {
     const systemPrompt = `Bạn là trợ lý AI thân thiện cho giáo viên "${displayName || ''}" trong ứng dụng quản lý công việc trường học.
 Trả lời ngắn gọn, tiếng Việt, lịch sự.
 Khi giáo viên hỏi về công việc/nhiệm vụ của mình, hoặc việc nào cần làm/ưu tiên, hãy gọi hàm list_my_tasks rồi dựa vào priority và deadline trong dữ liệu trả về để tư vấn — KHÔNG tự bịa công việc.
+Mặc định khi liệt kê, CHỈ nêu các việc có status "assigned" hoặc "overdue" (chưa hoàn thành) — không nhắc tới việc "submitted"/"completed" trừ khi giáo viên hỏi rõ về việc đã nộp/đã hoàn thành.
 Khi giáo viên hỏi về điểm số, hãy gọi hàm get_my_scores.
 Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.`;
 
@@ -729,6 +731,7 @@ Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp 
     let data = await geminiRes.json();
     let parts = data.candidates?.[0]?.content?.parts || [];
     const functionCalls = parts.filter(p => p.functionCall).map(p => p.functionCall);
+    let taskListForUI = null;
 
     if (functionCalls.length > 0) {
       contents.push({ role: 'model', parts });
@@ -736,6 +739,9 @@ Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp 
       const responseParts = [];
       for (const fc of functionCalls) {
         const result = await executeChatTool(fc.name, uid);
+        if (fc.name === 'list_my_tasks' && Array.isArray(result.tasks)) {
+          taskListForUI = result.tasks.filter(t => t.status === 'assigned' || t.status === 'overdue');
+        }
         responseParts.push({ functionResponse: { name: fc.name, response: result } });
       }
       contents.push({ role: 'function', parts: responseParts });
@@ -752,10 +758,125 @@ Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp 
     const answer = (parts.find(p => p.text)?.text || '').trim();
     if (!answer) return res.status(500).json({ error: 'empty' });
 
-    return res.json({ success: true, answer });
+    const responseBody = { success: true, answer };
+    if (taskListForUI) responseBody.taskList = taskListForUI;
+    return res.json(responseBody);
   } catch (error) {
     console.error('❌ Chat error:', error);
     res.status(500).json({ error: 'chat_failed', message: error.message });
+  }
+});
+
+/**
+ * Hoàn thành công việc qua Chat AI — ghi y hệt logic taskService.submitReport
+ * (tính điểm tự động theo deadline, versioning khi nộp lại, cập nhật trạng thái,
+ * báo cho người giao việc) nhưng chạy ở server qua Admin SDK.
+ * Client tự upload file lên Drive trước (dùng lại /api/upload) rồi gửi fileUrls/fileNames vào đây.
+ */
+app.post('/api/chat/complete-task', express.json(), async (req, res) => {
+  try {
+    const { uid, displayName, taskId, content, fileUrls, fileNames } = req.body || {};
+    if (!uid || !taskId || !content || !content.trim()) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
+
+    const taskRef = adminDb.collection('tasks').doc(taskId);
+    const taskSnap = await taskRef.get();
+    if (!taskSnap.exists) {
+      return res.status(404).json({ error: 'task_not_found' });
+    }
+    const task = taskSnap.data();
+
+    if (!Array.isArray(task.assignedTo) || !task.assignedTo.includes(uid)) {
+      return res.status(403).json({ error: 'not_assigned' });
+    }
+
+    const now = new Date();
+    const deadline1 = task.deadline?.toDate ? task.deadline.toDate() : new Date(task.deadline);
+    const deadline2 = task.deadline2?.toDate ? task.deadline2.toDate() : (task.deadline2 ? new Date(task.deadline2) : null);
+
+    let score = 0;
+    let metDeadline;
+    if (now <= deadline1) {
+      score = task.scoreDeadline1 || task.maxScore;
+      metDeadline = 1;
+    } else if (deadline2 && now <= deadline2) {
+      score = task.scoreDeadline2 || (task.maxScore / 2);
+      metDeadline = 2;
+    }
+
+    // Existing latest submission by this teacher, if any (handles resubmission/versioning)
+    const existingSnap = await adminDb.collection('submissions')
+      .where('taskId', '==', taskId)
+      .where('teacherId', '==', uid)
+      .where('isLatest', '==', true)
+      .get();
+
+    let version = 1;
+    let previousVersionId;
+    if (!existingSnap.empty) {
+      const existingDoc = existingSnap.docs[0];
+      version = (existingDoc.data().version || 1) + 1;
+      previousVersionId = existingDoc.id;
+      await existingDoc.ref.update({ isLatest: false });
+    }
+
+    const submissionData = {
+      taskId,
+      schoolYearId: task.schoolYearId,
+      semester: task.semester || null,
+      teacherId: uid,
+      teacherName: displayName || '',
+      content: content.trim(),
+      fileUrls: Array.isArray(fileUrls) ? fileUrls : [],
+      fileNames: Array.isArray(fileNames) ? fileNames : [],
+      submittedAt: admin.firestore.Timestamp.now(),
+      score,
+      version,
+      isLatest: true,
+    };
+    if (metDeadline !== undefined) submissionData.metDeadline = metDeadline;
+    if (previousVersionId) submissionData.previousVersionId = previousVersionId;
+
+    const submissionRef = await adminDb.collection('submissions').add(submissionData);
+
+    await taskRef.update({ status: 'submitted', updatedAt: admin.firestore.Timestamp.now() });
+
+    // Recompute aggregate task status (mirrors taskService.updateTaskStatus)
+    const latestSubsSnap = await adminDb.collection('submissions')
+      .where('taskId', '==', taskId)
+      .where('isLatest', '==', true)
+      .get();
+    const latestSubs = latestSubsSnap.docs.map(d => d.data());
+    let newStatus = task.status;
+    if (latestSubs.length === 0 && now > deadline1) {
+      newStatus = 'overdue';
+    } else if (latestSubs.length === (task.assignedTo || []).length) {
+      const allGraded = latestSubs.every(s => s.score !== undefined);
+      newStatus = allGraded ? 'completed' : 'submitted';
+    } else if (latestSubs.length > 0) {
+      newStatus = 'submitted';
+    }
+    if (newStatus !== task.status) {
+      await taskRef.update({ status: newStatus });
+    }
+
+    if (task.createdBy) {
+      await adminDb.collection('notifications').add({
+        userId: task.createdBy,
+        type: 'task_submitted',
+        title: 'Có bài nộp mới',
+        message: `${displayName || 'Giáo viên'} đã nộp bài cho "${task.title}"`,
+        data: { taskId, taskTitle: task.title },
+        read: false,
+        createdAt: admin.firestore.Timestamp.now(),
+      });
+    }
+
+    res.json({ success: true, submissionId: submissionRef.id, score });
+  } catch (error) {
+    console.error('❌ Complete task error:', error);
+    res.status(500).json({ error: 'complete_task_failed', message: error.message });
   }
 });
 

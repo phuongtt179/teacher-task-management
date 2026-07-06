@@ -1,13 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { taskService, removeVietnameseTones } from '@/services/taskService';
+import { schoolYearService } from '@/services/schoolYearService';
+import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
+import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
+interface ChatTask {
+  id: string;
+  title: string;
+  priority: 'low' | 'medium' | 'high';
+  deadline: string | null;
+  status: string;
+}
 
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
+  taskList?: ChatTask[];
 }
 
 interface Channel {
@@ -62,6 +75,13 @@ const CHANNELS: Channel[] = [
   },
 ];
 
+const PRIORITY_LABELS: Record<string, string> = { high: 'Cao', medium: 'Trung bình', low: 'Thấp' };
+const PRIORITY_COLORS: Record<string, string> = {
+  high: 'bg-red-100 text-red-700',
+  medium: 'bg-amber-100 text-amber-700',
+  low: 'bg-gray-100 text-gray-600',
+};
+
 export function ChatScreen() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -70,8 +90,15 @@ export function ChatScreen() {
   const [messagesByChannel, setMessagesByChannel] = useState<Record<string, ChatMessage[]>>({});
   const [input, setInput] = useState('');
   const [loadingChannelId, setLoadingChannelId] = useState<string | null>(null);
+  const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Form đánh dấu hoàn thành công việc
+  const [completingTask, setCompletingTask] = useState<ChatTask | null>(null);
+  const [completeContent, setCompleteContent] = useState('');
+  const [completeFiles, setCompleteFiles] = useState<File[]>([]);
+  const [completing, setCompleting] = useState(false);
 
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
   const activeMessages = messagesByChannel[activeChannelId] || [];
@@ -122,7 +149,7 @@ export function ChatScreen() {
 
       setMessagesByChannel(prev => ({
         ...prev,
-        [channelId]: [...(prev[channelId] || newMessages), { role: 'model', content: data.answer }],
+        [channelId]: [...(prev[channelId] || newMessages), { role: 'model', content: data.answer, taskList: data.taskList }],
       }));
     } catch {
       toast({ title: 'Có lỗi xảy ra, thử lại nhé', variant: 'destructive' });
@@ -137,6 +164,73 @@ export function ChatScreen() {
     const existing = messagesByChannel[channel.id];
     if ((!existing || existing.length === 0) && channel.autoSend) {
       sendMessage(channel.id, channel.autoSend);
+    }
+  };
+
+  const openCompleteForm = (task: ChatTask) => {
+    setCompletingTask(task);
+    setCompleteContent('');
+    setCompleteFiles([]);
+  };
+
+  const submitCompleteTask = async () => {
+    if (!completingTask || !user || !completeContent.trim()) return;
+    setCompleting(true);
+
+    try {
+      const task = await taskService.getTaskById(completingTask.id);
+      if (!task) throw new Error('Không tìm thấy công việc');
+      const schoolYear = await schoolYearService.getSchoolYear(task.schoolYearId);
+
+      const fileUrls: string[] = [];
+      const fileNames: string[] = [];
+      for (const file of completeFiles) {
+        const sanitizedTaskTitle = removeVietnameseTones(task.title);
+        const sanitizedTeacherName = removeVietnameseTones(user.displayName || '');
+        const driveFile = await googleDriveServiceBackend.uploadFile({
+          file,
+          schoolYear: `${schoolYear?.name || 'Nam hoc'} cv`,
+          category: sanitizedTaskTitle,
+          subCategory: `submissions/${sanitizedTeacherName}`,
+        });
+        fileUrls.push(driveFile.webViewLink);
+        fileNames.push(file.name);
+      }
+
+      const res = await fetch(`${API_BASE_URL}/chat/complete-task`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: user.uid,
+          displayName: user.displayName,
+          taskId: completingTask.id,
+          content: completeContent.trim(),
+          fileUrls,
+          fileNames,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Không thể báo hoàn thành');
+      }
+
+      setCompletedTaskIds(prev => new Set(prev).add(completingTask.id));
+      setMessagesByChannel(prev => ({
+        ...prev,
+        [activeChannelId]: [
+          ...(prev[activeChannelId] || []),
+          {
+            role: 'model',
+            content: `✅ Đã ghi nhận hoàn thành "${completingTask.title}". Điểm tạm tính: ${data.score}/${task.maxScore}.`,
+          },
+        ],
+      }));
+      toast({ title: 'Đã báo hoàn thành công việc' });
+      setCompletingTask(null);
+    } catch (err: any) {
+      toast({ title: 'Không thể báo hoàn thành', description: err.message, variant: 'destructive' });
+    } finally {
+      setCompleting(false);
     }
   };
 
@@ -207,24 +301,56 @@ export function ChatScreen() {
               Gõ câu hỏi bên dưới để bắt đầu.
             </div>
           )}
-          {activeMessages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'model' ? 'justify-start' : 'justify-end'}`}>
-              {m.role === 'model' && (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center text-white shrink-0 mr-2 mt-auto mb-1">
-                  <Sparkles size={14} />
+          {activeMessages.map((m, i) => {
+            const pendingTasks = (m.taskList || []).filter(t => !completedTaskIds.has(t.id));
+            return (
+              <div key={i} className={`flex ${m.role === 'model' ? 'justify-start' : 'justify-end'}`}>
+                {m.role === 'model' && (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center text-white shrink-0 mr-2 mt-auto mb-1">
+                    <Sparkles size={14} />
+                  </div>
+                )}
+                <div className="max-w-[80%] space-y-2">
+                  <div
+                    className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+                      m.role === 'model'
+                        ? 'bg-white text-gray-800 border border-indigo-100 rounded-bl-md shadow-sm'
+                        : 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-br-md shadow-md'
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+
+                  {pendingTasks.length > 0 && (
+                    <div className="space-y-2">
+                      {pendingTasks.map(task => (
+                        <div key={task.id} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-sm text-gray-900">{task.title}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${PRIORITY_COLORS[task.priority]}`}>
+                              {PRIORITY_LABELS[task.priority]}
+                            </span>
+                          </div>
+                          {task.deadline && (
+                            <p className="text-xs text-gray-400 mt-1">Hạn: {task.deadline}</p>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-2 h-7 text-xs"
+                            onClick={() => openCompleteForm(task)}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                            Đánh dấu hoàn thành
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-              <div
-                className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
-                  m.role === 'model'
-                    ? 'bg-white text-gray-800 border border-indigo-100 rounded-bl-md shadow-sm'
-                    : 'bg-gradient-to-br from-indigo-500 to-blue-600 text-white rounded-br-md shadow-md'
-                }`}
-              >
-                {m.content}
               </div>
-            </div>
-          ))}
+            );
+          })}
           {isLoading && (
             <div className="flex justify-start">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center text-white shrink-0 mr-2">
@@ -264,6 +390,73 @@ export function ChatScreen() {
           </button>
         </div>
       </div>
+
+      {/* Form đánh dấu hoàn thành công việc */}
+      {completingTask && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => !completing && setCompletingTask(null)}
+        >
+          <div
+            className="bg-white rounded-lg p-6 w-full max-w-md"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Báo hoàn thành công việc</h2>
+              <button onClick={() => !completing && setCompletingTask(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">{completingTask.title}</p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Nội dung báo cáo <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={completeContent}
+                  onChange={e => setCompleteContent(e.target.value)}
+                  placeholder="Mô tả ngắn gọn những gì đã làm..."
+                  className="w-full border rounded-lg px-3 py-2 text-sm min-h-24 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Minh chứng (không bắt buộc)</label>
+                <label className="flex items-center gap-2 border border-dashed rounded-lg px-3 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50">
+                  <Paperclip className="w-4 h-4" />
+                  {completeFiles.length > 0 ? `${completeFiles.length} file đã chọn` : 'Đính kèm file'}
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={e => setCompleteFiles(Array.from(e.target.files || []))}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <Button
+                onClick={submitCompleteTask}
+                disabled={!completeContent.trim() || completing}
+                className="flex-1"
+              >
+                {completing ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Đang gửi...</> : 'Gửi báo cáo'}
+              </Button>
+              <Button
+                onClick={() => setCompletingTask(null)}
+                variant="outline"
+                disabled={completing}
+                className="flex-1"
+              >
+                Hủy
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
