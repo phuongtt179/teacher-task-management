@@ -177,6 +177,7 @@ export function ChatScreen() {
           content: data.answer,
           taskList: data.taskList,
           documentList: data.documentList,
+          categoryCandidates: data.categoryCandidates,
         }],
       }));
     } catch {
