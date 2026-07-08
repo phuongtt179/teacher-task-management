@@ -24,11 +24,20 @@ interface ChatDocument {
   fileName: string | null;
 }
 
+interface ChatCategoryCandidate {
+  schoolYearId: string;
+  categoryId: string;
+  categoryName: string;
+  subCategoryId: string | null;
+  subCategoryName: string | null;
+}
+
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
   taskList?: ChatTask[];
   documentList?: ChatDocument[];
+  categoryCandidates?: ChatCategoryCandidate[];
 }
 
 interface Channel {
@@ -69,10 +78,9 @@ const CHANNELS: Channel[] = [
   {
     id: 'submit-doc',
     label: 'Nộp tài liệu',
-    subtitle: 'Sắp ra mắt',
+    subtitle: 'Giáo án, sổ chủ nhiệm...',
     icon: Upload,
     color: 'bg-emerald-500',
-    comingSoon: true,
   },
   {
     id: 'find-doc',
@@ -107,6 +115,13 @@ export function ChatScreen() {
   const [completeContent, setCompleteContent] = useState('');
   const [completeFiles, setCompleteFiles] = useState<File[]>([]);
   const [completing, setCompleting] = useState(false);
+
+  // Form nộp tài liệu
+  const [uploadingTarget, setUploadingTarget] = useState<ChatCategoryCandidate | null>(null);
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [submittedTargets, setSubmittedTargets] = useState<Set<string>>(new Set());
 
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
   const activeMessages = messagesByChannel[activeChannelId] || [];
@@ -258,6 +273,83 @@ export function ChatScreen() {
     }
   };
 
+  const candidateKey = (c: ChatCategoryCandidate) => `${c.categoryId}|${c.subCategoryId || ''}`;
+
+  const openUploadForm = (candidate: ChatCategoryCandidate) => {
+    setUploadingTarget(candidate);
+    setUploadTitle('');
+    setUploadFiles([]);
+  };
+
+  const submitDocument = async () => {
+    if (!uploadingTarget || !user || !uploadTitle.trim() || uploadFiles.length === 0) return;
+    setUploading(true);
+
+    try {
+      const schoolYear = await schoolYearService.getSchoolYear(uploadingTarget.schoolYearId);
+
+      const files = [];
+      for (const file of uploadFiles) {
+        const driveFile = await googleDriveServiceBackend.uploadFile({
+          file,
+          schoolYear: schoolYear?.name || 'Nam hoc',
+          category: uploadingTarget.categoryName,
+          subCategory: uploadingTarget.subCategoryName || undefined,
+          uploaderName: user.displayName,
+          documentTitle: uploadTitle.trim(),
+        });
+        files.push({
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+          driveFileId: driveFile.id,
+          driveFileUrl: driveFile.webViewLink,
+        });
+      }
+
+      const res = await fetch(`${API_BASE_URL}/chat/submit-document`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: user.uid,
+          displayName: user.displayName,
+          schoolYearId: uploadingTarget.schoolYearId,
+          categoryId: uploadingTarget.categoryId,
+          subCategoryId: uploadingTarget.subCategoryId,
+          title: uploadTitle.trim(),
+          files,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Không thể nộp tài liệu');
+      }
+
+      setSubmittedTargets(prev => new Set(prev).add(candidateKey(uploadingTarget)));
+      const label = uploadingTarget.subCategoryName
+        ? `${uploadingTarget.categoryName} - ${uploadingTarget.subCategoryName}`
+        : uploadingTarget.categoryName;
+      setMessagesByChannel(prev => ({
+        ...prev,
+        [activeChannelId]: [
+          ...(prev[activeChannelId] || []),
+          {
+            role: 'model',
+            content: data.status === 'approved'
+              ? `✅ Đã nộp "${uploadTitle.trim()}" vào ${label}.`
+              : `✅ Đã nộp "${uploadTitle.trim()}" vào ${label}, đang chờ duyệt.`,
+          },
+        ],
+      }));
+      toast({ title: 'Đã nộp tài liệu' });
+      setUploadingTarget(null);
+    } catch (err: any) {
+      toast({ title: 'Không thể nộp tài liệu', description: err.message, variant: 'destructive' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="flex h-full bg-white">
       {/* Cột trái: danh sách kênh, giống danh sách hội thoại Zalo. Ẩn trên màn hình nhỏ (giống Sidebar gốc) */}
@@ -327,6 +419,7 @@ export function ChatScreen() {
           )}
           {activeMessages.map((m, i) => {
             const pendingTasks = (m.taskList || []).filter(t => !completedTaskIds.has(t.id));
+            const pendingCandidates = (m.categoryCandidates || []).filter(c => !submittedTargets.has(candidateKey(c)));
             return (
               <div key={i} className={`flex ${m.role === 'model' ? 'justify-start' : 'justify-end'}`}>
                 {m.role === 'model' && (
@@ -393,6 +486,29 @@ export function ChatScreen() {
                               </Button>
                             </a>
                           )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {pendingCandidates.length > 0 && (
+                    <div className="space-y-2">
+                      {pendingCandidates.map((c, ci) => (
+                        <div key={ci} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-sm text-gray-900">
+                              {c.categoryName}{c.subCategoryName ? ` - ${c.subCategoryName}` : ''}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-2 h-7 text-xs"
+                            onClick={() => openUploadForm(c)}
+                          >
+                            <Upload className="w-3.5 h-3.5 mr-1.5" />
+                            Nộp vào đây
+                          </Button>
                         </div>
                       ))}
                     </div>
@@ -499,6 +615,78 @@ export function ChatScreen() {
                 onClick={() => setCompletingTask(null)}
                 variant="outline"
                 disabled={completing}
+                className="flex-1"
+              >
+                Hủy
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Form nộp tài liệu */}
+      {uploadingTarget && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => !uploading && setUploadingTarget(null)}
+        >
+          <div
+            className="bg-white rounded-lg p-6 w-full max-w-md"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Nộp tài liệu</h2>
+              <button onClick={() => !uploading && setUploadingTarget(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              {uploadingTarget.categoryName}{uploadingTarget.subCategoryName ? ` - ${uploadingTarget.subCategoryName}` : ''}
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Tên tài liệu <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={uploadTitle}
+                  onChange={e => setUploadTitle(e.target.value)}
+                  placeholder="Ví dụ: Giáo án tuần 1"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  File <span className="text-red-500">*</span>
+                </label>
+                <label className="flex items-center gap-2 border border-dashed rounded-lg px-3 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50">
+                  <Paperclip className="w-4 h-4" />
+                  {uploadFiles.length > 0 ? `${uploadFiles.length} file đã chọn` : 'Chọn 1 hoặc nhiều file'}
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={e => setUploadFiles(Array.from(e.target.files || []))}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <Button
+                onClick={submitDocument}
+                disabled={!uploadTitle.trim() || uploadFiles.length === 0 || uploading}
+                className="flex-1"
+              >
+                {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Đang nộp...</> : 'Nộp tài liệu'}
+              </Button>
+              <Button
+                onClick={() => setUploadingTarget(null)}
+                variant="outline"
+                disabled={uploading}
                 className="flex-1"
               >
                 Hủy

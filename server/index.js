@@ -628,6 +628,23 @@ const CHAT_TOOLS = [{
         required: ['keyword'],
       },
     },
+    {
+      name: 'list_upload_categories',
+      description: 'Lấy TOÀN BỘ danh sách danh mục hồ sơ mà giáo viên đang hỏi ĐƯỢC PHÉP nộp trong năm học hiện tại, kèm mục con nếu có (ví dụ các tuần). Gọi hàm này ngay khi giáo viên muốn nộp tài liệu. Sau khi có danh sách, TỰ suy luận đúng danh mục dựa trên tên gọi thông thường giáo viên dùng (ví dụ "giáo án" thường ứng với danh mục "Kế hoạch bài dạy", không nhất thiết trùng chữ) — không cần giáo viên gõ đúng tên danh mục.',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
+    {
+      name: 'confirm_upload_target',
+      description: 'Xác nhận CHÍNH XÁC 1 danh mục (và mục con nếu có) sẽ dùng để nộp tài liệu — chỉ gọi SAU KHI đã chắc chắn từ kết quả list_upload_categories, dùng đúng categoryId/subCategoryId lấy từ đó, KHÔNG tự bịa id.',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          categoryId: { type: 'STRING', description: 'categoryId lấy từ kết quả list_upload_categories' },
+          subCategoryId: { type: 'STRING', description: 'id mục con lấy từ kết quả list_upload_categories, nếu danh mục có mục con' },
+        },
+        required: ['categoryId'],
+      },
+    },
   ],
 }];
 
@@ -733,6 +750,94 @@ async function toolSearchPublicDocuments(keyword) {
   return { documents: results };
 }
 
+// Danh sách danh mục mà ĐÚNG giáo viên này được phép nộp, trong năm học đang hoạt động.
+// Không tự so khớp tên ở đây — trả hết danh sách để AI tự suy luận ngữ nghĩa
+// (vd "giáo án" ứng với danh mục "Kế hoạch bài dạy" dù không trùng chữ nào).
+async function getAllowedUploadCategories(uid) {
+  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).limit(1).get();
+  if (yearsSnap.empty) return { schoolYearId: null, categories: [] };
+  const schoolYearId = yearsSnap.docs[0].id;
+
+  const [categoriesSnap, typesSnap, subsSnap] = await Promise.all([
+    adminDb.collection('documentCategories').where('schoolYearId', '==', schoolYearId).get(),
+    adminDb.collection('documentTypes').get(),
+    adminDb.collection('documentSubCategories').get(),
+  ]);
+
+  const typeById = new Map();
+  typesSnap.docs.forEach(d => typeById.set(d.id, d.data()));
+
+  const subsByCategory = new Map();
+  subsSnap.docs.forEach(d => {
+    const s = d.data();
+    if (!subsByCategory.has(s.categoryId)) subsByCategory.set(s.categoryId, []);
+    subsByCategory.get(s.categoryId).push({ id: d.id, name: s.name });
+  });
+
+  const allowedCategoryDocs = categoriesSnap.docs.filter(d => {
+    const c = d.data();
+    const docType = c.documentTypeId ? typeById.get(c.documentTypeId) : null;
+    if (docType) {
+      return Array.isArray(docType.allowedUploaderUserIds) && docType.allowedUploaderUserIds.includes(uid);
+    }
+    if (Array.isArray(c.allowedUploaders) && c.allowedUploaders.length > 0) {
+      return c.allowedUploaders.includes(uid);
+    }
+    // Danh mục kiểu cũ không khai báo allowedUploaders: coi như hồ sơ cá nhân, ai cũng nộp được
+    return c.categoryType !== 'public';
+  });
+
+  const categories = allowedCategoryDocs.map(d => {
+    const c = d.data();
+    const subs = subsByCategory.get(d.id) || [];
+    return {
+      categoryId: d.id,
+      categoryName: c.name,
+      hasSubCategories: subs.length > 0,
+      subCategories: subs.map(s => ({ id: s.id, name: s.name })),
+    };
+  });
+
+  return { schoolYearId, categories };
+}
+
+async function toolListUploadCategories(uid) {
+  const { schoolYearId, categories } = await getAllowedUploadCategories(uid);
+  return {
+    schoolYearId,
+    categories: categories.map(c => ({
+      categoryId: c.categoryId,
+      categoryName: c.categoryName,
+      hasSubCategories: c.hasSubCategories,
+      subCategories: c.subCategories.map(s => ({ id: s.id, name: s.name })),
+    })),
+  };
+}
+
+async function toolConfirmUploadTarget(uid, categoryId, subCategoryId) {
+  const { schoolYearId, categories } = await getAllowedUploadCategories(uid);
+  const category = categories.find(c => c.categoryId === categoryId);
+  if (!category) return { error: 'category_not_allowed' };
+
+  let subCategory = null;
+  if (subCategoryId) {
+    subCategory = category.subCategories.find(s => s.id === subCategoryId) || null;
+    if (!subCategory) return { error: 'subcategory_not_found' };
+  }
+  if (category.hasSubCategories && !subCategory) {
+    return { error: 'subcategory_required', availableSubCategories: category.subCategories.map(s => s.name) };
+  }
+
+  return {
+    confirmed: true,
+    schoolYearId,
+    categoryId: category.categoryId,
+    categoryName: category.categoryName,
+    subCategoryId: subCategory?.id || null,
+    subCategoryName: subCategory?.name || null,
+  };
+}
+
 async function toolGetRecentNotifications(uid) {
   // Chỉ lọc theo userId (equality đơn) để tránh cần composite index; lọc/sắp xếp còn lại làm ở JS.
   const snap = await adminDb.collection('notifications').where('userId', '==', uid).get();
@@ -752,6 +857,8 @@ async function executeChatTool(name, uid, args) {
     case 'get_my_scores': return toolGetMyScores(uid);
     case 'get_recent_notifications': return toolGetRecentNotifications(uid);
     case 'search_public_documents': return toolSearchPublicDocuments(args?.keyword);
+    case 'list_upload_categories': return toolListUploadCategories(uid);
+    case 'confirm_upload_target': return toolConfirmUploadTarget(uid, args?.categoryId, args?.subCategoryId);
     default: return { error: 'unknown_tool' };
   }
 }
@@ -774,6 +881,14 @@ Khi giáo viên hỏi về công việc/nhiệm vụ của mình, hoặc việc 
 Mặc định khi liệt kê, CHỈ nêu các việc có status "assigned" hoặc "overdue" (chưa hoàn thành) — không nhắc tới việc "submitted"/"completed" trừ khi giáo viên hỏi rõ về việc đã nộp/đã hoàn thành.
 Khi giáo viên hỏi về điểm số, hãy gọi hàm get_my_scores.
 Khi giáo viên muốn tìm công văn/tài liệu/hồ sơ công khai nào đó (ví dụ "tìm công văn về...", "có tài liệu nào về... không"), hãy gọi hàm search_public_documents với từ khóa phù hợp. Nếu không tìm thấy, báo thẳng là chưa tìm thấy, đừng bịa tài liệu không có thật.
+Khi giáo viên muốn NỘP tài liệu (giáo án, kế hoạch bài dạy, sổ chủ nhiệm...):
+1. Gọi hàm list_upload_categories để lấy TOÀN BỘ danh mục giáo viên này được phép nộp.
+2. TỰ suy luận đúng danh mục dựa trên Ý NGHĨA, không cần trùng chữ — ví dụ "giáo án" thường ứng với danh mục "Kế hoạch bài dạy". Nếu danh mục đó có mục con (subCategories, ví dụ theo tuần), tìm mục con khớp với thông tin giáo viên nói (ví dụ "tuần 1" → mục con tên "Tuần 1").
+3. Nếu xác định RÕ RÀNG được đúng 1 danh mục (và đúng mục con nếu cần) → gọi hàm confirm_upload_target(categoryId, subCategoryId) với đúng id lấy từ bước 1, KHÔNG tự bịa id.
+4. Sau khi confirm_upload_target trả về confirmed=true, xác nhận lại bằng lời với giáo viên (tên danh mục/mục con), mời họ đính kèm file để nộp — KHÔNG tự nộp giúp, việc chọn file do giáo viên tự làm qua nút bấm hiện ra.
+5. Nếu danh mục có mục con nhưng chưa xác định được (ví dụ giáo viên chỉ nói "kế hoạch bài dạy" không nói tuần mấy), hỏi lại rõ ràng "Tuần mấy ạ?" — ĐỪNG gọi confirm_upload_target khi còn thiếu thông tin.
+6. Nếu không tìm thấy danh mục nào phù hợp với ý giáo viên trong danh sách, báo thẳng và gợi ý mô tả lại.
+7. Nếu suy luận ra nhiều hơn 1 khả năng hợp lý, hỏi lại giáo viên muốn nộp vào danh mục nào trong số đó, đừng tự chọn đại.
 ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện — TRƯỚC KHI trả lời, LUÔN gọi hàm get_recent_notifications trước. Chào hỏi thân thiện, và nếu có thông báo chưa đọc thì tóm tắt ngắn gọn số lượng + nội dung chính (ví dụ: "cô có 2 thông báo mới: ..."), nếu không có thông báo nào thì chào bình thường không cần nhắc tới việc không có thông báo.
 ` : ''}Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.`;
 
@@ -804,11 +919,17 @@ ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện
 
     let data = await geminiRes.json();
     let parts = data.candidates?.[0]?.content?.parts || [];
-    const functionCalls = parts.filter(p => p.functionCall).map(p => p.functionCall);
     let taskListForUI = null;
     let documentListForUI = null;
+    let categoryCandidatesForUI = null;
 
-    if (functionCalls.length > 0) {
+    // Một số việc (vd nộp tài liệu) cần NHIỀU vòng gọi hàm liên tiếp
+    // (list_upload_categories → suy luận → confirm_upload_target → trả lời),
+    // nên lặp cho tới khi Gemini trả về text thay vì functionCall, giới hạn số vòng để tránh lặp vô hạn.
+    for (let round = 0; round < 5; round++) {
+      const functionCalls = parts.filter(p => p.functionCall).map(p => p.functionCall);
+      if (functionCalls.length === 0) break;
+
       contents.push({ role: 'model', parts });
 
       const responseParts = [];
@@ -819,6 +940,9 @@ ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện
         }
         if (fc.name === 'search_public_documents' && Array.isArray(result.documents)) {
           documentListForUI = result.documents;
+        }
+        if (fc.name === 'confirm_upload_target' && result.confirmed) {
+          categoryCandidatesForUI = [result];
         }
         responseParts.push({ functionResponse: { name: fc.name, response: result } });
       }
@@ -839,6 +963,7 @@ ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện
     const responseBody = { success: true, answer };
     if (taskListForUI) responseBody.taskList = taskListForUI;
     if (documentListForUI) responseBody.documentList = documentListForUI;
+    if (categoryCandidatesForUI) responseBody.categoryCandidates = categoryCandidatesForUI;
     return res.json(responseBody);
   } catch (error) {
     console.error('❌ Chat error:', error);
@@ -956,6 +1081,51 @@ app.post('/api/chat/complete-task', express.json(), async (req, res) => {
   } catch (error) {
     console.error('❌ Complete task error:', error);
     res.status(500).json({ error: 'complete_task_failed', message: error.message });
+  }
+});
+
+/**
+ * Nộp tài liệu qua Chat AI — sao chép logic tạo Document của DocumentUploadScreen
+ * (auto duyệt cho admin/vp/principal, còn lại ở trạng thái chờ duyệt) nhưng chạy qua Admin SDK.
+ * Client tự upload file lên Drive trước (dùng lại googleDriveServiceBackend/api/upload)
+ * rồi gửi mảng file (driveFileId/driveFileUrl/name/size/mimeType) vào đây.
+ */
+app.post('/api/chat/submit-document', express.json(), async (req, res) => {
+  try {
+    const { uid, displayName, schoolYearId, categoryId, subCategoryId, title, files } = req.body || {};
+    if (!uid || !schoolYearId || !categoryId || !title || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
+
+    const userSnap = await adminDb.collection('users').doc(uid).get();
+    const role = userSnap.exists ? userSnap.data().role : 'teacher';
+    const status = (role === 'admin' || role === 'vice_principal' || role === 'principal') ? 'approved' : 'pending';
+
+    const documentData = {
+      schoolYearId,
+      categoryId,
+      title: String(title).trim(),
+      files: files.map(f => ({
+        name: f.name,
+        size: f.size || 0,
+        mimeType: f.mimeType || 'application/octet-stream',
+        driveFileId: f.driveFileId || '',
+        driveFileUrl: f.driveFileUrl || '',
+      })),
+      uploadedBy: uid,
+      uploadedByName: displayName || '',
+      uploadedAt: admin.firestore.Timestamp.now(),
+      status,
+      isPublic: false,
+    };
+    if (subCategoryId) documentData.subCategoryId = subCategoryId;
+
+    const docRef = await adminDb.collection('documents').add(documentData);
+
+    res.json({ success: true, documentId: docRef.id, status });
+  } catch (error) {
+    console.error('❌ Submit document error:', error);
+    res.status(500).json({ error: 'submit_document_failed', message: error.message });
   }
 });
 
