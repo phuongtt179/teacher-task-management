@@ -32,12 +32,39 @@ interface ChatCategoryCandidate {
   subCategoryName: string | null;
 }
 
+interface ChatMyDocument {
+  documentId: string;
+  title: string;
+  category: string;
+  subCategory: string | null;
+  status: string;
+  fileCount: number;
+}
+
+interface ChatEditFile {
+  index: number;
+  name: string;
+  url: string | null;
+}
+
+interface ChatEditTarget {
+  documentId: string;
+  schoolYearId: string | null;
+  title: string;
+  category: string;
+  subCategory: string | null;
+  status: string;
+  files: ChatEditFile[];
+}
+
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
   taskList?: ChatTask[];
   documentList?: ChatDocument[];
   categoryCandidates?: ChatCategoryCandidate[];
+  myDocumentList?: ChatMyDocument[];
+  editTarget?: ChatEditTarget;
 }
 
 interface Channel {
@@ -98,6 +125,13 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: 'bg-gray-100 text-gray-600',
 };
 
+const DOC_STATUS_LABELS: Record<string, string> = { approved: 'Đã duyệt', pending: 'Chờ duyệt', rejected: 'Bị từ chối' };
+const DOC_STATUS_COLORS: Record<string, string> = {
+  approved: 'bg-green-100 text-green-700',
+  pending: 'bg-amber-100 text-amber-700',
+  rejected: 'bg-red-100 text-red-700',
+};
+
 export function ChatScreen() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -122,6 +156,13 @@ export function ChatScreen() {
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [submittedTargets, setSubmittedTargets] = useState<Set<string>>(new Set());
+
+  // Form sửa tài liệu đã nộp (thêm/xóa file)
+  const [editingTarget, setEditingTarget] = useState<ChatEditTarget | null>(null);
+  const [editNewFiles, setEditNewFiles] = useState<File[]>([]);
+  const [addingFiles, setAddingFiles] = useState(false);
+  const [removingFileIndex, setRemovingFileIndex] = useState<number | null>(null);
+  const [loadingEditTarget, setLoadingEditTarget] = useState<string | null>(null);
 
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
   const activeMessages = messagesByChannel[activeChannelId] || [];
@@ -178,6 +219,8 @@ export function ChatScreen() {
           taskList: data.taskList,
           documentList: data.documentList,
           categoryCandidates: data.categoryCandidates,
+          myDocumentList: data.myDocumentList,
+          editTarget: data.editTarget,
         }],
       }));
     } catch {
@@ -351,6 +394,111 @@ export function ChatScreen() {
     }
   };
 
+  // Bấm "Sửa" từ danh sách tài liệu của tôi — chưa có sẵn chi tiết file, cần gọi lấy trước
+  const openEditFromDocument = async (doc: ChatMyDocument) => {
+    if (!user) return;
+    setLoadingEditTarget(doc.documentId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/chat/document-details`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid, documentId: doc.documentId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không lấy được chi tiết tài liệu');
+      setEditingTarget(data);
+      setEditNewFiles([]);
+    } catch (err: any) {
+      toast({ title: 'Không mở được tài liệu để sửa', description: err.message, variant: 'destructive' });
+    } finally {
+      setLoadingEditTarget(null);
+    }
+  };
+
+  // AI đã xác nhận sẵn (confirm_edit_target) — có luôn đầy đủ dữ liệu, không cần gọi lại
+  const openEditFromTarget = (target: ChatEditTarget) => {
+    setEditingTarget(target);
+    setEditNewFiles([]);
+  };
+
+  const removeEditFile = async (fileIndex: number) => {
+    if (!editingTarget || !user) return;
+    setRemovingFileIndex(fileIndex);
+    try {
+      const res = await fetch(`${API_BASE_URL}/chat/remove-document-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid, documentId: editingTarget.documentId, fileIndex }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể xóa file');
+
+      setEditingTarget(prev => prev ? {
+        ...prev,
+        status: data.status,
+        files: prev.files.filter(f => f.index !== fileIndex).map((f, i) => ({ ...f, index: i })),
+      } : prev);
+      toast({ title: 'Đã xóa file' });
+    } catch (err: any) {
+      toast({ title: 'Không thể xóa file', description: err.message, variant: 'destructive' });
+    } finally {
+      setRemovingFileIndex(null);
+    }
+  };
+
+  const addEditFiles = async () => {
+    if (!editingTarget || !user || editNewFiles.length === 0) return;
+    setAddingFiles(true);
+
+    try {
+      const schoolYear = editingTarget.schoolYearId
+        ? await schoolYearService.getSchoolYear(editingTarget.schoolYearId)
+        : null;
+
+      const files: { name: string; size: number; mimeType: string; driveFileId: string; driveFileUrl: string }[] = [];
+      for (const file of editNewFiles) {
+        const driveFile = await googleDriveServiceBackend.uploadFile({
+          file,
+          schoolYear: schoolYear?.name || 'Nam hoc',
+          category: editingTarget.category,
+          subCategory: editingTarget.subCategory || undefined,
+          uploaderName: user.displayName,
+          documentTitle: editingTarget.title,
+        });
+        files.push({
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+          driveFileId: driveFile.id,
+          driveFileUrl: driveFile.webViewLink,
+        });
+      }
+
+      const res = await fetch(`${API_BASE_URL}/chat/add-document-files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid, documentId: editingTarget.documentId, files }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể thêm file');
+
+      setEditingTarget(prev => prev ? {
+        ...prev,
+        status: data.status,
+        files: [
+          ...prev.files,
+          ...files.map((f, i) => ({ index: prev.files.length + i, name: f.name, url: f.driveFileUrl })),
+        ],
+      } : prev);
+      setEditNewFiles([]);
+      toast({ title: 'Đã thêm file' });
+    } catch (err: any) {
+      toast({ title: 'Không thể thêm file', description: err.message, variant: 'destructive' });
+    } finally {
+      setAddingFiles(false);
+    }
+  };
+
   return (
     <div className="flex h-full bg-white">
       {/* Cột trái: danh sách kênh, giống danh sách hội thoại Zalo. Ẩn trên màn hình nhỏ (giống Sidebar gốc) */}
@@ -512,6 +660,59 @@ export function ChatScreen() {
                           </Button>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {(m.myDocumentList || []).length > 0 && (
+                    <div className="space-y-2">
+                      {m.myDocumentList!.map(doc => (
+                        <div key={doc.documentId} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-sm text-gray-900">{doc.title}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${DOC_STATUS_COLORS[doc.status] || 'bg-gray-100 text-gray-600'}`}>
+                              {DOC_STATUS_LABELS[doc.status] || doc.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1">
+                            {doc.category}{doc.subCategory ? ` - ${doc.subCategory}` : ''} · {doc.fileCount} file
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-2 h-7 text-xs"
+                            disabled={loadingEditTarget === doc.documentId}
+                            onClick={() => openEditFromDocument(doc)}
+                          >
+                            {loadingEditTarget === doc.documentId
+                              ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                              : <Paperclip className="w-3.5 h-3.5 mr-1.5" />}
+                            Sửa
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {m.editTarget && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm text-gray-900">{m.editTarget.title}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${DOC_STATUS_COLORS[m.editTarget.status] || 'bg-gray-100 text-gray-600'}`}>
+                          {DOC_STATUS_LABELS[m.editTarget.status] || m.editTarget.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {m.editTarget.category}{m.editTarget.subCategory ? ` - ${m.editTarget.subCategory}` : ''} · {m.editTarget.files.length} file
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2 h-7 text-xs"
+                        onClick={() => openEditFromTarget(m.editTarget!)}
+                      >
+                        <Paperclip className="w-3.5 h-3.5 mr-1.5" />
+                        Quản lý file
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -693,6 +894,85 @@ export function ChatScreen() {
                 Hủy
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Form quản lý file (thêm/xóa) của tài liệu đã nộp */}
+      {editingTarget && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setEditingTarget(null)}
+        >
+          <div
+            className="bg-white rounded-lg p-6 w-full max-w-md"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Quản lý file</h2>
+              <button onClick={() => setEditingTarget(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-1">{editingTarget.title}</p>
+            <p className="text-xs text-gray-400 mb-4">
+              {editingTarget.category}{editingTarget.subCategory ? ` - ${editingTarget.subCategory}` : ''}
+            </p>
+
+            <div className="space-y-2 mb-4">
+              {editingTarget.files.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-2">Chưa có file nào</p>
+              )}
+              {editingTarget.files.map(f => (
+                <div key={f.index} className="flex items-center justify-between gap-2 border rounded-lg px-3 py-2 text-sm">
+                  {f.url ? (
+                    <a href={f.url} target="_blank" rel="noopener noreferrer" className="truncate text-indigo-600 hover:underline">
+                      {f.name}
+                    </a>
+                  ) : (
+                    <span className="truncate">{f.name}</span>
+                  )}
+                  <button
+                    onClick={() => removeEditFile(f.index)}
+                    disabled={removingFileIndex === f.index}
+                    className="shrink-0 text-gray-400 hover:text-red-600"
+                  >
+                    {removingFileIndex === f.index ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 border border-dashed rounded-lg px-3 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50">
+                <Paperclip className="w-4 h-4" />
+                {editNewFiles.length > 0 ? `${editNewFiles.length} file mới đã chọn` : 'Thêm file mới'}
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={e => setEditNewFiles(Array.from(e.target.files || []))}
+                />
+              </label>
+              {editNewFiles.length > 0 && (
+                <Button
+                  onClick={addEditFiles}
+                  disabled={addingFiles}
+                  className="w-full"
+                  size="sm"
+                >
+                  {addingFiles ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Đang tải lên...</> : `Thêm ${editNewFiles.length} file`}
+                </Button>
+              )}
+            </div>
+
+            <Button
+              onClick={() => setEditingTarget(null)}
+              variant="outline"
+              className="w-full mt-4"
+            >
+              Đóng
+            </Button>
           </div>
         </div>
       )}
