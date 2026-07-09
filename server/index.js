@@ -662,13 +662,8 @@ const CHAT_TOOLS = [{
       },
     },
     {
-      name: 'get_department_submission_summary',
-      description: 'CHỈ dùng khi giáo viên đang hỏi là TỔ TRƯỞNG: tổng hợp tình hình nộp Kế hoạch bài dạy/Sổ chủ nhiệm/Sổ dự giờ của các thành viên trong tổ mình phụ trách. Nếu người hỏi không phải tổ trưởng, hàm sẽ trả lỗi not_authorized.',
-      parameters: { type: 'OBJECT', properties: {} },
-    },
-    {
-      name: 'get_school_submission_summary',
-      description: 'CHỈ dùng khi giáo viên đang hỏi là hiệu trưởng/hiệu phó/admin: tổng hợp tình hình nộp Kế hoạch bài dạy/Sổ chủ nhiệm/Sổ dự giờ của TẤT CẢ giáo viên toàn trường, theo từng tổ. Nếu người hỏi không có quyền này, hàm sẽ trả lỗi not_authorized.',
+      name: 'get_submission_summary',
+      description: 'Tổng hợp tình hình nộp Kế hoạch bài dạy/Sổ chủ nhiệm/Sổ dự giờ của NGƯỜI KHÁC (không phải của chính người hỏi) — dùng khi giáo viên hỏi kiểu "tổ tôi ai chưa nộp X", "toàn trường nộp thế nào rồi". Hàm tự xác định người hỏi là tổ trưởng hay hiệu trưởng/hiệu phó/admin để trả về đúng phạm vi (tổ mình hoặc toàn trường) — KHÔNG cần truyền tham số gì. Nếu người hỏi không có quyền xem tổng hợp này (ví dụ giáo viên thường), hàm trả lỗi not_authorized.',
       parameters: { type: 'OBJECT', properties: {} },
     },
     {
@@ -1065,43 +1060,45 @@ async function computeSubmissionSummary(memberUids) {
   return { members };
 }
 
-async function toolGetDepartmentSubmissionSummary(uid) {
-  const deptSnap = await adminDb.collection('departments').where('headTeacherId', '==', uid).limit(1).get();
-  if (deptSnap.empty) return { error: 'not_department_head' };
-  const dept = deptSnap.docs[0].data();
-  const memberIds = dept.memberIds || [];
-
-  const summary = await computeSubmissionSummary(memberIds);
-  return { departmentName: dept.name, ...summary };
-}
-
-async function toolGetSchoolSubmissionSummary(uid) {
-  // Tự tra role từ Firestore, KHÔNG tin role client tự khai báo — tránh giả mạo quyền xem toàn trường.
+// 1 tool duy nhất, backend tự dò phạm vi cao nhất người gọi được phép xem
+// (thay vì 1 tool riêng cho tổ trưởng + 1 tool riêng cho hiệu trưởng/hiệu phó/admin).
+// Tự tra role/headTeacherId từ Firestore, KHÔNG tin role client tự khai báo.
+async function toolGetSubmissionSummary(uid) {
   const callerSnap = await adminDb.collection('users').doc(uid).get();
   const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!['admin', 'vice_principal', 'principal'].includes(role)) return { error: 'not_authorized' };
 
-  const [departmentsSnap, usersSnap] = await Promise.all([
-    adminDb.collection('departments').get(),
-    adminDb.collection('users').where('role', 'in', ['teacher', 'department_head']).get(),
-  ]);
+  if (['admin', 'vice_principal', 'principal'].includes(role)) {
+    const [departmentsSnap, usersSnap] = await Promise.all([
+      adminDb.collection('departments').get(),
+      adminDb.collection('users').where('role', 'in', ['teacher', 'department_head']).get(),
+    ]);
 
-  const allTeacherUids = usersSnap.docs.map(d => d.id);
-  const summary = await computeSubmissionSummary(allTeacherUids);
-  const memberByUid = new Map(summary.members.map(m => [m.uid, m]));
+    const allTeacherUids = usersSnap.docs.map(d => d.id);
+    const summary = await computeSubmissionSummary(allTeacherUids);
+    const memberByUid = new Map(summary.members.map(m => [m.uid, m]));
 
-  const departments = departmentsSnap.docs.map(d => {
-    const dept = d.data();
-    return {
-      departmentName: dept.name,
-      members: (dept.memberIds || []).map(uid => memberByUid.get(uid)).filter(Boolean),
-    };
-  });
+    const departments = departmentsSnap.docs.map(d => {
+      const dept = d.data();
+      return {
+        departmentName: dept.name,
+        members: (dept.memberIds || []).map(uid => memberByUid.get(uid)).filter(Boolean),
+      };
+    });
 
-  const assignedUids = new Set(departmentsSnap.docs.flatMap(d => d.data().memberIds || []));
-  const unassigned = summary.members.filter(m => !assignedUids.has(m.uid));
+    const assignedUids = new Set(departmentsSnap.docs.flatMap(d => d.data().memberIds || []));
+    const unassigned = summary.members.filter(m => !assignedUids.has(m.uid));
 
-  return { departments, unassigned, note: summary.note };
+    return { scope: 'school', departments, unassigned, note: summary.note };
+  }
+
+  const deptSnap = await adminDb.collection('departments').where('headTeacherId', '==', uid).limit(1).get();
+  if (!deptSnap.empty) {
+    const dept = deptSnap.docs[0].data();
+    const summary = await computeSubmissionSummary(dept.memberIds || []);
+    return { scope: 'department', departmentName: dept.name, ...summary };
+  }
+
+  return { error: 'not_authorized' };
 }
 
 // Danh sách danh mục mà ĐÚNG giáo viên này được phép nộp, trong năm học đang hoạt động.
@@ -1250,8 +1247,7 @@ async function executeChatTool(name, uid, args) {
     case 'confirm_upload_target': return toolConfirmUploadTarget(uid, args?.categoryId, args?.subCategoryId);
     case 'list_my_documents': return toolListMyDocuments(uid);
     case 'confirm_edit_target': return toolConfirmEditTarget(uid, args?.documentId);
-    case 'get_department_submission_summary': return toolGetDepartmentSubmissionSummary(uid);
-    case 'get_school_submission_summary': return toolGetSchoolSubmissionSummary(uid);
+    case 'get_submission_summary': return toolGetSubmissionSummary(uid);
     case 'get_my_submission': return toolGetMySubmission(uid, args?.taskId);
     case 'get_my_task_stats': return toolGetMyTaskStats(uid);
     case 'get_my_document_progress': return toolGetMyDocumentProgress(uid);
@@ -1307,7 +1303,7 @@ Khi giáo viên hỏi về tài liệu CHÍNH HỌ đã nộp (ví dụ "tôi đ
 2. Nếu chỉ hỏi xem đã nộp gì, trả lời trực tiếp dựa trên danh sách (ví dụ liệt kê các tuần đã nộp của "Kế hoạch bài dạy"), không cần làm gì thêm.
 3. Nếu muốn SỬA 1 tài liệu cụ thể, tự suy luận đúng tài liệu đó từ danh sách (theo tên danh mục/mục con, ví dụ "tuần 3"), rồi gọi confirm_edit_target(documentId) với đúng id lấy được — KHÔNG tự bịa id. Nếu không xác định được rõ tài liệu nào, hỏi lại.
 4. Sau khi confirm_edit_target trả về confirmed=true, xác nhận lại bằng lời (tên tài liệu, số file hiện có), mời giáo viên tự thêm file mới hoặc xóa bớt file qua giao diện hiện ra — không tự sửa giúp.
-Khi người dùng hỏi tổng hợp tình hình nộp hồ sơ CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): thử gọi get_department_submission_summary trước (dành cho tổ trưởng); nếu trả về lỗi not_authorized, thử gọi get_school_submission_summary (dành cho hiệu trưởng/hiệu phó/admin); nếu hàm đó cũng báo not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần).
+Khi người dùng hỏi tổng hợp tình hình nộp hồ sơ CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): gọi get_submission_summary (hàm tự xác định phạm vi phù hợp với người hỏi, không cần đoán trước là tổ hay trường); nếu hàm báo lỗi not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Kết quả có trường "scope": "department" (chỉ 1 tổ, xem trường "members") hoặc "school" (toàn trường, xem trường "departments" gồm nhiều tổ + "unassigned" là người chưa thuộc tổ nào). Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần).
 Khi giáo viên hỏi về NỘI DUNG chi tiết 1 công việc cụ thể (không chỉ tên), hãy đọc trường "description" (và "descriptionPdfUrl" nếu có) trong dữ liệu list_my_tasks đã có sẵn để trả lời — KHÔNG cần gọi thêm hàm nào.
 Khi giáo viên hỏi đã nộp NỘI DUNG/FILE gì cho 1 công việc, hoặc đã nộp lại mấy lần: gọi list_my_tasks trước (nếu chưa có) để xác định đúng taskId, rồi gọi get_my_submission(taskId).
 Khi giáo viên hỏi số liệu tổng hợp CỦA CHÍNH MÌNH (tỷ lệ hoàn thành, tỷ lệ đúng hạn, điểm trung bình): gọi get_my_task_stats.
