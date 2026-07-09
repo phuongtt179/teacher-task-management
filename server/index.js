@@ -661,6 +661,16 @@ const CHAT_TOOLS = [{
         required: ['documentId'],
       },
     },
+    {
+      name: 'get_department_submission_summary',
+      description: 'CHỈ dùng khi giáo viên đang hỏi là TỔ TRƯỞNG: tổng hợp tình hình nộp Kế hoạch bài dạy/Sổ chủ nhiệm/Sổ dự giờ của các thành viên trong tổ mình phụ trách. Nếu người hỏi không phải tổ trưởng, hàm sẽ trả lỗi not_authorized.',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
+    {
+      name: 'get_school_submission_summary',
+      description: 'CHỈ dùng khi giáo viên đang hỏi là hiệu trưởng/hiệu phó/admin: tổng hợp tình hình nộp Kế hoạch bài dạy/Sổ chủ nhiệm/Sổ dự giờ của TẤT CẢ giáo viên toàn trường, theo từng tổ. Nếu người hỏi không có quyền này, hàm sẽ trả lỗi not_authorized.',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
   ],
 }];
 
@@ -834,6 +844,108 @@ async function toolConfirmEditTarget(uid, documentId) {
   };
 }
 
+// 3 loại hồ sơ tổ trưởng/hiệu trưởng cần tổng hợp việc nộp của thành viên.
+const OVERSIGHT_CATEGORY_NAMES = ['kế hoạch bài dạy', 'sổ chủ nhiệm', 'sổ dự giờ'];
+
+// Tính tình hình nộp 3 loại hồ sơ trên cho 1 danh sách giáo viên (dùng chung cho cả
+// báo cáo tổ trưởng lẫn báo cáo toàn trường, chỉ khác nhau ở việc truyền vào ai).
+async function computeSubmissionSummary(memberUids) {
+  if (memberUids.length === 0) return { members: [] };
+
+  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).limit(1).get();
+  if (yearsSnap.empty) return { members: [], note: 'no_active_school_year' };
+  const schoolYearId = yearsSnap.docs[0].id;
+
+  const [categoriesSnap, usersSnap] = await Promise.all([
+    adminDb.collection('documentCategories').where('schoolYearId', '==', schoolYearId).get(),
+    adminDb.collection('users').get(),
+  ]);
+
+  const nameById = new Map();
+  usersSnap.docs.forEach(d => nameById.set(d.id, d.data().displayName || d.data().email || d.id));
+
+  const targetCategories = categoriesSnap.docs.filter(d => {
+    const name = (d.data().name || '').toLowerCase();
+    return OVERSIGHT_CATEGORY_NAMES.some(n => name.includes(n));
+  });
+  if (targetCategories.length === 0) return { members: [], note: 'no_target_categories_this_year' };
+
+  const categoryIds = targetCategories.map(d => d.id);
+  const subsSnap = await adminDb.collection('documentSubCategories')
+    .where('categoryId', 'in', categoryIds.slice(0, 10))
+    .get();
+  const subCountByCategory = new Map();
+  subsSnap.docs.forEach(d => {
+    const catId = d.data().categoryId;
+    subCountByCategory.set(catId, (subCountByCategory.get(catId) || 0) + 1);
+  });
+
+  // Firestore 'in' tối đa 10 phần tử — 3 danh mục mục tiêu chắc chắn nằm trong giới hạn này.
+  const documentsSnap = await adminDb.collection('documents').where('categoryId', 'in', categoryIds.slice(0, 10)).get();
+
+  // key: uid|categoryId -> Set(subCategoryId hoặc 'x' nếu không có mục con)
+  const submittedByMemberCategory = new Map();
+  documentsSnap.docs.forEach(d => {
+    const doc = d.data();
+    if (!memberUids.includes(doc.uploadedBy)) return;
+    const key = `${doc.uploadedBy}|${doc.categoryId}`;
+    if (!submittedByMemberCategory.has(key)) submittedByMemberCategory.set(key, new Set());
+    submittedByMemberCategory.get(key).add(doc.subCategoryId || 'x');
+  });
+
+  const members = memberUids.map(uid => {
+    const categories = targetCategories.map(d => {
+      const totalSubs = subCountByCategory.get(d.id) || 0;
+      const submittedSet = submittedByMemberCategory.get(`${uid}|${d.id}`) || new Set();
+      return totalSubs > 0
+        ? { categoryName: d.data().name, submittedCount: submittedSet.size, totalCount: totalSubs }
+        : { categoryName: d.data().name, submitted: submittedSet.size > 0 };
+    });
+    return { uid, name: nameById.get(uid) || uid, categories };
+  });
+
+  return { members };
+}
+
+async function toolGetDepartmentSubmissionSummary(uid) {
+  const deptSnap = await adminDb.collection('departments').where('headTeacherId', '==', uid).limit(1).get();
+  if (deptSnap.empty) return { error: 'not_department_head' };
+  const dept = deptSnap.docs[0].data();
+  const memberIds = dept.memberIds || [];
+
+  const summary = await computeSubmissionSummary(memberIds);
+  return { departmentName: dept.name, ...summary };
+}
+
+async function toolGetSchoolSubmissionSummary(uid) {
+  // Tự tra role từ Firestore, KHÔNG tin role client tự khai báo — tránh giả mạo quyền xem toàn trường.
+  const callerSnap = await adminDb.collection('users').doc(uid).get();
+  const role = callerSnap.exists ? callerSnap.data().role : null;
+  if (!['admin', 'vice_principal', 'principal'].includes(role)) return { error: 'not_authorized' };
+
+  const [departmentsSnap, usersSnap] = await Promise.all([
+    adminDb.collection('departments').get(),
+    adminDb.collection('users').where('role', 'in', ['teacher', 'department_head']).get(),
+  ]);
+
+  const allTeacherUids = usersSnap.docs.map(d => d.id);
+  const summary = await computeSubmissionSummary(allTeacherUids);
+  const memberByUid = new Map(summary.members.map(m => [m.uid, m]));
+
+  const departments = departmentsSnap.docs.map(d => {
+    const dept = d.data();
+    return {
+      departmentName: dept.name,
+      members: (dept.memberIds || []).map(uid => memberByUid.get(uid)).filter(Boolean),
+    };
+  });
+
+  const assignedUids = new Set(departmentsSnap.docs.flatMap(d => d.data().memberIds || []));
+  const unassigned = summary.members.filter(m => !assignedUids.has(m.uid));
+
+  return { departments, unassigned, note: summary.note };
+}
+
 // Danh sách danh mục mà ĐÚNG giáo viên này được phép nộp, trong năm học đang hoạt động.
 // Không tự so khớp tên ở đây — trả hết danh sách để AI tự suy luận ngữ nghĩa
 // (vd "giáo án" ứng với danh mục "Kế hoạch bài dạy" dù không trùng chữ nào).
@@ -945,6 +1057,8 @@ async function executeChatTool(name, uid, args) {
     case 'confirm_upload_target': return toolConfirmUploadTarget(uid, args?.categoryId, args?.subCategoryId);
     case 'list_my_documents': return toolListMyDocuments(uid);
     case 'confirm_edit_target': return toolConfirmEditTarget(uid, args?.documentId);
+    case 'get_department_submission_summary': return toolGetDepartmentSubmissionSummary(uid);
+    case 'get_school_submission_summary': return toolGetSchoolSubmissionSummary(uid);
     default: return { error: 'unknown_tool' };
   }
 }
@@ -984,6 +1098,7 @@ Khi giáo viên hỏi về tài liệu CHÍNH HỌ đã nộp (ví dụ "tôi đ
 2. Nếu chỉ hỏi xem đã nộp gì, trả lời trực tiếp dựa trên danh sách (ví dụ liệt kê các tuần đã nộp của "Kế hoạch bài dạy"), không cần làm gì thêm.
 3. Nếu muốn SỬA 1 tài liệu cụ thể, tự suy luận đúng tài liệu đó từ danh sách (theo tên danh mục/mục con, ví dụ "tuần 3"), rồi gọi confirm_edit_target(documentId) với đúng id lấy được — KHÔNG tự bịa id. Nếu không xác định được rõ tài liệu nào, hỏi lại.
 4. Sau khi confirm_edit_target trả về confirmed=true, xác nhận lại bằng lời (tên tài liệu, số file hiện có), mời giáo viên tự thêm file mới hoặc xóa bớt file qua giao diện hiện ra — không tự sửa giúp.
+Khi người dùng hỏi tổng hợp tình hình nộp hồ sơ CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): thử gọi get_department_submission_summary trước (dành cho tổ trưởng); nếu trả về lỗi not_authorized, thử gọi get_school_submission_summary (dành cho hiệu trưởng/hiệu phó/admin); nếu hàm đó cũng báo not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần).
 ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện — TRƯỚC KHI trả lời, LUÔN gọi hàm get_recent_notifications trước. Chào hỏi thân thiện, và nếu có thông báo chưa đọc thì tóm tắt ngắn gọn số lượng + nội dung chính (ví dụ: "cô có 2 thông báo mới: ..."), nếu không có thông báo nào thì chào bình thường không cần nhắc tới việc không có thông báo.
 ` : ''}Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.`;
 
