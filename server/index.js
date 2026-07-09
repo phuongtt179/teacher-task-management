@@ -986,9 +986,11 @@ async function getAllowedUploadCategories(uid) {
   const categories = allowedCategoryDocs.map(d => {
     const c = d.data();
     const subs = subsByCategory.get(d.id) || [];
+    const docType = c.documentTypeId ? typeById.get(c.documentTypeId) : null;
     return {
       categoryId: d.id,
       categoryName: c.name,
+      documentTypeName: docType?.name || null,
       hasSubCategories: subs.length > 0,
       subCategories: subs.map(s => ({ id: s.id, name: s.name })),
     };
@@ -1085,6 +1087,7 @@ QUY TẮC BẮT BUỘC: bất kỳ câu nào có dạng "tìm/xem/có/cho xem + 
 - "cho xem file X" → search_public_documents(keyword="X").
 - "có sổ Y không" → search_public_documents(keyword="Y" hoặc "sổ Y").
 Chỉ được nói "không tìm thấy"/"chưa hỗ trợ" SAU KHI đã gọi hàm và trường "documents" trả về rỗng.
+Khi giáo viên hỏi CẤU TRÚC danh mục hồ sơ (ví dụ "hồ sơ gồm những mục nào", "cấu trúc danh mục thế nào", "tôi được nộp vào những đâu"), tức là chỉ muốn XEM/TÌM HIỂU chứ CHƯA CHẮC muốn nộp ngay: gọi hàm list_upload_categories, rồi trình bày kết quả dưới dạng CÂY THEO THỨ BẬC (dùng gạch đầu dòng/thụt lề markdown), nhóm theo documentTypeName trước, rồi tới categoryName, rồi tới subCategories (nếu có, chỉ liệt kê vài mục con đầu + ghi tổng số, ví dụ "Tuần 1, Tuần 2, ... (36 tuần)" thay vì liệt kê hết 36 dòng). Dừng lại ở đây — ĐỪNG tự động gọi confirm_upload_target khi giáo viên chỉ đang hỏi cấu trúc, chỉ làm bước xác nhận khi họ nói rõ muốn NỘP vào 1 mục cụ thể ở tin nhắn sau.
 Khi giáo viên muốn NỘP tài liệu (giáo án, kế hoạch bài dạy, sổ chủ nhiệm...):
 1. Gọi hàm list_upload_categories để lấy TOÀN BỘ danh mục giáo viên này được phép nộp.
 2. TỰ suy luận đúng danh mục dựa trên Ý NGHĨA, không cần trùng chữ — ví dụ "giáo án" thường ứng với danh mục "Kế hoạch bài dạy". Nếu danh mục đó có mục con (subCategories, ví dụ theo tuần), tìm mục con khớp với thông tin giáo viên nói (ví dụ "tuần 1" → mục con tên "Tuần 1").
