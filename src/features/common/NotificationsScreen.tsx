@@ -106,7 +106,7 @@ export const NotificationsScreen = () => {
 
     // Navigate based on type
     if (notification.data?.taskId) {
-      if (user?.role === 'vice_principal') {
+      if (user?.role === 'vice_principal' || user?.role === 'principal') {
         navigate(`/vp/tasks/${notification.data.taskId}`);
       } else if (user?.role === 'teacher') {
         navigate(`/teacher/tasks/${notification.data.taskId}`);

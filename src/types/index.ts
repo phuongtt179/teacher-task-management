@@ -1,5 +1,5 @@
 // User roles
-export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'staff';
+export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'staff' | 'van_thu';
 
 // User model
 export interface User {

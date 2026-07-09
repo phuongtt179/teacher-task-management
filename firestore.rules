@@ -36,6 +36,11 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff';
     }
 
+    function isVanThu() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'van_thu';
+    }
+
     // Whitelist collection
     match /whitelist/{email} {
       allow read: if isSignedIn();
@@ -64,7 +69,8 @@ service cloud.firestore {
     // Tasks collection
     match /tasks/{taskId} {
       allow read: if isSignedIn();
-      allow create: if isVicePrincipal() || isAdmin() || isPrincipal();
+      // Văn thư chỉ được tạo (chuyển) công việc, không được sửa/xóa sau đó — xem update/delete bên dưới.
+      allow create: if isVicePrincipal() || isAdmin() || isPrincipal() || isVanThu();
       // VP/Admin/Principal: full update. Teachers/dept heads: only update tasks assigned to them, only status+updatedAt fields
       allow update: if isVicePrincipal() || isAdmin() || isPrincipal() ||
                     (isSignedIn() &&

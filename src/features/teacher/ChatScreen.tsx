@@ -57,6 +57,17 @@ interface ChatEditTarget {
   files: ChatEditFile[];
 }
 
+interface ChatBghTaskCandidate {
+  title: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high';
+  deadline: string;
+  schoolYearId: string;
+  targetUids: string[];
+  targetNames: string[];
+  createdByName: string;
+}
+
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
@@ -65,6 +76,7 @@ interface ChatMessage {
   categoryCandidates?: ChatCategoryCandidate[];
   myDocumentList?: ChatMyDocument[];
   editTarget?: ChatEditTarget;
+  bghTaskCandidate?: ChatBghTaskCandidate;
 }
 
 interface Channel {
@@ -164,6 +176,10 @@ export function ChatScreen() {
   const [removingFileIndex, setRemovingFileIndex] = useState<number | null>(null);
   const [loadingEditTarget, setLoadingEditTarget] = useState<string | null>(null);
 
+  // Văn thư chuyển công việc cho BGH
+  const [forwardedBghKeys, setForwardedBghKeys] = useState<Set<string>>(new Set());
+  const [forwardingBghKey, setForwardingBghKey] = useState<string | null>(null);
+
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
   const activeMessages = messagesByChannel[activeChannelId] || [];
   const isLoading = loadingChannelId === activeChannelId;
@@ -221,6 +237,7 @@ export function ChatScreen() {
           categoryCandidates: data.categoryCandidates,
           myDocumentList: data.myDocumentList,
           editTarget: data.editTarget,
+          bghTaskCandidate: data.bghTaskCandidate,
         }],
       }));
     } catch {
@@ -419,6 +436,29 @@ export function ChatScreen() {
   const openEditFromTarget = (target: ChatEditTarget) => {
     setEditingTarget(target);
     setEditNewFiles([]);
+  };
+
+  const bghTaskKey = (c: ChatBghTaskCandidate) => `${c.title}|${c.deadline}`;
+
+  const handleForwardTaskToBgh = async (candidate: ChatBghTaskCandidate) => {
+    if (!user) return;
+    const key = bghTaskKey(candidate);
+    setForwardingBghKey(key);
+    try {
+      const res = await fetch(`${API_BASE_URL}/chat/forward-task`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid, displayName: user.displayName, ...candidate }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể chuyển công việc');
+      setForwardedBghKeys(prev => new Set(prev).add(key));
+      toast({ title: 'Đã chuyển công việc cho Ban Giám Hiệu' });
+    } catch (err: any) {
+      toast({ title: 'Chuyển việc không thành công, thử lại nhé', description: err.message, variant: 'destructive' });
+    } finally {
+      setForwardingBghKey(null);
+    }
   };
 
   const removeEditFile = async (fileIndex: number) => {
@@ -713,6 +753,33 @@ export function ChatScreen() {
                         <Paperclip className="w-3.5 h-3.5 mr-1.5" />
                         Quản lý file
                       </Button>
+                    </div>
+                  )}
+
+                  {m.bghTaskCandidate && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                      <span className="font-medium text-sm text-gray-900">{m.bghTaskCandidate.title}</span>
+                      <p className="text-xs text-gray-500 mt-1">{m.bghTaskCandidate.description}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Gửi tới: {m.bghTaskCandidate.targetNames.join(', ')} · Hạn: {m.bghTaskCandidate.deadline}
+                      </p>
+                      {forwardedBghKeys.has(bghTaskKey(m.bghTaskCandidate)) ? (
+                        <span className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Đã chuyển
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                          disabled={forwardingBghKey === bghTaskKey(m.bghTaskCandidate)}
+                          onClick={() => handleForwardTaskToBgh(m.bghTaskCandidate!)}
+                        >
+                          {forwardingBghKey === bghTaskKey(m.bghTaskCandidate)
+                            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                          Xác nhận chuyển cho BGH
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>

@@ -54,6 +54,7 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
       admin: 'Quản trị viên',
       vice_principal: 'Hiệu trưởng',
       teacher: 'Giáo viên',
+      van_thu: 'Văn thư',
     };
     return roleMap[role] || role;
   };

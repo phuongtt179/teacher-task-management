@@ -51,6 +51,8 @@ const DashboardRouter = ({ chatMode }: { chatMode: boolean }) => {
     case 'department_head':
     case 'staff':
       return chatMode ? <ChatScreen /> : <TeacherDashboard />;
+    case 'van_thu':
+      return chatMode ? <ChatScreen /> : <PlaceholderScreen title="Tính năng dành cho văn thư hiện chỉ dùng qua Trợ lý AI (chat) — vui lòng liên hệ quản trị viên để được bật." />;
     default:
       return <div>Invalid role</div>;
   }

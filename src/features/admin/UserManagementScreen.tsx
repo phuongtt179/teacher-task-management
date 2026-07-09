@@ -31,7 +31,8 @@ import {
   UserX,
   Shield,
   GraduationCap,
-  Crown
+  Crown,
+  FileText
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { toast as globalToast } from '@/components/ui/use-toast';  // Import toast directly
@@ -262,6 +263,7 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
                   <SelectItem value="department_head">Tổ trưởng</SelectItem>
                   <SelectItem value="teacher">Giáo viên</SelectItem>
                   <SelectItem value="staff">Nhân viên</SelectItem>
+                  <SelectItem value="van_thu">Văn thư</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -461,6 +463,8 @@ export default function UserManagementScreen() {
         return <GraduationCap className="w-4 h-4" />;
       case 'staff':
         return <UserCheck className="w-4 h-4" />;
+      case 'van_thu':
+        return <FileText className="w-4 h-4" />;
       default:
         return null;
     }
@@ -480,6 +484,8 @@ export default function UserManagementScreen() {
         return 'Giáo viên';
       case 'staff':
         return 'Nhân viên';
+      case 'van_thu':
+        return 'Văn thư';
       default:
         return role;
     }
@@ -499,6 +505,8 @@ export default function UserManagementScreen() {
         return 'bg-green-100 text-green-800';
       case 'staff':
         return 'bg-gray-100 text-gray-800';
+      case 'van_thu':
+        return 'bg-amber-100 text-amber-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -585,6 +593,7 @@ export default function UserManagementScreen() {
                 <SelectItem value="department_head">Tổ trưởng</SelectItem>
                 <SelectItem value="teacher">Giáo viên</SelectItem>
                 <SelectItem value="staff">Nhân viên</SelectItem>
+                <SelectItem value="van_thu">Văn thư</SelectItem>
               </SelectContent>
             </Select>
           </div>
