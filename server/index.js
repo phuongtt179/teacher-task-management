@@ -671,6 +671,38 @@ const CHAT_TOOLS = [{
       description: 'CHỈ dùng khi giáo viên đang hỏi là hiệu trưởng/hiệu phó/admin: tổng hợp tình hình nộp Kế hoạch bài dạy/Sổ chủ nhiệm/Sổ dự giờ của TẤT CẢ giáo viên toàn trường, theo từng tổ. Nếu người hỏi không có quyền này, hàm sẽ trả lỗi not_authorized.',
       parameters: { type: 'OBJECT', properties: {} },
     },
+    {
+      name: 'get_my_submission',
+      description: 'Xem lại NỘI DUNG/FILE báo cáo mà CHÍNH giáo viên đang hỏi đã nộp cho 1 công việc cụ thể (lấy taskId từ list_my_tasks), kèm điểm/nhận xét và lịch sử các lần nộp lại nếu có. Dùng khi giáo viên hỏi "tôi đã nộp gì cho việc X", "xem lại báo cáo tôi nộp", "tôi nộp lại mấy lần rồi".',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          taskId: { type: 'STRING', description: 'id công việc, lấy từ kết quả list_my_tasks' },
+        },
+        required: ['taskId'],
+      },
+    },
+    {
+      name: 'get_my_task_stats',
+      description: 'Tổng hợp số liệu công việc của CHÍNH giáo viên đang hỏi: tổng số việc, tỷ lệ hoàn thành, tỷ lệ nộp đúng hạn, điểm trung bình — cả tổng chung lẫn tách theo học kỳ. Dùng khi giáo viên hỏi "tôi hoàn thành được bao nhiêu %", "tỷ lệ nộp đúng hạn của tôi", "điểm trung bình học kỳ này của tôi".',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
+    {
+      name: 'get_my_document_progress',
+      description: 'Đối chiếu các danh mục hồ sơ giáo viên được phép nộp với những gì đã thực sự nộp, chỉ rõ CÒN THIẾU mục con nào (ví dụ còn thiếu Tuần 5, Tuần 12 của Kế hoạch bài dạy). Dùng khi giáo viên hỏi "tôi còn thiếu hồ sơ gì", "còn thiếu tuần nào chưa nộp".',
+      parameters: { type: 'OBJECT', properties: {} },
+    },
+    {
+      name: 'search_everything',
+      description: 'Tìm theo 1 từ khóa xuyên suốt: công việc của chính giáo viên (theo tên+mô tả), tài liệu chính giáo viên đã nộp, và tài liệu công khai toàn trường — dùng khi giáo viên hỏi mơ hồ về 1 chủ đề/sự kiện mà không rõ là việc hay tài liệu (ví dụ "có gì liên quan tới Ngày hội Văn hóa dân gian không").',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          keyword: { type: 'STRING', description: 'từ khóa/chủ đề cần tìm' },
+        },
+        required: ['keyword'],
+      },
+    },
   ],
 }];
 
@@ -704,6 +736,8 @@ async function toolListMyTasks(uid) {
     return {
       id: d.id,
       title: t.title,
+      description: t.description || null,
+      descriptionPdfUrl: t.descriptionPdfUrl || null,
       priority: t.priority || 'medium',
       deadline: deadline ? deadline.toISOString().slice(0, 10) : null,
       status: computeTeacherStatus(deadline, deadline2, submission),
@@ -734,6 +768,101 @@ async function toolGetMyScores(uid) {
   }));
 
   return { scores };
+}
+
+// Tổng hợp số liệu công việc của CHÍNH giáo viên này: tỷ lệ hoàn thành, tỷ lệ nộp đúng hạn,
+// điểm trung bình — cả tổng chung lẫn tách theo từng học kỳ.
+async function toolGetMyTaskStats(uid) {
+  const [tasksSnap, subsSnap] = await Promise.all([
+    adminDb.collection('tasks').where('assignedTo', 'array-contains', uid).get(),
+    adminDb.collection('submissions').where('teacherId', '==', uid).get(),
+  ]);
+
+  const latestSubByTask = new Map();
+  subsSnap.docs.forEach(d => {
+    const s = d.data();
+    if (s.isLatest === false) return;
+    latestSubByTask.set(s.taskId, s);
+  });
+
+  const computeGroup = (taskDocs) => {
+    let completed = 0, submittedOnTime = 0, submittedTotal = 0, overdue = 0;
+    let scoreSum = 0, scoreCount = 0;
+
+    taskDocs.forEach(d => {
+      const t = d.data();
+      const deadline = t.deadline?.toDate ? t.deadline.toDate() : null;
+      const deadline2 = t.deadline2?.toDate ? t.deadline2.toDate() : null;
+      const submission = latestSubByTask.get(d.id);
+      const status = computeTeacherStatus(deadline, deadline2, submission);
+
+      if (status === 'overdue') overdue++;
+      if (submission) {
+        submittedTotal++;
+        if (submission.metDeadline === 1) submittedOnTime++;
+        if (typeof submission.score === 'number') {
+          scoreSum += submission.score;
+          scoreCount++;
+          completed++;
+        }
+      }
+    });
+
+    return {
+      totalTasks: taskDocs.length,
+      completed,
+      overdue,
+      completionRate: taskDocs.length ? Math.round((completed / taskDocs.length) * 100) : 0,
+      onTimeRate: submittedTotal ? Math.round((submittedOnTime / submittedTotal) * 100) : null,
+      averageScore: scoreCount ? Math.round((scoreSum / scoreCount) * 10) / 10 : null,
+    };
+  };
+
+  const bySemester = {};
+  ['HK1', 'HK2'].forEach(sem => {
+    const docsInSem = tasksSnap.docs.filter(d => d.data().semester === sem);
+    if (docsInSem.length > 0) bySemester[sem] = computeGroup(docsInSem);
+  });
+
+  return { overall: computeGroup(tasksSnap.docs), bySemester };
+}
+
+// Xem lại nội dung/file báo cáo CHÍNH giáo viên này đã nộp cho 1 công việc cụ thể,
+// kèm toàn bộ lịch sử các lần nộp lại (version) nếu có.
+async function toolGetMySubmission(uid, taskId) {
+  if (!taskId) return { error: 'missing_task_id' };
+  const taskSnap = await adminDb.collection('tasks').doc(taskId).get();
+  if (!taskSnap.exists) return { error: 'task_not_found' };
+
+  const subsSnap = await adminDb.collection('submissions')
+    .where('taskId', '==', taskId)
+    .where('teacherId', '==', uid)
+    .get();
+  if (subsSnap.empty) return { taskTitle: taskSnap.data().title, submitted: false };
+
+  const versions = subsSnap.docs
+    .map(d => d.data())
+    .sort((a, b) => (b.version || 1) - (a.version || 1));
+  const latest = versions.find(v => v.isLatest !== false) || versions[0];
+
+  return {
+    taskTitle: taskSnap.data().title,
+    submitted: true,
+    latest: {
+      content: latest.content,
+      fileUrls: latest.fileUrls || [],
+      fileNames: latest.fileNames || [],
+      score: latest.score ?? null,
+      feedback: latest.feedback || null,
+      version: latest.version || 1,
+      submittedAt: latest.submittedAt?.toDate ? latest.submittedAt.toDate().toISOString().slice(0, 10) : null,
+    },
+    history: versions.map(v => ({
+      version: v.version || 1,
+      score: v.score ?? null,
+      submittedAt: v.submittedAt?.toDate ? v.submittedAt.toDate().toISOString().slice(0, 10) : null,
+    })),
+  };
 }
 
 async function toolSearchPublicDocuments(keyword) {
@@ -786,6 +915,35 @@ async function toolSearchPublicDocuments(keyword) {
   });
 
   return { documents: results.slice(0, 10) };
+}
+
+// Tìm xuyên suốt theo 1 từ khóa: công việc CỦA CHÍNH giáo viên (tên+mô tả), tài liệu CỦA CHÍNH
+// giáo viên (tên), và tài liệu công khai toàn trường (tên/tên file) — gộp lại 1 kết quả duy nhất.
+async function toolSearchEverything(uid, keyword) {
+  const kw = String(keyword || '').trim().toLowerCase();
+  if (!kw) return { tasks: [], myDocuments: [], publicDocuments: [] };
+
+  const [tasksSnap, myDocsResult, publicDocsResult] = await Promise.all([
+    adminDb.collection('tasks').where('assignedTo', 'array-contains', uid).get(),
+    toolListMyDocuments(uid),
+    toolSearchPublicDocuments(keyword),
+  ]);
+
+  const matchedTasks = tasksSnap.docs
+    .map(d => d.data())
+    .filter(t => (t.title || '').toLowerCase().includes(kw) || (t.description || '').toLowerCase().includes(kw))
+    .map(t => ({ title: t.title, status: t.status }))
+    .slice(0, 10);
+
+  const matchedMyDocuments = (myDocsResult.documents || [])
+    .filter(d => (d.title || '').toLowerCase().includes(kw))
+    .slice(0, 10);
+
+  return {
+    tasks: matchedTasks,
+    myDocuments: matchedMyDocuments,
+    publicDocuments: publicDocsResult.documents || [],
+  };
 }
 
 // Tài liệu mà ĐÚNG giáo viên này đã tự nộp (mọi trạng thái: chờ duyệt/đã duyệt/từ chối), mọi năm học.
@@ -1012,6 +1170,39 @@ async function toolListUploadCategories(uid) {
   };
 }
 
+// Đối chiếu danh mục ĐƯỢC PHÉP nộp (kèm mục con, vd 36 tuần) với những gì CHÍNH giáo viên
+// này đã thực sự nộp, để chỉ ra rõ còn THIẾU mục con nào — vd "còn thiếu Tuần 5, Tuần 12".
+async function toolGetMyDocumentProgress(uid) {
+  const [{ categories }, documentsSnap] = await Promise.all([
+    getAllowedUploadCategories(uid),
+    adminDb.collection('documents').where('uploadedBy', '==', uid).get(),
+  ]);
+
+  const submittedByCategory = new Map(); // categoryId -> Set(subCategoryId hoặc 'x')
+  documentsSnap.docs.forEach(d => {
+    const doc = d.data();
+    if (!submittedByCategory.has(doc.categoryId)) submittedByCategory.set(doc.categoryId, new Set());
+    submittedByCategory.get(doc.categoryId).add(doc.subCategoryId || 'x');
+  });
+
+  const progress = categories.map(c => {
+    const submittedSet = submittedByCategory.get(c.categoryId) || new Set();
+    if (!c.hasSubCategories) {
+      return { categoryName: c.categoryName, hasSubCategories: false, submitted: submittedSet.size > 0 };
+    }
+    const missing = c.subCategories.filter(s => !submittedSet.has(s.id)).map(s => s.name);
+    return {
+      categoryName: c.categoryName,
+      hasSubCategories: true,
+      submittedCount: submittedSet.size,
+      totalCount: c.subCategories.length,
+      missing,
+    };
+  });
+
+  return { progress };
+}
+
 async function toolConfirmUploadTarget(uid, categoryId, subCategoryId) {
   const { schoolYearId, categories } = await getAllowedUploadCategories(uid);
   const category = categories.find(c => c.categoryId === categoryId);
@@ -1061,9 +1252,24 @@ async function executeChatTool(name, uid, args) {
     case 'confirm_edit_target': return toolConfirmEditTarget(uid, args?.documentId);
     case 'get_department_submission_summary': return toolGetDepartmentSubmissionSummary(uid);
     case 'get_school_submission_summary': return toolGetSchoolSubmissionSummary(uid);
+    case 'get_my_submission': return toolGetMySubmission(uid, args?.taskId);
+    case 'get_my_task_stats': return toolGetMyTaskStats(uid);
+    case 'get_my_document_progress': return toolGetMyDocumentProgress(uid);
+    case 'search_everything': return toolSearchEverything(uid, args?.keyword);
     default: return { error: 'unknown_tool' };
   }
 }
+
+const APP_GUIDE = `HƯỚNG DẪN SỬ DỤNG APP (dùng để trả lời khi giáo viên hỏi "làm sao để...", "app này dùng thế nào", "sao tôi không thấy...", hoặc gặp lỗi khi thao tác):
+- Đây là app quản lý công việc + hồ sơ điện tử của trường, giao tiếp chủ yếu qua chat này (kiểu Zalo). Bên trái có các kênh: "Trợ lý AI" (hỏi đáp chung), "Công việc", "Điểm số", "Nộp hồ sơ", "Tìm tài liệu".
+- Xem/hoàn thành công việc: hỏi trực tiếp trong chat (vd "việc của tôi", "việc nào gấp") — AI liệt kê kèm nút "Hoàn thành" ngay dưới từng việc, bấm vào đó để nộp nội dung/điểm hoàn thành, không cần vào màn hình riêng.
+- Nộp hồ sơ/tài liệu (giáo án, kế hoạch bài dạy, sổ chủ nhiệm...): gõ ví dụ "tôi muốn nộp giáo án tuần 3", AI sẽ tự xác định đúng danh mục và hiện nút xác nhận + khung đính kèm file — bấm xác nhận rồi chọn file từ máy để tải lên. Nếu không biết có những danh mục nào, hỏi "hồ sơ gồm những mục nào" để xem cây danh mục trước.
+- Sửa hồ sơ đã nộp (thêm/xóa file): hỏi "sửa giáo án tuần 3" hoặc "xóa file trong sổ chủ nhiệm", AI xác nhận đúng tài liệu rồi hiện khung thêm/xóa file.
+- Tìm tài liệu người khác đã công khai: hỏi "tìm file X" hoặc "có sổ Y không".
+- Xem điểm số, thống kê tỷ lệ hoàn thành/đúng hạn của bản thân, hoặc hồ sơ còn thiếu: hỏi thẳng trong chat (vd "điểm của tôi thế nào", "tôi còn thiếu hồ sơ gì").
+- Nếu bật app mà không thấy giao diện chat (vẫn thấy menu cũ): tính năng chat đang được bật dần theo tài khoản, báo giáo viên liên hệ quản trị viên (admin) để được bật.
+- Nếu tải file lỗi hoặc app báo lỗi hệ thống khi nộp hồ sơ: đây thường là lỗi kỹ thuật phía máy chủ (không phải do thao tác sai) — khuyên giáo viên thử lại sau ít phút, nếu vẫn lỗi thì báo admin.
+- Mọi thao tác quan trọng (nộp bài, tải file, xác nhận danh mục) đều cần giáo viên tự bấm nút xác nhận hiện ra trong chat — AI không tự ý nộp/sửa thay.`;
 
 app.post('/api/chat', express.json(), async (req, res) => {
   try {
@@ -1102,8 +1308,16 @@ Khi giáo viên hỏi về tài liệu CHÍNH HỌ đã nộp (ví dụ "tôi đ
 3. Nếu muốn SỬA 1 tài liệu cụ thể, tự suy luận đúng tài liệu đó từ danh sách (theo tên danh mục/mục con, ví dụ "tuần 3"), rồi gọi confirm_edit_target(documentId) với đúng id lấy được — KHÔNG tự bịa id. Nếu không xác định được rõ tài liệu nào, hỏi lại.
 4. Sau khi confirm_edit_target trả về confirmed=true, xác nhận lại bằng lời (tên tài liệu, số file hiện có), mời giáo viên tự thêm file mới hoặc xóa bớt file qua giao diện hiện ra — không tự sửa giúp.
 Khi người dùng hỏi tổng hợp tình hình nộp hồ sơ CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): thử gọi get_department_submission_summary trước (dành cho tổ trưởng); nếu trả về lỗi not_authorized, thử gọi get_school_submission_summary (dành cho hiệu trưởng/hiệu phó/admin); nếu hàm đó cũng báo not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần).
+Khi giáo viên hỏi về NỘI DUNG chi tiết 1 công việc cụ thể (không chỉ tên), hãy đọc trường "description" (và "descriptionPdfUrl" nếu có) trong dữ liệu list_my_tasks đã có sẵn để trả lời — KHÔNG cần gọi thêm hàm nào.
+Khi giáo viên hỏi đã nộp NỘI DUNG/FILE gì cho 1 công việc, hoặc đã nộp lại mấy lần: gọi list_my_tasks trước (nếu chưa có) để xác định đúng taskId, rồi gọi get_my_submission(taskId).
+Khi giáo viên hỏi số liệu tổng hợp CỦA CHÍNH MÌNH (tỷ lệ hoàn thành, tỷ lệ đúng hạn, điểm trung bình): gọi get_my_task_stats.
+Khi giáo viên hỏi CÒN THIẾU hồ sơ gì chưa nộp (khác với "đã nộp gì" — đây là hỏi phần TRỐNG): gọi get_my_document_progress, nêu rõ tên các mục con còn thiếu.
+Khi giáo viên hỏi mơ hồ về 1 chủ đề/sự kiện, không rõ là việc hay tài liệu (ví dụ "có gì liên quan đến X không"): gọi search_everything(keyword) thay vì đoán dùng list_my_tasks hay search_public_documents, rồi trình bày gộp cả công việc lẫn tài liệu tìm được.
 ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện — TRƯỚC KHI trả lời, LUÔN gọi hàm get_recent_notifications trước. Chào hỏi thân thiện, và nếu có thông báo chưa đọc thì tóm tắt ngắn gọn số lượng + nội dung chính (ví dụ: "cô có 2 thông báo mới: ..."), nếu không có thông báo nào thì chào bình thường không cần nhắc tới việc không có thông báo.
-` : ''}Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.`;
+` : ''}Nếu chỉ chào hỏi/hỏi thăm thông thường, trả lời trực tiếp không cần gọi hàm.
+
+${APP_GUIDE}
+Khi giáo viên hỏi CÁCH DÙNG app (không phải hỏi dữ liệu cụ thể), trả lời dựa vào phần HƯỚNG DẪN SỬ DỤNG APP ở trên — KHÔNG cần gọi hàm nào.`;
 
     const contents = messages.map(m => ({
       role: m.role === 'model' ? 'model' : 'user',
