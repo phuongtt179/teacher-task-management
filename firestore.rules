@@ -83,7 +83,10 @@ service cloud.firestore {
     // Submissions collection (top-level, not nested)
     match /submissions/{submissionId} {
       allow read: if isSignedIn();
-      allow create: if isTeacher() || isVicePrincipal() || isAdmin() || isPrincipal() || isDepartmentHead();
+      // request.resource.data.teacherId phải khớp người đang tạo — tránh giả mạo bài nộp đứng tên người khác.
+      allow create: if isSignedIn() &&
+                    request.resource.data.teacherId == request.auth.uid &&
+                    (isTeacher() || isVicePrincipal() || isAdmin() || isPrincipal() || isDepartmentHead());
       allow update: if isSignedIn() &&
                     (request.auth.uid == resource.data.teacherId ||
                      isVicePrincipal() ||
@@ -168,8 +171,9 @@ service cloud.firestore {
         // Public documents: admin/VP/Principal can upload
         (getRequestCategoryType() == 'public' && (isAdmin() || isVicePrincipal() || isPrincipal())) ||
 
-        // Personal documents: anyone can upload their own
-        (getRequestCategoryType() == 'personal')
+        // Personal documents: anyone can upload, nhưng phải đứng tên đúng người tạo —
+        // tránh giả mạo tài liệu cá nhân đứng tên người khác.
+        (getRequestCategoryType() == 'personal' && request.resource.data.uploadedBy == request.auth.uid)
       );
 
       // UPDATE permissions: admin/VP/Principal, or the uploader editing their own document
