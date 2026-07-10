@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { taskService, removeVietnameseTones } from '@/services/taskService';
 import { schoolYearService } from '@/services/schoolYearService';
 import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
-import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip, ExternalLink } from 'lucide-react';
+import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip, ExternalLink, Building2 } from 'lucide-react';
+import type { UserRole } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -73,6 +74,15 @@ interface ChatProfileCandidate {
   newName: string;
 }
 
+interface ChatSchoolInfoCandidate {
+  topic: string;
+  content: string;
+  schoolYearId: string | null;
+  yearLabel: string;
+  existingId: string | null;
+  existingContent: string | null;
+}
+
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
@@ -83,6 +93,7 @@ interface ChatMessage {
   editTarget?: ChatEditTarget;
   bghTaskCandidate?: ChatBghTaskCandidate;
   profileCandidate?: ChatProfileCandidate;
+  schoolInfoCandidate?: ChatSchoolInfoCandidate;
 }
 
 interface Channel {
@@ -93,6 +104,7 @@ interface Channel {
   color: string; // avatar background
   autoSend?: string; // câu hỏi tự động gửi khi mở kênh lần đầu (nếu chưa có tin nhắn)
   comingSoon?: boolean;
+  roles?: UserRole[]; // để trống = hiện với mọi vai trò
 }
 
 const CHANNELS: Channel[] = [
@@ -133,6 +145,14 @@ const CHANNELS: Channel[] = [
     subtitle: 'Tìm công văn, tài liệu...',
     icon: FolderSearch,
     color: 'bg-purple-500',
+  },
+  {
+    id: 'school-info',
+    label: 'Thông tin trường',
+    subtitle: 'Tra cứu & cập nhật dữ kiện nội bộ',
+    icon: Building2,
+    color: 'bg-teal-500',
+    roles: ['admin', 'principal', 'vice_principal', 'van_thu'],
   },
 ];
 
@@ -190,7 +210,12 @@ export function ChatScreen() {
   const [updatedProfileKeys, setUpdatedProfileKeys] = useState<Set<string>>(new Set());
   const [updatingProfileKey, setUpdatingProfileKey] = useState<string | null>(null);
 
+  // Thêm/ghi đè dữ kiện nhà trường (kênh "Thông tin trường")
+  const [savedSchoolInfoKeys, setSavedSchoolInfoKeys] = useState<Set<string>>(new Set());
+  const [savingSchoolInfoKey, setSavingSchoolInfoKey] = useState<string | null>(null);
+
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
+  const visibleChannels = CHANNELS.filter(c => !c.roles || (user && c.roles.includes(user.role)));
   const activeMessages = messagesByChannel[activeChannelId] || [];
   const isLoading = loadingChannelId === activeChannelId;
 
@@ -219,7 +244,7 @@ export function ChatScreen() {
       const res = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, displayName: user.displayName, messages: newMessages }),
+        body: JSON.stringify({ uid: user.uid, displayName: user.displayName, messages: newMessages, channelId }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -249,6 +274,7 @@ export function ChatScreen() {
           editTarget: data.editTarget,
           bghTaskCandidate: data.bghTaskCandidate,
           profileCandidate: data.profileCandidate,
+          schoolInfoCandidate: data.schoolInfoCandidate,
         }],
       }));
     } catch {
@@ -493,6 +519,36 @@ export function ChatScreen() {
     }
   };
 
+  const schoolInfoKey = (c: ChatSchoolInfoCandidate) => `${c.topic}|${c.schoolYearId || ''}`;
+
+  const handleSaveSchoolInfo = async (candidate: ChatSchoolInfoCandidate) => {
+    if (!user) return;
+    const key = schoolInfoKey(candidate);
+    setSavingSchoolInfoKey(key);
+    try {
+      const res = await fetch(`${API_BASE_URL}/chat/add-school-info`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: user.uid,
+          displayName: user.displayName,
+          topic: candidate.topic,
+          content: candidate.content,
+          schoolYearId: candidate.schoolYearId,
+          existingId: candidate.existingId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể lưu thông tin');
+      setSavedSchoolInfoKeys(prev => new Set(prev).add(key));
+      toast({ title: data.overwritten ? 'Đã cập nhật thông tin' : 'Đã lưu thông tin mới' });
+    } catch (err: any) {
+      toast({ title: 'Lưu không thành công, thử lại nhé', description: err.message, variant: 'destructive' });
+    } finally {
+      setSavingSchoolInfoKey(null);
+    }
+  };
+
   const removeEditFile = async (fileIndex: number) => {
     if (!editingTarget || !user) return;
     setRemovingFileIndex(fileIndex);
@@ -580,7 +636,7 @@ export function ChatScreen() {
           <p className="text-xs text-gray-400">Chọn 1 mục để bắt đầu trò chuyện</p>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {CHANNELS.map(channel => {
+          {visibleChannels.map(channel => {
             const isActive = channel.id === activeChannelId;
             return (
               <button
@@ -619,11 +675,11 @@ export function ChatScreen() {
             className="lg:hidden text-sm border border-gray-200 rounded-lg px-2 py-1 bg-white"
             value={activeChannelId}
             onChange={e => {
-              const channel = CHANNELS.find(c => c.id === e.target.value);
+              const channel = visibleChannels.find(c => c.id === e.target.value);
               if (channel) selectChannel(channel);
             }}
           >
-            {CHANNELS.map(channel => (
+            {visibleChannels.map(channel => (
               <option key={channel.id} value={channel.id} disabled={channel.comingSoon}>
                 {channel.label}{channel.comingSoon ? ' (sắp ra mắt)' : ''}
               </option>
@@ -835,6 +891,37 @@ export function ChatScreen() {
                             ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                             : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
                           Xác nhận đổi tên
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {m.schoolInfoCandidate && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                      <span className="font-medium text-sm text-gray-900">{m.schoolInfoCandidate.topic}</span>
+                      {m.schoolInfoCandidate.existingId ? (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Ghi đè: <span className="line-through text-gray-400">{m.schoolInfoCandidate.existingContent}</span> → <span className="text-gray-900">{m.schoolInfoCandidate.content}</span>
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500 mt-1">{m.schoolInfoCandidate.content}</p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">Áp dụng: {m.schoolInfoCandidate.yearLabel}</p>
+                      {savedSchoolInfoKeys.has(schoolInfoKey(m.schoolInfoCandidate)) ? (
+                        <span className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Đã lưu
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                          disabled={savingSchoolInfoKey === schoolInfoKey(m.schoolInfoCandidate)}
+                          onClick={() => handleSaveSchoolInfo(m.schoolInfoCandidate!)}
+                        >
+                          {savingSchoolInfoKey === schoolInfoKey(m.schoolInfoCandidate)
+                            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                          {m.schoolInfoCandidate.existingId ? 'Xác nhận ghi đè' : 'Xác nhận lưu'}
                         </Button>
                       )}
                     </div>
