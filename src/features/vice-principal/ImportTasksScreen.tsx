@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Sparkles, CheckCircle2, AlertCircle, Trash2, ArrowLeft, Users, Calendar } from 'lucide-react';
 import { SchoolYear, TaskPriority } from '../../types';
 import { Semester, SEMESTER_LABELS } from '../../utils/semesterUtils';
+import { authFetch } from '@/lib/authFetch';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -96,7 +97,7 @@ export const ImportTasksScreen = () => {
     }
     setIsAnalyzing(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/parse-tasks`, {
+      const res = await authFetch(`${API_BASE_URL}/parse-tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: pastedText, teachers }),

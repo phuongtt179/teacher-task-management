@@ -8,6 +8,7 @@ import { suggestionService, TeacherSuggestion } from '../../services/suggestionS
 import { schoolYearService } from '../../services/schoolYearService';
 import { googleDriveServiceBackend } from '../../services/googleDriveServiceBackend';
 import { useAuth } from '../../hooks/useAuth';
+import { authFetch } from '@/lib/authFetch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -288,7 +289,7 @@ export const CreateTaskScreen = () => {
       // Send push notification to assigned teachers
       try {
         const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-        await fetch(`${API_URL}/api/notifications/send`, {
+        await authFetch(`${API_URL}/api/notifications/send`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

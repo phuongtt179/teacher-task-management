@@ -5,6 +5,8 @@
  * to upload files to the school's Shared Drive.
  */
 
+import { authFetch, getIdToken } from '@/lib/authFetch';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 interface UploadFileOptions {
@@ -59,6 +61,7 @@ export class GoogleDriveServiceBackend {
    */
   async uploadFile(options: UploadFileOptions): Promise<DriveFile> {
     const { file, schoolYear, category, subCategory, uploaderName, documentTitle, documentType, onProgress } = options;
+    const token = await getIdToken();
 
     return new Promise((resolve, reject) => {
       const formData = new FormData();
@@ -115,6 +118,7 @@ export class GoogleDriveServiceBackend {
       };
 
       xhr.open('POST', `${API_BASE_URL}/upload`);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.send(formData);
     });
   }
@@ -124,7 +128,7 @@ export class GoogleDriveServiceBackend {
    */
   async deleteFile(fileId: string): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/files/${fileId}`, {
+      const response = await authFetch(`${API_BASE_URL}/files/${fileId}`, {
         method: 'DELETE',
       });
 

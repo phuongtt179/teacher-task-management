@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { taskService, removeVietnameseTones } from '@/services/taskService';
 import { schoolYearService } from '@/services/schoolYearService';
 import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
+import { authFetch } from '@/lib/authFetch';
 import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip, ExternalLink, Building2 } from 'lucide-react';
 import type { UserRole } from '@/types';
 
@@ -241,10 +242,10 @@ export function ChatScreen() {
     setLoadingChannelId(channelId);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/chat`, {
+      const res = await authFetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, displayName: user.displayName, messages: newMessages, channelId }),
+        body: JSON.stringify({ displayName: user.displayName, messages: newMessages, channelId }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -334,11 +335,10 @@ export function ChatScreen() {
         fileNames.push(file.name);
       }
 
-      const res = await fetch(`${API_BASE_URL}/chat/complete-task`, {
+      const res = await authFetch(`${API_BASE_URL}/chat/complete-task`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          uid: user.uid,
           displayName: user.displayName,
           taskId: completingTask.id,
           content: completeContent.trim(),
@@ -405,11 +405,10 @@ export function ChatScreen() {
         });
       }
 
-      const res = await fetch(`${API_BASE_URL}/chat/submit-document`, {
+      const res = await authFetch(`${API_BASE_URL}/chat/submit-document`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          uid: user.uid,
           displayName: user.displayName,
           schoolYearId: uploadingTarget.schoolYearId,
           categoryId: uploadingTarget.categoryId,
@@ -453,10 +452,10 @@ export function ChatScreen() {
     if (!user) return;
     setLoadingEditTarget(doc.documentId);
     try {
-      const res = await fetch(`${API_BASE_URL}/chat/document-details`, {
+      const res = await authFetch(`${API_BASE_URL}/chat/document-details`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, documentId: doc.documentId }),
+        body: JSON.stringify({ documentId: doc.documentId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'Không lấy được chi tiết tài liệu');
@@ -482,10 +481,10 @@ export function ChatScreen() {
     const key = bghTaskKey(candidate);
     setForwardingBghKey(key);
     try {
-      const res = await fetch(`${API_BASE_URL}/chat/forward-task`, {
+      const res = await authFetch(`${API_BASE_URL}/chat/forward-task`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, displayName: user.displayName, ...candidate }),
+        body: JSON.stringify({ displayName: user.displayName, ...candidate }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'Không thể chuyển công việc');
@@ -503,10 +502,10 @@ export function ChatScreen() {
     const key = candidate.newName;
     setUpdatingProfileKey(key);
     try {
-      const res = await fetch(`${API_BASE_URL}/chat/update-profile`, {
+      const res = await authFetch(`${API_BASE_URL}/chat/update-profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, displayName: candidate.newName }),
+        body: JSON.stringify({ displayName: candidate.newName }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'Không thể đổi tên');
@@ -526,11 +525,10 @@ export function ChatScreen() {
     const key = schoolInfoKey(candidate);
     setSavingSchoolInfoKey(key);
     try {
-      const res = await fetch(`${API_BASE_URL}/chat/add-school-info`, {
+      const res = await authFetch(`${API_BASE_URL}/chat/add-school-info`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          uid: user.uid,
           displayName: user.displayName,
           topic: candidate.topic,
           content: candidate.content,
@@ -553,10 +551,10 @@ export function ChatScreen() {
     if (!editingTarget || !user) return;
     setRemovingFileIndex(fileIndex);
     try {
-      const res = await fetch(`${API_BASE_URL}/chat/remove-document-file`, {
+      const res = await authFetch(`${API_BASE_URL}/chat/remove-document-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, documentId: editingTarget.documentId, fileIndex }),
+        body: JSON.stringify({ documentId: editingTarget.documentId, fileIndex }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'Không thể xóa file');
@@ -602,10 +600,10 @@ export function ChatScreen() {
         });
       }
 
-      const res = await fetch(`${API_BASE_URL}/chat/add-document-files`, {
+      const res = await authFetch(`${API_BASE_URL}/chat/add-document-files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, documentId: editingTarget.documentId, files }),
+        body: JSON.stringify({ documentId: editingTarget.documentId, files }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'Không thể thêm file');
