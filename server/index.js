@@ -23,7 +23,26 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+// Chỉ cho phép frontend thật của app gọi API này từ trình duyệt — chặn website khác
+// nhúng lệnh gọi tới API bằng token của người dùng. Không có Origin (curl, app di động,
+// gọi server-to-server) vẫn được phép vì CORS chỉ có ý nghĩa chặn trình duyệt.
+const ALLOWED_ORIGINS = [
+  'https://teacher-task-management-12.onrender.com',
+  'http://localhost:5173',
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS_NOT_ALLOWED'));
+    }
+  },
+}));
+app.use((err, req, res, next) => {
+  if (err?.message === 'CORS_NOT_ALLOWED') return res.status(403).json({ error: 'cors_not_allowed' });
+  next(err);
+});
 app.use(express.json());
 
 // Xác thực Firebase ID token — bắt buộc cho mọi endpoint đọc/ghi dữ liệu người dùng.
