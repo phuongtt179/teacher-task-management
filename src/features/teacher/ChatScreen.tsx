@@ -68,6 +68,11 @@ interface ChatBghTaskCandidate {
   createdByName: string;
 }
 
+interface ChatProfileCandidate {
+  currentName: string;
+  newName: string;
+}
+
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
@@ -77,6 +82,7 @@ interface ChatMessage {
   myDocumentList?: ChatMyDocument[];
   editTarget?: ChatEditTarget;
   bghTaskCandidate?: ChatBghTaskCandidate;
+  profileCandidate?: ChatProfileCandidate;
 }
 
 interface Channel {
@@ -180,6 +186,10 @@ export function ChatScreen() {
   const [forwardedBghKeys, setForwardedBghKeys] = useState<Set<string>>(new Set());
   const [forwardingBghKey, setForwardingBghKey] = useState<string | null>(null);
 
+  // Đổi tên hiển thị
+  const [updatedProfileKeys, setUpdatedProfileKeys] = useState<Set<string>>(new Set());
+  const [updatingProfileKey, setUpdatingProfileKey] = useState<string | null>(null);
+
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
   const activeMessages = messagesByChannel[activeChannelId] || [];
   const isLoading = loadingChannelId === activeChannelId;
@@ -238,6 +248,7 @@ export function ChatScreen() {
           myDocumentList: data.myDocumentList,
           editTarget: data.editTarget,
           bghTaskCandidate: data.bghTaskCandidate,
+          profileCandidate: data.profileCandidate,
         }],
       }));
     } catch {
@@ -458,6 +469,27 @@ export function ChatScreen() {
       toast({ title: 'Chuyển việc không thành công, thử lại nhé', description: err.message, variant: 'destructive' });
     } finally {
       setForwardingBghKey(null);
+    }
+  };
+
+  const handleUpdateProfile = async (candidate: ChatProfileCandidate) => {
+    if (!user) return;
+    const key = candidate.newName;
+    setUpdatingProfileKey(key);
+    try {
+      const res = await fetch(`${API_BASE_URL}/chat/update-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid, displayName: candidate.newName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể đổi tên');
+      setUpdatedProfileKeys(prev => new Set(prev).add(key));
+      toast({ title: 'Đã đổi tên hiển thị', description: 'Tên mới sẽ hiện đầy đủ sau khi tải lại trang.' });
+    } catch (err: any) {
+      toast({ title: 'Đổi tên không thành công, thử lại nhé', description: err.message, variant: 'destructive' });
+    } finally {
+      setUpdatingProfileKey(null);
     }
   };
 
@@ -778,6 +810,31 @@ export function ChatScreen() {
                             ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                             : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
                           Xác nhận chuyển cho BGH
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {m.profileCandidate && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                      <p className="text-xs text-gray-500">
+                        Đổi tên hiển thị: <span className="line-through text-gray-400">{m.profileCandidate.currentName}</span> → <span className="font-medium text-gray-900">{m.profileCandidate.newName}</span>
+                      </p>
+                      {updatedProfileKeys.has(m.profileCandidate.newName) ? (
+                        <span className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Đã đổi tên
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                          disabled={updatingProfileKey === m.profileCandidate.newName}
+                          onClick={() => handleUpdateProfile(m.profileCandidate!)}
+                        >
+                          {updatingProfileKey === m.profileCandidate.newName
+                            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                          Xác nhận đổi tên
                         </Button>
                       )}
                     </div>
