@@ -702,6 +702,16 @@ const CHAT_TOOLS_BASE_DECLARATIONS = [
       parameters: { type: 'OBJECT', properties: {} },
     },
     {
+      name: 'get_task_completion_summary',
+      description: 'CHỈ dành cho hiệu trưởng/hiệu phó: xem tình hình hoàn thành CÔNG VIỆC (task) của giáo viên/nhân viên toàn trường. KHÁC HẲN get_submission_summary (chỉ theo dõi việc NỘP HỒ SƠ như giáo án/sổ chủ nhiệm/sổ dự giờ, không phải công việc/task nói chung) — tuyệt đối không dùng nhầm 2 hàm này cho nhau. 2 cách dùng: (1) KHÔNG truyền keyword khi hỏi tổng quát kiểu "ai chưa hoàn thành việc được giao" — trả về danh sách người CHƯA làm xong, không phân biệt việc nào. (2) CÓ truyền keyword (tên/1 phần tên công việc cụ thể) khi hỏi về 1 việc cụ thể kiểu "báo cáo tình hình việc X — ai đúng hạn, ai trễ, ai chưa làm" — trả về đầy đủ TỪNG người được giao việc đó kèm phân loại completed_on_time/completed_late/not_completed_overdue/not_completed_within_deadline. Nếu người gọi không phải hiệu trưởng/hiệu phó, hàm trả lỗi not_authorized.',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          keyword: { type: 'STRING', description: 'Tên hoặc 1 phần tên công việc cụ thể cần xem chi tiết — để trống nếu hỏi tổng quát toàn trường' },
+        },
+      },
+    },
+    {
       name: 'get_my_submission',
       description: 'Xem lại NỘI DUNG/FILE báo cáo mà CHÍNH giáo viên đang hỏi đã nộp cho 1 công việc cụ thể (lấy taskId từ list_my_tasks), kèm điểm/nhận xét và lịch sử các lần nộp lại nếu có. Dùng khi giáo viên hỏi "tôi đã nộp gì cho việc X", "xem lại báo cáo tôi nộp", "tôi nộp lại mấy lần rồi".',
       parameters: {
@@ -1241,6 +1251,77 @@ async function toolGetSubmissionSummary(uid) {
   return { error: 'not_authorized' };
 }
 
+// Tổng hợp CÔNG VIỆC (tasks) của TẤT CẢ mọi người trong trường — khác hẳn get_submission_summary
+// (chỉ theo dõi việc NỘP HỒ SƠ như giáo án/sổ chủ nhiệm/sổ dự giờ, không phải task nói chung).
+// CHỈ hiệu trưởng/hiệu phó được gọi — không mở cho tổ trưởng/admin/văn thư.
+// - Không truyền keyword: trả tổng quan CHƯA HOÀN THÀNH của toàn trường (câu hỏi kiểu "ai chưa làm xong việc gì").
+// - Có keyword (khớp tên việc): trả đầy đủ TỪNG người được giao việc đó, phân loại đúng hạn/trễ hạn/chưa làm
+//   (câu hỏi kiểu "báo cáo tình hình công việc A — ai đúng hạn, ai trễ, ai chưa làm").
+async function toolGetTaskCompletionSummary(uid, keyword) {
+  const callerSnap = await adminDb.collection('users').doc(uid).get();
+  const role = callerSnap.exists ? callerSnap.data().role : null;
+  if (!['principal', 'vice_principal'].includes(role)) return { error: 'not_authorized' };
+
+  const [tasksSnap, subsSnap, usersSnap] = await Promise.all([
+    adminDb.collection('tasks').get(),
+    adminDb.collection('submissions').get(),
+    adminDb.collection('users').get(),
+  ]);
+
+  const nameById = new Map(usersSnap.docs.map(d => [d.id, d.data().displayName || d.data().email || d.id]));
+
+  const latestSubByKey = new Map();
+  subsSnap.docs.forEach(d => {
+    const s = d.data();
+    if (s.isLatest === false) return;
+    latestSubByKey.set(`${s.taskId}|${s.teacherId}`, s);
+  });
+
+  const kw = String(keyword || '').trim().toLowerCase();
+  const taskDocs = kw ? tasksSnap.docs.filter(d => (d.data().title || '').toLowerCase().includes(kw)) : tasksSnap.docs;
+
+  const tasks = taskDocs.map(d => {
+    const t = d.data();
+    const deadline = t.deadline?.toDate ? t.deadline.toDate() : null;
+    const deadline2 = t.deadline2?.toDate ? t.deadline2.toDate() : null;
+    const assignees = (t.assignedTo || []).map(teacherUid => {
+      const submission = latestSubByKey.get(`${d.id}|${teacherUid}`);
+      const status = computeTeacherStatus(deadline, deadline2, submission);
+      let detail;
+      if (status === 'completed' || status === 'submitted') {
+        detail = submission?.metDeadline === 1 ? 'completed_on_time'
+          : submission?.metDeadline === 2 ? 'completed_late'
+          : 'completed_unknown_timing';
+      } else if (status === 'overdue') {
+        detail = 'not_completed_overdue';
+      } else {
+        detail = 'not_completed_within_deadline';
+      }
+      return { teacherName: nameById.get(teacherUid) || teacherUid, status: detail };
+    });
+    return {
+      taskTitle: t.title,
+      deadline: deadline ? deadline.toISOString().slice(0, 10) : null,
+      assignees,
+    };
+  });
+
+  if (!kw) {
+    const incomplete = [];
+    tasks.forEach(t => {
+      t.assignees.forEach(a => {
+        if (a.status === 'not_completed_overdue' || a.status === 'not_completed_within_deadline') {
+          incomplete.push({ teacherName: a.teacherName, taskTitle: t.taskTitle, deadline: t.deadline, status: a.status });
+        }
+      });
+    });
+    incomplete.sort((a, b) => (a.deadline || '').localeCompare(b.deadline || ''));
+    return { mode: 'incomplete_overview', incomplete: incomplete.slice(0, 200) };
+  }
+
+  return { mode: 'task_detail', tasks: tasks.slice(0, 20) };
+}
+
 // Danh sách danh mục mà ĐÚNG giáo viên này được phép nộp, trong năm học đang hoạt động.
 // Không tự so khớp tên ở đây — trả hết danh sách để AI tự suy luận ngữ nghĩa
 // (vd "giáo án" ứng với danh mục "Kế hoạch bài dạy" dù không trùng chữ nào).
@@ -1506,6 +1587,7 @@ async function executeChatTool(name, uid, args) {
     case 'list_my_documents': return toolListMyDocuments(uid);
     case 'confirm_edit_target': return toolConfirmEditTarget(uid, args?.documentId);
     case 'get_submission_summary': return toolGetSubmissionSummary(uid);
+    case 'get_task_completion_summary': return toolGetTaskCompletionSummary(uid, args?.keyword);
     case 'get_my_submission': return toolGetMySubmission(uid, args?.taskId);
     case 'get_my_task_stats': return toolGetMyTaskStats(uid);
     case 'get_my_document_progress': return toolGetMyDocumentProgress(uid);
@@ -1567,7 +1649,11 @@ Khi giáo viên hỏi về tài liệu CHÍNH HỌ đã nộp (ví dụ "tôi đ
 2. Nếu chỉ hỏi xem đã nộp gì, trả lời trực tiếp dựa trên danh sách (ví dụ liệt kê các tuần đã nộp của "Kế hoạch bài dạy"), không cần làm gì thêm.
 3. Nếu muốn SỬA 1 tài liệu cụ thể, tự suy luận đúng tài liệu đó từ danh sách (theo tên danh mục/mục con, ví dụ "tuần 3"), rồi gọi confirm_edit_target(documentId) với đúng id lấy được — KHÔNG tự bịa id. Nếu không xác định được rõ tài liệu nào, hỏi lại.
 4. Sau khi confirm_edit_target trả về confirmed=true, xác nhận lại bằng lời (tên tài liệu, số file hiện có), mời giáo viên tự thêm file mới hoặc xóa bớt file qua giao diện hiện ra — không tự sửa giúp.
-Khi người dùng hỏi tổng hợp tình hình nộp hồ sơ CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): gọi get_submission_summary (hàm tự xác định phạm vi phù hợp với người hỏi, không cần đoán trước là tổ hay trường); nếu hàm báo lỗi not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Kết quả có trường "scope": "department" (chỉ 1 tổ, xem trường "members") hoặc "school" (toàn trường, xem trường "departments" gồm nhiều tổ + "unassigned" là người chưa thuộc tổ nào). Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần).
+Khi người dùng hỏi tổng hợp tình hình nộp HỒ SƠ (giáo án/kế hoạch bài dạy/sổ chủ nhiệm/sổ dự giờ) CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): gọi get_submission_summary (hàm tự xác định phạm vi phù hợp với người hỏi, không cần đoán trước là tổ hay trường); nếu hàm báo lỗi not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Kết quả có trường "scope": "department" (chỉ 1 tổ, xem trường "members") hoặc "school" (toàn trường, xem trường "departments" gồm nhiều tổ + "unassigned" là người chưa thuộc tổ nào). Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần).
+QUAN TRỌNG — phân biệt HỒ SƠ và CÔNG VIỆC, KHÔNG được lẫn lộn: "hồ sơ" (giáo án, sổ chủ nhiệm, sổ dự giờ...) dùng get_submission_summary như trên. Còn "công việc"/"nhiệm vụ" (task nói chung, ví dụ "họp phụ huynh", "báo cáo tổng kết", "kiểm kê cơ sở vật chất"...) là chuyện KHÁC HẲN, dùng get_task_completion_summary:
+- Hỏi tổng quát "ai chưa hoàn thành việc được giao", "tuần này còn ai chưa xong việc" (không nhắc tên việc cụ thể): gọi get_task_completion_summary() KHÔNG truyền keyword, trình bày danh sách người/việc/hạn trong trường "incomplete".
+- Hỏi về TÌNH HÌNH 1 việc cụ thể (có nhắc tên việc, ví dụ "báo cáo tình hình việc kiểm kê cơ sở vật chất", "việc X ai đúng hạn ai trễ"): gọi get_task_completion_summary(keyword="tên việc"), trình bày theo 3 nhóm dựa vào trường "status" của từng người trong "assignees": completed_on_time (đúng hạn), completed_late (trễ hạn nhưng đã nộp), not_completed_overdue/not_completed_within_deadline (chưa hoàn thành). Nếu keyword không khớp việc nào, báo thẳng không tìm thấy việc đó, đừng tự bịa.
+Cả 2 cách dùng trên chỉ dành cho hiệu trưởng/hiệu phó — nếu not_authorized thì báo thẳng không có quyền, đừng thử gọi get_submission_summary thay thế (2 hàm theo dõi 2 loại dữ liệu khác nhau, không thể dùng thay nhau).
 Khi giáo viên hỏi về NỘI DUNG chi tiết 1 công việc cụ thể (không chỉ tên), hãy đọc trường "description" (và "descriptionPdfUrl" nếu có) trong dữ liệu list_my_tasks đã có sẵn để trả lời — KHÔNG cần gọi thêm hàm nào.
 Khi giáo viên hỏi đã nộp NỘI DUNG/FILE gì cho 1 công việc, hoặc đã nộp lại mấy lần: gọi list_my_tasks trước (nếu chưa có) để xác định đúng taskId, rồi gọi get_my_submission(taskId).
 Khi giáo viên hỏi số liệu tổng hợp CỦA CHÍNH MÌNH (tỷ lệ hoàn thành, tỷ lệ đúng hạn, điểm trung bình): gọi get_my_task_stats.
