@@ -118,6 +118,18 @@ interface ParsedTaskCard {
   unresolvedNames: string[]; // tên không khớp được ai — cần giao thủ công
 }
 
+interface ChatGradeSubmissionCandidate {
+  submissionId: string;
+  taskId: string;
+  taskTitle: string;
+  teacherName: string;
+  maxScore: number;
+  oldScore: number | null;
+  oldFeedback: string | null;
+  newScore: number;
+  newFeedback: string;
+}
+
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
@@ -131,6 +143,7 @@ interface ChatMessage {
   schoolInfoCandidate?: ChatSchoolInfoCandidate;
   createTaskCandidate?: ChatCreateTaskCandidate;
   editTaskAssigneesCandidate?: ChatEditTaskAssigneesCandidate;
+  gradeSubmissionCandidate?: ChatGradeSubmissionCandidate;
 }
 
 interface Channel {
@@ -266,6 +279,10 @@ export function ChatScreen() {
   const [createdParsedTaskIds, setCreatedParsedTaskIds] = useState<Set<string>>(new Set());
   const [isCreatingAllParsedTasks, setIsCreatingAllParsedTasks] = useState(false);
 
+  // Chấm điểm/phản hồi bài nộp qua chat
+  const [gradedSubmissionIds, setGradedSubmissionIds] = useState<Set<string>>(new Set());
+  const [gradingSubmissionId, setGradingSubmissionId] = useState<string | null>(null);
+
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
   const visibleChannels = CHANNELS.filter(c => !c.roles || (user && c.roles.includes(user.role)));
   const activeMessages = messagesByChannel[activeChannelId] || [];
@@ -329,6 +346,7 @@ export function ChatScreen() {
           schoolInfoCandidate: data.schoolInfoCandidate,
           createTaskCandidate: data.createTaskCandidate,
           editTaskAssigneesCandidate: data.editTaskAssigneesCandidate,
+          gradeSubmissionCandidate: data.gradeSubmissionCandidate,
         }],
       }));
     } catch {
@@ -775,6 +793,27 @@ export function ChatScreen() {
     toast({ title: 'Đã tạo xong các công việc hợp lệ' });
   };
 
+  const handleGradeSubmission = async (candidate: ChatGradeSubmissionCandidate) => {
+    if (!user) return;
+    setGradingSubmissionId(candidate.submissionId);
+    try {
+      await taskService.scoreSubmission(
+        candidate.submissionId,
+        candidate.newScore,
+        candidate.newFeedback,
+        user.uid,
+        user.displayName,
+        candidate.taskId,
+      );
+      setGradedSubmissionIds(prev => new Set(prev).add(candidate.submissionId));
+      toast({ title: 'Đã chấm điểm thành công' });
+    } catch (err: any) {
+      toast({ title: 'Chấm điểm không thành công, thử lại nhé', description: err.message, variant: 'destructive' });
+    } finally {
+      setGradingSubmissionId(null);
+    }
+  };
+
   const removeEditFile = async (fileIndex: number) => {
     if (!editingTarget || !user) return;
     setRemovingFileIndex(fileIndex);
@@ -1204,6 +1243,39 @@ export function ChatScreen() {
                             ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                             : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
                           Xác nhận thay đổi
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {m.gradeSubmissionCandidate && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                      <span className="font-medium text-sm text-gray-900">{m.gradeSubmissionCandidate.taskTitle}</span>
+                      <p className="text-xs text-gray-500 mt-1">Giáo viên: {m.gradeSubmissionCandidate.teacherName}</p>
+                      <p className="text-xs text-gray-900 mt-1">
+                        Điểm: {m.gradeSubmissionCandidate.oldScore !== null && (
+                          <span className="line-through text-gray-400">{m.gradeSubmissionCandidate.oldScore} </span>
+                        )}
+                        {m.gradeSubmissionCandidate.newScore}/{m.gradeSubmissionCandidate.maxScore}
+                      </p>
+                      {m.gradeSubmissionCandidate.newFeedback && (
+                        <p className="text-xs text-gray-500 mt-1">Nhận xét: {m.gradeSubmissionCandidate.newFeedback}</p>
+                      )}
+                      {gradedSubmissionIds.has(m.gradeSubmissionCandidate.submissionId) ? (
+                        <span className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Đã chấm điểm
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                          disabled={gradingSubmissionId === m.gradeSubmissionCandidate.submissionId}
+                          onClick={() => handleGradeSubmission(m.gradeSubmissionCandidate!)}
+                        >
+                          {gradingSubmissionId === m.gradeSubmissionCandidate.submissionId
+                            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                          Xác nhận chấm điểm
                         </Button>
                       )}
                     </div>
