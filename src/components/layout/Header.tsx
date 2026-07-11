@@ -42,6 +42,11 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
     try {
       const count = await notificationService.getUnreadCount(user.uid);
       setUnreadCount(count);
+      // Badge số trên icon app (taskbar/màn hình chính) khi đã cài PWA — chỉ Chrome/Edge hỗ trợ.
+      if ('setAppBadge' in navigator) {
+        if (count > 0) navigator.setAppBadge(count).catch(() => {});
+        else navigator.clearAppBadge?.().catch(() => {});
+      }
     } catch (error) {
       // Silently handle permission errors (Firestore rules not set up yet)
       console.log('Unable to load notification count - permissions may not be set');
@@ -140,7 +145,7 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
 
               <DropdownMenuSeparator />
 
-              <DropdownMenuItem onClick={logout} className="text-red-600">
+              <DropdownMenuItem onClick={() => { if ('clearAppBadge' in navigator) navigator.clearAppBadge?.().catch(() => {}); logout(); }} className="text-red-600">
                 <LogOut className="mr-2 h-4 w-4" />
                 Đăng xuất
               </DropdownMenuItem>

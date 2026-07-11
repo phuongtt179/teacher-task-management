@@ -3,10 +3,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { taskService, removeVietnameseTones } from '@/services/taskService';
+import { notificationService } from '@/services/notificationService';
 import { schoolYearService } from '@/services/schoolYearService';
+import { userService } from '@/services/userService';
 import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
 import { authFetch } from '@/lib/authFetch';
-import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip, ExternalLink, Building2 } from 'lucide-react';
+import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip, ExternalLink, Building2, FileUp } from 'lucide-react';
 import type { UserRole } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
@@ -84,6 +86,38 @@ interface ChatSchoolInfoCandidate {
   existingContent: string | null;
 }
 
+interface ChatCreateTaskCandidate {
+  title: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high';
+  deadline: string;
+  schoolYearId: string;
+  semester: string | null;
+  assigneeUids: string[];
+  assigneeNames: string[];
+  createdByName: string;
+}
+
+interface ChatEditTaskAssigneesCandidate {
+  taskId: string;
+  taskTitle: string;
+  beforeUids: string[];
+  beforeNames: string[];
+  afterUids: string[];
+  afterNames: string[];
+}
+
+interface ParsedTaskCard {
+  localId: string;
+  title: string;
+  description: string;
+  deadline: string | null;
+  priority: 'low' | 'medium' | 'high';
+  assigneeUids: string[];
+  assigneeNames: string[];
+  unresolvedNames: string[]; // tên không khớp được ai — cần giao thủ công
+}
+
 interface ChatMessage {
   role: 'user' | 'model';
   content: string;
@@ -95,6 +129,8 @@ interface ChatMessage {
   bghTaskCandidate?: ChatBghTaskCandidate;
   profileCandidate?: ChatProfileCandidate;
   schoolInfoCandidate?: ChatSchoolInfoCandidate;
+  createTaskCandidate?: ChatCreateTaskCandidate;
+  editTaskAssigneesCandidate?: ChatEditTaskAssigneesCandidate;
 }
 
 interface Channel {
@@ -215,6 +251,21 @@ export function ChatScreen() {
   const [savedSchoolInfoKeys, setSavedSchoolInfoKeys] = useState<Set<string>>(new Set());
   const [savingSchoolInfoKey, setSavingSchoolInfoKey] = useState<string | null>(null);
 
+  // Giao việc / sửa phân công qua chat
+  const [createdTaskKeys, setCreatedTaskKeys] = useState<Set<string>>(new Set());
+  const [creatingTaskKey, setCreatingTaskKey] = useState<string | null>(null);
+  const [editedAssigneesKeys, setEditedAssigneesKeys] = useState<Set<string>>(new Set());
+  const [editingAssigneesKey, setEditingAssigneesKey] = useState<string | null>(null);
+
+  // Dán văn bản để AI phân tích ra nhiều việc cùng lúc (giống ImportTasksScreen nhưng trong chat)
+  const [parseTasksModalOpen, setParseTasksModalOpen] = useState(false);
+  const [parseTasksText, setParseTasksText] = useState('');
+  const [isAnalyzingTasks, setIsAnalyzingTasks] = useState(false);
+  const [parsedTaskCards, setParsedTaskCards] = useState<ParsedTaskCard[] | null>(null);
+  const [creatingParsedTaskId, setCreatingParsedTaskId] = useState<string | null>(null);
+  const [createdParsedTaskIds, setCreatedParsedTaskIds] = useState<Set<string>>(new Set());
+  const [isCreatingAllParsedTasks, setIsCreatingAllParsedTasks] = useState(false);
+
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
   const visibleChannels = CHANNELS.filter(c => !c.roles || (user && c.roles.includes(user.role)));
   const activeMessages = messagesByChannel[activeChannelId] || [];
@@ -276,6 +327,8 @@ export function ChatScreen() {
           bghTaskCandidate: data.bghTaskCandidate,
           profileCandidate: data.profileCandidate,
           schoolInfoCandidate: data.schoolInfoCandidate,
+          createTaskCandidate: data.createTaskCandidate,
+          editTaskAssigneesCandidate: data.editTaskAssigneesCandidate,
         }],
       }));
     } catch {
@@ -545,6 +598,181 @@ export function ChatScreen() {
     } finally {
       setSavingSchoolInfoKey(null);
     }
+  };
+
+  const createTaskKey = (c: ChatCreateTaskCandidate) => `${c.title}|${c.deadline}|${c.assigneeUids.join(',')}`;
+
+  // Ghi trực tiếp qua Firestore client SDK (không qua endpoint Admin SDK) — firestore.rules đã
+  // cho phép admin/VP/hiệu trưởng tạo task, đúng cơ chế UI cũ (CreateTaskScreen) đang dùng.
+  const handleCreateTask = async (candidate: ChatCreateTaskCandidate) => {
+    if (!user) return;
+    const key = createTaskKey(candidate);
+    setCreatingTaskKey(key);
+    try {
+      const deadline = new Date(`${candidate.deadline}T23:59:59`);
+      const deadline2 = new Date(deadline);
+      deadline2.setDate(deadline2.getDate() + 5);
+      await taskService.createTask({
+        schoolYearId: candidate.schoolYearId,
+        semester: candidate.semester === 'HK1' || candidate.semester === 'HK2' ? candidate.semester : undefined,
+        title: candidate.title,
+        description: candidate.description,
+        priority: candidate.priority,
+        maxScore: 10,
+        scoreDeadline1: 10,
+        scoreDeadline2: 5,
+        deadline,
+        deadline2,
+        assignedTo: candidate.assigneeUids,
+        assignedToNames: candidate.assigneeNames,
+        createdBy: user.uid,
+        createdByName: user.displayName,
+      });
+      setCreatedTaskKeys(prev => new Set(prev).add(key));
+      toast({ title: 'Đã giao việc thành công' });
+    } catch (err: any) {
+      toast({ title: 'Giao việc không thành công, thử lại nhé', description: err.message, variant: 'destructive' });
+    } finally {
+      setCreatingTaskKey(null);
+    }
+  };
+
+  const editAssigneesKey = (c: ChatEditTaskAssigneesCandidate) => `${c.taskId}|${c.afterUids.join(',')}`;
+
+  const handleEditTaskAssignees = async (candidate: ChatEditTaskAssigneesCandidate) => {
+    if (!user) return;
+    const key = editAssigneesKey(candidate);
+    setEditingAssigneesKey(key);
+    try {
+      await taskService.updateTask(candidate.taskId, {
+        assignedTo: candidate.afterUids,
+        assignedToNames: candidate.afterNames,
+      });
+      const newlyAddedUids = candidate.afterUids.filter(uid => !candidate.beforeUids.includes(uid));
+      if (newlyAddedUids.length > 0) {
+        await notificationService.notifyTaskAssigned(newlyAddedUids, candidate.taskId, candidate.taskTitle, user.displayName);
+      }
+      setEditedAssigneesKeys(prev => new Set(prev).add(key));
+      toast({ title: 'Đã cập nhật phân công' });
+    } catch (err: any) {
+      toast({ title: 'Cập nhật không thành công, thử lại nhé', description: err.message, variant: 'destructive' });
+    } finally {
+      setEditingAssigneesKey(null);
+    }
+  };
+
+  // Năm học/học kỳ đang hoạt động lúc phân tích — dùng lại y hệt lúc tạo, tránh lệch nếu năm học đổi giữa chừng.
+  const [parseTasksSchoolYearId, setParseTasksSchoolYearId] = useState('');
+  const [parseTasksSemester, setParseTasksSemester] = useState<'HK1' | 'HK2' | undefined>(undefined);
+
+  const analyzeTasksFromText = async () => {
+    if (!parseTasksText.trim() || !user) return;
+    setIsAnalyzingTasks(true);
+    try {
+      const [allUsers, activeYear] = await Promise.all([
+        userService.getAllUsers(),
+        schoolYearService.getActiveSchoolYear(),
+      ]);
+      if (!activeYear) throw new Error('Chưa có năm học nào đang hoạt động');
+      setParseTasksSchoolYearId(activeYear.id);
+      setParseTasksSemester((activeYear.activeSemester as 'HK1' | 'HK2') || undefined);
+
+      const teachers = allUsers
+        .filter(u => ['teacher', 'department_head', 'vice_principal', 'principal', 'staff'].includes(u.role))
+        .map(u => ({ uid: u.uid, displayName: u.displayName }));
+
+      const findCandidates = (name: string) => {
+        const normalized = name.toLowerCase().replace(/^(cô|thầy|anh|chị)\s+/i, '').trim();
+        if (!normalized) return [];
+        return teachers.filter(t => t.displayName.toLowerCase().includes(normalized));
+      };
+
+      const res = await authFetch(`${API_BASE_URL}/parse-tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: parseTasksText, teachers }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Phân tích thất bại');
+
+      const cards: ParsedTaskCard[] = (data.tasks || []).map((t: any, i: number) => {
+        const assigneeNames: string[] = t.assigneeNames || [];
+        const matchedTeacherIds: (string | null)[] = t.matchedTeacherIds || [];
+        const resolvedUids: string[] = [];
+        const resolvedNames: string[] = [];
+        const unresolvedNames: string[] = [];
+        assigneeNames.forEach((name, j) => {
+          const candidates = findCandidates(name);
+          const uid = candidates.length === 1 ? candidates[0].uid : (candidates.length === 0 ? matchedTeacherIds[j] : null);
+          if (uid) {
+            const teacher = teachers.find(x => x.uid === uid);
+            resolvedUids.push(uid);
+            resolvedNames.push(teacher?.displayName || name);
+          } else {
+            unresolvedNames.push(name);
+          }
+        });
+        return {
+          localId: `parsed-${i}`,
+          title: t.title || '',
+          description: t.description || '',
+          deadline: t.deadline || null,
+          priority: (['high', 'medium', 'low'].includes(t.priority) ? t.priority : 'medium') as 'low' | 'medium' | 'high',
+          assigneeUids: resolvedUids,
+          assigneeNames: resolvedNames,
+          unresolvedNames,
+        };
+      });
+      setParsedTaskCards(cards);
+      setCreatedParsedTaskIds(new Set());
+      toast({ title: `Phân tích xong! Tìm thấy ${cards.length} công việc` });
+    } catch (err: any) {
+      toast({ title: 'Lỗi phân tích', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsAnalyzingTasks(false);
+    }
+  };
+
+  const createOneParsedTask = async (card: ParsedTaskCard) => {
+    if (!user || !parseTasksSchoolYearId || card.assigneeUids.length === 0) return;
+    setCreatingParsedTaskId(card.localId);
+    try {
+      const deadline = card.deadline ? new Date(`${card.deadline}T23:59:59`) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const deadline2 = new Date(deadline);
+      deadline2.setDate(deadline2.getDate() + 5);
+      await taskService.createTask({
+        schoolYearId: parseTasksSchoolYearId,
+        semester: parseTasksSemester,
+        title: card.title,
+        description: card.description,
+        priority: card.priority,
+        maxScore: 10,
+        scoreDeadline1: 10,
+        scoreDeadline2: 5,
+        deadline,
+        deadline2,
+        assignedTo: card.assigneeUids,
+        assignedToNames: card.assigneeNames,
+        createdBy: user.uid,
+        createdByName: user.displayName,
+      });
+      setCreatedParsedTaskIds(prev => new Set(prev).add(card.localId));
+    } catch (err: any) {
+      toast({ title: `Tạo "${card.title}" thất bại`, description: err.message, variant: 'destructive' });
+    } finally {
+      setCreatingParsedTaskId(null);
+    }
+  };
+
+  const createAllParsedTasks = async () => {
+    if (!parsedTaskCards) return;
+    setIsCreatingAllParsedTasks(true);
+    const toCreate = parsedTaskCards.filter(c => c.assigneeUids.length > 0 && !createdParsedTaskIds.has(c.localId));
+    for (const card of toCreate) {
+      await createOneParsedTask(card);
+    }
+    setIsCreatingAllParsedTasks(false);
+    toast({ title: 'Đã tạo xong các công việc hợp lệ' });
   };
 
   const removeEditFile = async (fileIndex: number) => {
@@ -924,6 +1152,62 @@ export function ChatScreen() {
                       )}
                     </div>
                   )}
+
+                  {m.createTaskCandidate && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                      <span className="font-medium text-sm text-gray-900">{m.createTaskCandidate.title}</span>
+                      <p className="text-xs text-gray-500 mt-1">{m.createTaskCandidate.description}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Giao cho: {m.createTaskCandidate.assigneeNames.join(', ')} · Hạn: {m.createTaskCandidate.deadline}
+                      </p>
+                      {createdTaskKeys.has(createTaskKey(m.createTaskCandidate)) ? (
+                        <span className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Đã giao việc
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                          disabled={creatingTaskKey === createTaskKey(m.createTaskCandidate)}
+                          onClick={() => handleCreateTask(m.createTaskCandidate!)}
+                        >
+                          {creatingTaskKey === createTaskKey(m.createTaskCandidate)
+                            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                          Xác nhận giao việc
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {m.editTaskAssigneesCandidate && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                      <span className="font-medium text-sm text-gray-900">{m.editTaskAssigneesCandidate.taskTitle}</span>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Trước: <span className="line-through text-gray-400">{m.editTaskAssigneesCandidate.beforeNames.join(', ') || '(chưa có ai)'}</span>
+                      </p>
+                      <p className="text-xs text-gray-900 mt-1">
+                        Sau: {m.editTaskAssigneesCandidate.afterNames.join(', ')}
+                      </p>
+                      {editedAssigneesKeys.has(editAssigneesKey(m.editTaskAssigneesCandidate)) ? (
+                        <span className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Đã cập nhật
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                          disabled={editingAssigneesKey === editAssigneesKey(m.editTaskAssigneesCandidate)}
+                          onClick={() => handleEditTaskAssignees(m.editTaskAssigneesCandidate!)}
+                        >
+                          {editingAssigneesKey === editAssigneesKey(m.editTaskAssigneesCandidate)
+                            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                          Xác nhận thay đổi
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -942,6 +1226,15 @@ export function ChatScreen() {
         </div>
 
         <div className="border-t border-gray-200 bg-white px-3 py-3 flex gap-2 items-end">
+          {user && ['admin', 'vice_principal', 'principal'].includes(user.role) && (
+            <button
+              onClick={() => setParseTasksModalOpen(true)}
+              title="Dán văn bản để giao việc hàng loạt"
+              className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 shrink-0"
+            >
+              <FileUp size={16} />
+            </button>
+          )}
           <textarea
             ref={textareaRef}
             value={input}
@@ -1182,6 +1475,102 @@ export function ChatScreen() {
             >
               Đóng
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Dán văn bản để AI phân tích ra nhiều việc, giao hàng loạt */}
+      {parseTasksModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => { if (!isAnalyzingTasks) { setParseTasksModalOpen(false); setParsedTaskCards(null); } }}
+        >
+          <div
+            className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Giao việc hàng loạt từ văn bản</h2>
+              <button
+                onClick={() => { setParseTasksModalOpen(false); setParsedTaskCards(null); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {!parsedTaskCards ? (
+              <>
+                <p className="text-sm text-gray-500 mb-3">
+                  Dán nội dung thông báo/kế hoạch (ví dụ biên bản họp phân công) — AI sẽ tự tách thành từng công việc và khớp đúng người phụ trách.
+                </p>
+                <textarea
+                  value={parseTasksText}
+                  onChange={e => setParseTasksText(e.target.value)}
+                  placeholder="Dán văn bản vào đây..."
+                  className="w-full border rounded-lg px-3 py-2 text-sm min-h-40 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+                <Button
+                  onClick={analyzeTasksFromText}
+                  disabled={!parseTasksText.trim() || isAnalyzingTasks}
+                  className="w-full mt-3"
+                >
+                  {isAnalyzingTasks ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Đang phân tích...</> : 'Phân tích'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-600">Tìm thấy {parsedTaskCards.length} công việc</p>
+                  <Button size="sm" variant="outline" onClick={() => setParsedTaskCards(null)}>Dán văn bản khác</Button>
+                </div>
+                <div className="space-y-2">
+                  {parsedTaskCards.map(card => (
+                    <div key={card.localId} className="border border-gray-200 rounded-lg p-3">
+                      <p className="font-medium text-sm text-gray-900">{card.title}</p>
+                      <p className="text-xs text-gray-500 mt-1">{card.description}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Hạn: {card.deadline || '(chưa rõ, mặc định +7 ngày)'} · Ưu tiên: {PRIORITY_LABELS[card.priority]}
+                      </p>
+                      {card.assigneeNames.length > 0 && (
+                        <p className="text-xs text-gray-700 mt-1">Giao cho: {card.assigneeNames.join(', ')}</p>
+                      )}
+                      {card.unresolvedNames.length > 0 && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Chưa khớp được: {card.unresolvedNames.join(', ')} — cần giao thủ công qua hội thoại
+                        </p>
+                      )}
+                      {card.assigneeUids.length === 0 ? (
+                        <span className="inline-block mt-2 text-xs text-gray-400">Bỏ qua (chưa xác định người nhận)</span>
+                      ) : createdParsedTaskIds.has(card.localId) ? (
+                        <span className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Đã tạo
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                          disabled={creatingParsedTaskId === card.localId || isCreatingAllParsedTasks}
+                          onClick={() => createOneParsedTask(card)}
+                        >
+                          {creatingParsedTaskId === card.localId
+                            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                          Tạo việc này
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  onClick={createAllParsedTasks}
+                  disabled={isCreatingAllParsedTasks || parsedTaskCards.every(c => c.assigneeUids.length === 0 || createdParsedTaskIds.has(c.localId))}
+                  className="w-full mt-4"
+                >
+                  {isCreatingAllParsedTasks ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Đang tạo...</> : 'Tạo tất cả công việc hợp lệ'}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}
