@@ -8,6 +8,7 @@ export interface User {
   displayName: string;
   photoURL?: string;
   role: UserRole;
+  phoneNumber?: string; // Số điện thoại liên hệ (tùy chọn)
   createdAt: Date;
   updatedAt: Date;
   isActive?: boolean;
@@ -75,12 +76,49 @@ export interface Submission {
   previousVersionId?: string; // ID of previous version
   isLatest: boolean; // Flag for latest submission
 }
+// ==================== TASK UPDATES (báo tiến độ / vướng mắc / xin gia hạn) ====================
+
+// Loại cập nhật giữa chừng của công việc do giáo viên gửi
+export type TaskUpdateType = 'progress' | 'blocker' | 'extension';
+
+// Trạng thái xử lý của BGH:
+// - open: mới gửi, chờ BGH xem/xử lý (blocker) hoặc duyệt (extension); progress mặc định open (chỉ để thông tin)
+// - resolved: BGH đã xử lý xong vướng mắc
+// - approved / rejected: kết quả duyệt xin gia hạn
+export type TaskUpdateStatus = 'open' | 'resolved' | 'approved' | 'rejected';
+
+// Một cập nhật giữa chừng gắn với 1 công việc + 1 giáo viên
+export interface TaskUpdate {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  teacherId: string;
+  teacherName: string;
+  type: TaskUpdateType;
+  note: string; // Lý do vướng mắc / ghi chú tiến độ / lý do xin gia hạn
+  percent?: number; // Chỉ với type='progress' (0-100)
+  requestedDeadline?: Date; // Chỉ với type='extension' — hạn mới mong muốn
+  currentDeadline?: Date; // Ảnh chụp hạn hiện tại lúc xin gia hạn (để BGH đối chiếu)
+  approvedDeadline?: Date; // Hạn thực tế BGH duyệt (có thể khác requested)
+  status: TaskUpdateStatus;
+  createdAt: Date;
+  reviewedBy?: string;
+  reviewedByName?: string;
+  reviewedAt?: Date;
+  reviewNote?: string; // Phản hồi của BGH khi xử lý
+}
+
 // Notification type
 export type NotificationType =
   | 'task_assigned'
   | 'task_deadline'
   | 'task_scored'
   | 'task_submitted'
+  | 'task_blocker'
+  | 'task_progress'
+  | 'task_extension_request'
+  | 'task_extension_approved'
+  | 'task_extension_rejected'
   | 'document_uploaded'
   | 'document_approved'
   | 'document_rejected'

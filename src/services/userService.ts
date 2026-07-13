@@ -30,6 +30,7 @@ export const userService = {
           displayName: data.displayName || '',
           photoURL: data.photoURL,
           role: data.role || 'teacher',
+          phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
           isActive: data.isActive !== false, // Default true
@@ -61,6 +62,7 @@ export const userService = {
           displayName: data.displayName || '',
           photoURL: data.photoURL,
           role: data.role || 'teacher',
+          phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
           isActive: data.isActive !== false,
@@ -90,6 +92,7 @@ export const userService = {
         displayName: data.displayName || '',
         photoURL: data.photoURL,
         role: data.role || 'teacher',
+        phoneNumber: data.phoneNumber,
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
         isActive: data.isActive !== false,
@@ -152,6 +155,7 @@ export const userService = {
       displayName: string;
       role: UserRole;
       isActive: boolean;
+      phoneNumber: string;
     }>
   ): Promise<void> {
     try {

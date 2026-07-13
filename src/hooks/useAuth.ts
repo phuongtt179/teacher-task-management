@@ -45,6 +45,7 @@ export const useAuth = () => {
           displayName: data.displayName,
           photoURL: data.photoURL,
           role: data.role,
+          phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate(),
           updatedAt: data.updatedAt?.toDate(),
         } as User;

@@ -1,16 +1,31 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { taskService } from '../../services/taskService';
+import { taskUpdateService } from '../../services/taskUpdateService';
 import { useAuth } from '../../hooks/useAuth';
-import { Task, Submission } from '../../types';
+import { Task, Submission, TaskUpdate } from '../../types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { ArrowLeft, Calendar, Upload, FileText, Download, Award, Loader2 } from 'lucide-react';
+import { ArrowLeft, Calendar, Upload, FileText, Download, Award, Loader2, TrendingUp, AlertCircle, CalendarClock } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
+
+// Nhãn + màu cho trạng thái xử lý của BGH
+const UPDATE_STATUS_META: Record<string, { label: string; className: string }> = {
+  open: { label: 'Chờ xử lý', className: 'bg-amber-100 text-amber-700' },
+  resolved: { label: 'Đã xử lý', className: 'bg-green-100 text-green-700' },
+  approved: { label: 'Đã duyệt', className: 'bg-green-100 text-green-700' },
+  rejected: { label: 'Từ chối', className: 'bg-red-100 text-red-700' },
+};
+const UPDATE_TYPE_LABEL: Record<string, string> = {
+  progress: 'Tiến độ',
+  blocker: 'Vướng mắc',
+  extension: 'Xin gia hạn',
+};
 
 export const SubmitReportScreen = () => {
   const { taskId } = useParams<{ taskId: string }>();
@@ -23,6 +38,23 @@ export const SubmitReportScreen = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [content, setContent] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+
+  // Cập nhật giữa chừng: tiến độ / vướng mắc / xin gia hạn
+  const [updates, setUpdates] = useState<TaskUpdate[]>([]);
+  const [activeAction, setActiveAction] = useState<'progress' | 'blocker' | 'extension' | null>(null);
+  const [updateNote, setUpdateNote] = useState('');
+  const [updatePercent, setUpdatePercent] = useState('50');
+  const [requestedDate, setRequestedDate] = useState('');
+  const [savingUpdate, setSavingUpdate] = useState(false);
+
+  const loadUpdates = async (tId: string, uid: string) => {
+    try {
+      const data = await taskUpdateService.getUpdatesForTeacherTask(uid, tId);
+      setUpdates(data);
+    } catch (error) {
+      console.error('Error loading task updates:', error);
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -40,6 +72,7 @@ export const SubmitReportScreen = () => {
         if (submissionData) {
           setContent(submissionData.content);
         }
+        await loadUpdates(taskId, user.uid);
       } catch (error) {
         console.error('Error loading data:', error);
         toast({
@@ -96,6 +129,64 @@ export const SubmitReportScreen = () => {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const resetActionForm = () => {
+    setActiveAction(null);
+    setUpdateNote('');
+    setUpdatePercent('50');
+    setRequestedDate('');
+  };
+
+  const handleSendUpdate = async () => {
+    if (!task || !user) return;
+
+    if (activeAction === 'extension' && !requestedDate) {
+      toast({ variant: 'destructive', title: 'Lỗi', description: 'Vui lòng chọn hạn mới mong muốn' });
+      return;
+    }
+    if ((activeAction === 'blocker' || activeAction === 'extension') && !updateNote.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Lỗi',
+        description: activeAction === 'blocker' ? 'Vui lòng mô tả vướng mắc' : 'Vui lòng nêu lý do xin gia hạn',
+      });
+      return;
+    }
+
+    setSavingUpdate(true);
+    try {
+      await taskUpdateService.createUpdate({
+        taskId: task.id,
+        taskTitle: task.title,
+        teacherId: user.uid,
+        teacherName: user.displayName || 'Giáo viên',
+        type: activeAction!,
+        note: updateNote.trim(),
+        percent: activeAction === 'progress' ? parseInt(updatePercent, 10) : undefined,
+        requestedDeadline: activeAction === 'extension' ? new Date(`${requestedDate}T23:59:59`) : undefined,
+      });
+
+      toast({
+        title: 'Đã gửi',
+        description:
+          activeAction === 'progress'
+            ? 'Đã báo tiến độ tới ban giám hiệu'
+            : activeAction === 'blocker'
+            ? 'Đã báo vướng mắc tới ban giám hiệu'
+            : 'Đã gửi yêu cầu gia hạn, chờ ban giám hiệu duyệt',
+      });
+      resetActionForm();
+      await loadUpdates(task.id, user.uid);
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Lỗi',
+        description: error instanceof Error ? error.message : 'Không gửi được cập nhật',
+      });
+    } finally {
+      setSavingUpdate(false);
     }
   };
 
@@ -173,6 +264,144 @@ export const SubmitReportScreen = () => {
             <Label className="text-gray-600">Giao bởi</Label>
             <p className="mt-1">{task.createdByName}</p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Cập nhật giữa chừng: báo tiến độ / vướng mắc / xin gia hạn */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Báo cáo giữa chừng</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Nút chọn hành động — ẩn khi việc đã được chấm điểm */}
+          {submission?.score === undefined && (
+            <>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={activeAction === 'progress' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => (activeAction === 'progress' ? resetActionForm() : setActiveAction('progress'))}
+                >
+                  <TrendingUp className="w-4 h-4 mr-2" />
+                  Báo tiến độ
+                </Button>
+                <Button
+                  variant={activeAction === 'blocker' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => (activeAction === 'blocker' ? resetActionForm() : setActiveAction('blocker'))}
+                >
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                  Báo vướng mắc
+                </Button>
+                <Button
+                  variant={activeAction === 'extension' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => (activeAction === 'extension' ? resetActionForm() : setActiveAction('extension'))}
+                >
+                  <CalendarClock className="w-4 h-4 mr-2" />
+                  Xin gia hạn
+                </Button>
+              </div>
+
+              {activeAction && (
+                <div className="space-y-3 border rounded-lg p-4 bg-gray-50">
+                  {activeAction === 'progress' && (
+                    <div className="space-y-2">
+                      <Label>Mức độ hoàn thành: {updatePercent}%</Label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={updatePercent}
+                        onChange={(e) => setUpdatePercent(e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                  )}
+
+                  {activeAction === 'extension' && (
+                    <div className="space-y-2">
+                      <Label>Hạn mới mong muốn *</Label>
+                      <Input
+                        type="date"
+                        value={requestedDate}
+                        onChange={(e) => setRequestedDate(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label>
+                      {activeAction === 'progress'
+                        ? 'Ghi chú (tùy chọn)'
+                        : activeAction === 'blocker'
+                        ? 'Mô tả vướng mắc *'
+                        : 'Lý do xin gia hạn *'}
+                    </Label>
+                    <Textarea
+                      value={updateNote}
+                      onChange={(e) => setUpdateNote(e.target.value)}
+                      placeholder={
+                        activeAction === 'progress'
+                          ? 'VD: Đã xong phần thống kê, còn phần nhận xét...'
+                          : activeAction === 'blocker'
+                          ? 'VD: Thiếu số liệu từ tổ 2 nên chưa tổng hợp được...'
+                          : 'VD: Bận công tác đột xuất, xin dời hạn...'
+                      }
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button onClick={handleSendUpdate} disabled={savingUpdate}>
+                      {savingUpdate ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      Gửi
+                    </Button>
+                    <Button variant="outline" onClick={resetActionForm} disabled={savingUpdate}>
+                      Hủy
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Lịch sử cập nhật đã gửi */}
+          {updates.length === 0 ? (
+            <p className="text-sm text-gray-500">Chưa có báo cáo giữa chừng nào.</p>
+          ) : (
+            <div className="space-y-2">
+              {updates.map((u) => {
+                const meta = UPDATE_STATUS_META[u.status] || UPDATE_STATUS_META.open;
+                return (
+                  <div key={u.id} className="border rounded-lg p-3 text-sm">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-gray-900">{UPDATE_TYPE_LABEL[u.type]}</span>
+                      {u.type === 'progress' && u.percent !== undefined && (
+                        <span className="text-indigo-600 font-medium">{u.percent}%</span>
+                      )}
+                      {u.type === 'extension' && u.requestedDeadline && (
+                        <span className="text-gray-500">
+                          → {format(u.requestedDeadline, 'dd/MM/yyyy', { locale: vi })}
+                        </span>
+                      )}
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${meta.className}`}>{meta.label}</span>
+                      <span className="text-xs text-gray-400 ml-auto">
+                        {format(u.createdAt, 'HH:mm dd/MM/yyyy', { locale: vi })}
+                      </span>
+                    </div>
+                    {u.note && <p className="mt-1 text-gray-600 whitespace-pre-wrap">{u.note}</p>}
+                    {u.reviewNote && (
+                      <p className="mt-1 text-gray-700 bg-gray-50 rounded p-2">
+                        <span className="font-medium">Phản hồi:</span> {u.reviewNote}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 

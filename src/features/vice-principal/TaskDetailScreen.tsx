@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { taskService } from '../../services/taskService';
-import { Task, Submission } from '../../types';
+import { taskUpdateService } from '../../services/taskUpdateService';
+import { Task, Submission, TaskUpdate } from '../../types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,10 +10,17 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { TaskStatusBadge } from '../../components/tasks/TaskStatusBadge';
-import { ArrowLeft, Calendar, Users, Award, FileText, Download } from 'lucide-react';
+import { ArrowLeft, Calendar, Award, Download, TrendingUp, AlertCircle, CalendarClock, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { useAuth } from '../../hooks/useAuth';
+
+const UPDATE_STATUS_META: Record<string, { label: string; className: string }> = {
+  open: { label: 'Chờ xử lý', className: 'bg-amber-100 text-amber-700' },
+  resolved: { label: 'Đã xử lý', className: 'bg-green-100 text-green-700' },
+  approved: { label: 'Đã duyệt', className: 'bg-green-100 text-green-700' },
+  rejected: { label: 'Từ chối', className: 'bg-red-100 text-red-700' },
+};
 
 export const TaskDetailScreen = () => {
   const { taskId } = useParams<{ taskId: string }>();
@@ -25,6 +33,22 @@ export const TaskDetailScreen = () => {
   const [scoringSubmission, setScoringSubmission] = useState<string | null>(null);
   const [score, setScore] = useState('');
   const [feedback, setFeedback] = useState('');
+
+  // Báo cáo giữa chừng của giáo viên (tiến độ / vướng mắc / xin gia hạn)
+  const [updates, setUpdates] = useState<TaskUpdate[]>([]);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const [approvedDate, setApprovedDate] = useState('');
+  const [processingUpdateId, setProcessingUpdateId] = useState<string | null>(null);
+
+  const loadUpdates = async (tId: string) => {
+    try {
+      const data = await taskUpdateService.getUpdatesForTask(tId);
+      setUpdates(data);
+    } catch (error) {
+      console.error('Error loading task updates:', error);
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -39,6 +63,7 @@ export const TaskDetailScreen = () => {
 
         setTask(taskData);
         setSubmissions(submissionsData);
+        await loadUpdates(taskId);
       } catch (error) {
         console.error('Error loading data:', error);
         toast({
@@ -103,6 +128,62 @@ export const TaskDetailScreen = () => {
         title: 'Lỗi',
         description: 'Không thể chấm điểm',
       });
+    }
+  };
+
+  const startReview = (update: TaskUpdate) => {
+    setReviewingId(update.id);
+    setReviewNote('');
+    setApprovedDate(
+      update.requestedDeadline ? format(update.requestedDeadline, 'yyyy-MM-dd') : ''
+    );
+  };
+
+  const handleResolveBlocker = async (update: TaskUpdate) => {
+    if (!user || !task) return;
+    setProcessingUpdateId(update.id);
+    try {
+      await taskUpdateService.resolveBlocker(update, user.uid, user.displayName, reviewNote.trim());
+      toast({ title: 'Đã xử lý', description: 'Đã phản hồi vướng mắc cho giáo viên' });
+      setReviewingId(null);
+      setReviewNote('');
+      await loadUpdates(task.id);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Lỗi', description: 'Không thể cập nhật' });
+    } finally {
+      setProcessingUpdateId(null);
+    }
+  };
+
+  const handleReviewExtension = async (update: TaskUpdate, approve: boolean) => {
+    if (!user || !task) return;
+    if (approve && !approvedDate) {
+      toast({ variant: 'destructive', title: 'Lỗi', description: 'Vui lòng chọn hạn duyệt' });
+      return;
+    }
+    setProcessingUpdateId(update.id);
+    try {
+      await taskUpdateService.reviewExtension(
+        update,
+        approve,
+        user.uid,
+        user.displayName,
+        reviewNote.trim(),
+        approve ? new Date(`${approvedDate}T23:59:59`) : undefined
+      );
+      toast({
+        title: approve ? 'Đã duyệt gia hạn' : 'Đã từ chối',
+        description: approve ? 'Đã cập nhật hạn mới cho công việc' : 'Đã phản hồi giáo viên',
+      });
+      setReviewingId(null);
+      setReviewNote('');
+      // Duyệt gia hạn đổi hạn công việc → tải lại cả task
+      const [taskData] = await Promise.all([taskService.getTaskById(task.id), loadUpdates(task.id)]);
+      if (taskData) setTask(taskData);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Lỗi', description: 'Không thể xử lý yêu cầu' });
+    } finally {
+      setProcessingUpdateId(null);
     }
   };
 
@@ -186,6 +267,122 @@ export const TaskDetailScreen = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Báo cáo giữa chừng từ giáo viên */}
+      {updates.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Báo cáo giữa chừng ({updates.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {updates.map((u) => {
+              const meta = UPDATE_STATUS_META[u.status] || UPDATE_STATUS_META.open;
+              const TypeIcon =
+                u.type === 'progress' ? TrendingUp : u.type === 'blocker' ? AlertCircle : CalendarClock;
+              const isOpen = u.status === 'open';
+              const isReviewing = reviewingId === u.id;
+              const busy = processingUpdateId === u.id;
+              return (
+                <div key={u.id} className="border rounded-lg p-4 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <TypeIcon className="w-4 h-4 text-indigo-600" />
+                    <span className="font-semibold">{u.teacherName}</span>
+                    <span className="text-sm text-gray-500">
+                      {u.type === 'progress'
+                        ? `báo tiến độ ${u.percent ?? 0}%`
+                        : u.type === 'blocker'
+                        ? 'báo vướng mắc'
+                        : 'xin gia hạn'}
+                    </span>
+                    {u.type === 'extension' && (
+                      <span className="text-sm text-gray-600">
+                        {u.currentDeadline ? format(u.currentDeadline, 'dd/MM') + ' ' : ''}→{' '}
+                        {u.requestedDeadline ? format(u.requestedDeadline, 'dd/MM/yyyy', { locale: vi }) : ''}
+                      </span>
+                    )}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${meta.className}`}>{meta.label}</span>
+                    <span className="text-xs text-gray-400 ml-auto">
+                      {format(u.createdAt, 'HH:mm dd/MM/yyyy', { locale: vi })}
+                    </span>
+                  </div>
+
+                  {u.note && <p className="text-sm text-gray-700 whitespace-pre-wrap">{u.note}</p>}
+
+                  {u.reviewNote && (
+                    <p className="text-sm text-gray-700 bg-gray-50 rounded p-2">
+                      <span className="font-medium">Phản hồi của bạn:</span> {u.reviewNote}
+                    </p>
+                  )}
+
+                  {/* Chỉ blocker/extension còn 'open' mới cần xử lý; progress chỉ để xem */}
+                  {isOpen && u.type !== 'progress' && (
+                    <div>
+                      {isReviewing ? (
+                        <div className="space-y-3 border-t pt-3">
+                          {u.type === 'extension' && (
+                            <div className="space-y-1">
+                              <Label>Duyệt gia hạn đến</Label>
+                              <Input
+                                type="date"
+                                value={approvedDate}
+                                onChange={(e) => setApprovedDate(e.target.value)}
+                                className="max-w-xs"
+                              />
+                            </div>
+                          )}
+                          <div className="space-y-1">
+                            <Label>Phản hồi (tùy chọn)</Label>
+                            <Textarea
+                              value={reviewNote}
+                              onChange={(e) => setReviewNote(e.target.value)}
+                              placeholder={
+                                u.type === 'blocker'
+                                  ? 'VD: Đã yêu cầu tổ 2 gửi số liệu trước thứ 5...'
+                                  : 'VD: Đồng ý cho lùi hạn...'
+                              }
+                              rows={2}
+                            />
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {u.type === 'blocker' ? (
+                              <Button size="sm" disabled={busy} onClick={() => handleResolveBlocker(u)}>
+                                <CheckCircle2 className="w-4 h-4 mr-2" />
+                                Đánh dấu đã xử lý
+                              </Button>
+                            ) : (
+                              <>
+                                <Button size="sm" disabled={busy} onClick={() => handleReviewExtension(u, true)}>
+                                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                                  Duyệt gia hạn
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={busy}
+                                  onClick={() => handleReviewExtension(u, false)}
+                                >
+                                  Từ chối
+                                </Button>
+                              </>
+                            )}
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setReviewingId(null)}>
+                              Hủy
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => startReview(u)}>
+                          {u.type === 'blocker' ? 'Phản hồi / Xử lý' : 'Duyệt gia hạn'}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Submissions */}
       <Card>

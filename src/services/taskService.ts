@@ -153,6 +153,9 @@ export const taskService = {
       if (updates.deadline) {
         updateData.deadline = Timestamp.fromDate(updates.deadline);
       }
+      if (updates.deadline2) {
+        updateData.deadline2 = Timestamp.fromDate(updates.deadline2);
+      }
 
       updateData.updatedAt = Timestamp.fromDate(new Date());
 

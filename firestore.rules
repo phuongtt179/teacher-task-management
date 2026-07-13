@@ -80,6 +80,17 @@ service cloud.firestore {
       allow delete: if isVicePrincipal() || isAdmin() || isPrincipal();
     }
 
+    // Task Updates (báo tiến độ / báo vướng mắc / xin gia hạn giữa chừng)
+    match /taskUpdates/{updateId} {
+      allow read: if isSignedIn();
+      // Giáo viên chỉ tạo cập nhật ĐỨNG TÊN CHÍNH MÌNH — tránh giả mạo báo cáo đứng tên người khác.
+      allow create: if isSignedIn() &&
+                    request.resource.data.teacherId == request.auth.uid;
+      // Chỉ BGH (admin/VP/hiệu trưởng) được xử lý (duyệt gia hạn / đánh dấu đã xử lý vướng mắc).
+      allow update: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+    }
+
     // Submissions collection (top-level, not nested)
     match /submissions/{submissionId} {
       allow read: if isSignedIn();

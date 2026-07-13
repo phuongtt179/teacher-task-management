@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { taskService, removeVietnameseTones } from '@/services/taskService';
+import { taskUpdateService } from '@/services/taskUpdateService';
 import { notificationService } from '@/services/notificationService';
 import { schoolYearService } from '@/services/schoolYearService';
 import { userService } from '@/services/userService';
@@ -19,6 +20,18 @@ interface ChatTask {
   priority: 'low' | 'medium' | 'high';
   deadline: string | null;
   status: string;
+  createdByName?: string | null;
+}
+
+interface ChatReportUpdateCandidate {
+  type: 'progress' | 'blocker' | 'extension';
+  taskId: string;
+  taskTitle: string;
+  teacherName: string;
+  note: string;
+  percent?: number;
+  requestedDeadline?: string;
+  currentDeadline?: string | null;
 }
 
 interface ChatDocument {
@@ -144,6 +157,7 @@ interface ChatMessage {
   createTaskCandidate?: ChatCreateTaskCandidate;
   editTaskAssigneesCandidate?: ChatEditTaskAssigneesCandidate;
   gradeSubmissionCandidate?: ChatGradeSubmissionCandidate;
+  reportUpdateCandidate?: ChatReportUpdateCandidate;
 }
 
 interface Channel {
@@ -283,6 +297,10 @@ export function ChatScreen() {
   const [gradedSubmissionIds, setGradedSubmissionIds] = useState<Set<string>>(new Set());
   const [gradingSubmissionId, setGradingSubmissionId] = useState<string | null>(null);
 
+  // Báo tiến độ / vướng mắc / xin gia hạn qua chat
+  const [sentReportKeys, setSentReportKeys] = useState<Set<string>>(new Set());
+  const [sendingReportKey, setSendingReportKey] = useState<string | null>(null);
+
   const activeChannel = CHANNELS.find(c => c.id === activeChannelId)!;
   const visibleChannels = CHANNELS.filter(c => !c.roles || (user && c.roles.includes(user.role)));
   const activeMessages = messagesByChannel[activeChannelId] || [];
@@ -347,6 +365,7 @@ export function ChatScreen() {
           createTaskCandidate: data.createTaskCandidate,
           editTaskAssigneesCandidate: data.editTaskAssigneesCandidate,
           gradeSubmissionCandidate: data.gradeSubmissionCandidate,
+          reportUpdateCandidate: data.reportUpdateCandidate,
         }],
       }));
     } catch {
@@ -814,6 +833,40 @@ export function ChatScreen() {
     }
   };
 
+  const reportKey = (c: ChatReportUpdateCandidate) => `${c.taskId}|${c.type}|${c.note}|${c.requestedDeadline || ''}`;
+
+  const handleSendReport = async (c: ChatReportUpdateCandidate) => {
+    if (!user) return;
+    const key = reportKey(c);
+    setSendingReportKey(key);
+    try {
+      await taskUpdateService.createUpdate({
+        taskId: c.taskId,
+        taskTitle: c.taskTitle,
+        teacherId: user.uid,
+        teacherName: user.displayName || 'Giáo viên',
+        type: c.type,
+        note: c.note,
+        percent: c.type === 'progress' ? c.percent : undefined,
+        requestedDeadline:
+          c.type === 'extension' && c.requestedDeadline ? new Date(`${c.requestedDeadline}T23:59:59`) : undefined,
+      });
+      setSentReportKeys(prev => new Set(prev).add(key));
+      toast({
+        title:
+          c.type === 'extension'
+            ? 'Đã gửi yêu cầu gia hạn'
+            : c.type === 'blocker'
+            ? 'Đã báo vướng mắc'
+            : 'Đã báo tiến độ',
+      });
+    } catch (err: any) {
+      toast({ title: 'Gửi không thành công, thử lại nhé', description: err.message, variant: 'destructive' });
+    } finally {
+      setSendingReportKey(null);
+    }
+  };
+
   const removeEditFile = async (fileIndex: number) => {
     if (!editingTarget || !user) return;
     setRemovingFileIndex(fileIndex);
@@ -992,6 +1045,9 @@ export function ChatScreen() {
                           </div>
                           {task.deadline && (
                             <p className="text-xs text-gray-400 mt-1">Hạn: {task.deadline}</p>
+                          )}
+                          {task.createdByName && (
+                            <p className="text-xs text-gray-400">Giao bởi: {task.createdByName}</p>
                           )}
                           <Button
                             size="sm"
@@ -1276,6 +1332,50 @@ export function ChatScreen() {
                             ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                             : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
                           Xác nhận chấm điểm
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {m.reportUpdateCandidate && (
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                      <span className="font-medium text-sm text-gray-900">
+                        {m.reportUpdateCandidate.type === 'progress'
+                          ? '📊 Báo tiến độ'
+                          : m.reportUpdateCandidate.type === 'blocker'
+                          ? '⚠️ Báo vướng mắc'
+                          : '🗓️ Xin gia hạn'}
+                        {' · '}{m.reportUpdateCandidate.taskTitle}
+                      </span>
+                      {m.reportUpdateCandidate.type === 'progress' && (
+                        <p className="text-xs text-indigo-600 font-medium mt-1">
+                          Hoàn thành: {m.reportUpdateCandidate.percent ?? 0}%
+                        </p>
+                      )}
+                      {m.reportUpdateCandidate.type === 'extension' && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Hạn mới: {m.reportUpdateCandidate.requestedDeadline}
+                          {' '}(cần BGH duyệt)
+                        </p>
+                      )}
+                      {m.reportUpdateCandidate.note && (
+                        <p className="text-xs text-gray-500 mt-1">{m.reportUpdateCandidate.note}</p>
+                      )}
+                      {sentReportKeys.has(reportKey(m.reportUpdateCandidate)) ? (
+                        <span className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Đã gửi
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                          disabled={sendingReportKey === reportKey(m.reportUpdateCandidate)}
+                          onClick={() => handleSendReport(m.reportUpdateCandidate!)}
+                        >
+                          {sendingReportKey === reportKey(m.reportUpdateCandidate)
+                            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                          Xác nhận gửi
                         </Button>
                       )}
                     </div>

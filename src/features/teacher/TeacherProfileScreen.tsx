@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { User, Lock, Save, Building2 } from 'lucide-react';
+import { User, Lock, Save, Building2, Phone } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -20,6 +20,7 @@ export function TeacherProfileScreen() {
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [department, setDepartment] = useState<Department | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
@@ -36,6 +37,7 @@ export function TeacherProfileScreen() {
     if (user) {
       setDisplayName(user.displayName);
       setEmail(user.email);
+      setPhoneNumber(user.phoneNumber || '');
       loadDepartments();
       loadDepartment();
     }
@@ -104,6 +106,7 @@ export function TeacherProfileScreen() {
     try {
       await userService.updateUser(user.uid, {
         displayName: displayName.trim(),
+        phoneNumber: phoneNumber.trim(),
       });
 
       toast({
@@ -240,6 +243,21 @@ export function TeacherProfileScreen() {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   required
+                />
+              </div>
+
+              {/* Phone number */}
+              <div className="space-y-2">
+                <Label htmlFor="phoneNumber">
+                  <Phone className="w-4 h-4 inline mr-2" />
+                  Số điện thoại
+                </Label>
+                <Input
+                  id="phoneNumber"
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="VD: 0912345678"
                 />
               </div>
 
