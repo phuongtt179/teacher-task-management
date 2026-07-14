@@ -758,6 +758,18 @@ const CHAT_TOOLS_BASE_DECLARATIONS = [
       },
     },
     {
+      name: 'list_created_tasks',
+      description: 'CHỈ dành cho admin/hiệu phó/hiệu trưởng: liệt kê các CÔNG VIỆC do CHÍNH người hỏi đã tạo/giao cho người khác (KHÁC list_my_tasks là việc được giao cho họ; KHÁC get_task_completion_summary chỉ liệt kê ai CHƯA xong). Dùng khi hỏi "xem lại các việc tôi đã giao", "từ nay đến 30/9 có việc nào", "việc nào sắp tới hạn tuần này". Lọc được theo khoảng HẠN (fromDate/toDate) và/hoặc trạng thái. Mỗi việc trả về kèm hạn, ưu tiên, trạng thái, người nhận. Nếu không phải BGH, trả lỗi not_authorized.',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          fromDate: { type: 'STRING', description: 'Chỉ lấy việc có HẠN từ ngày này trở đi (YYYY-MM-DD). Với "từ nay/từ hôm nay" dùng ngày hôm nay. Để trống nếu không giới hạn dưới.' },
+          toDate: { type: 'STRING', description: 'Chỉ lấy việc có HẠN đến hết ngày này (YYYY-MM-DD). Để trống nếu không giới hạn trên.' },
+          status: { type: 'STRING', description: 'Lọc theo trạng thái: assigned (đã giao chưa nộp), submitted (đã nộp), completed (hoàn thành), overdue (quá hạn). Để trống nếu xem tất cả.' },
+        },
+      },
+    },
+    {
       name: 'find_submissions_for_grading',
       description: 'CHỈ dành cho admin/hiệu phó/hiệu trưởng: tìm bài nộp cần chấm điểm/phản hồi theo tên công việc (kèm tên giáo viên nếu cần lọc). Gọi trước khi confirm_grade_submission để xác định đúng submissionId. Kết quả có currentScore/currentFeedback (null nếu chưa chấm) và maxScore để biết thang điểm hợp lệ.',
       parameters: {
@@ -1553,6 +1565,43 @@ async function toolConfirmCreateTask(uid, args) {
   };
 }
 
+// Liệt kê các công việc do CHÍNH người hỏi (BGH) đã tạo/giao, lọc theo khoảng hạn + trạng thái.
+// Dùng cho câu hỏi "xem việc tôi đã giao", "từ nay đến X có việc nào", "việc sắp tới hạn".
+async function toolListCreatedTasks(uid, args) {
+  const callerSnap = await adminDb.collection('users').doc(uid).get();
+  const role = callerSnap.exists ? callerSnap.data().role : null;
+  if (!TASK_MANAGER_ROLES.includes(role)) return { error: 'not_authorized' };
+
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(args?.fromDate || '') ? new Date(`${args.fromDate}T00:00:00`).getTime() : null;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(args?.toDate || '') ? new Date(`${args.toDate}T23:59:59`).getTime() : null;
+  const statusFilter = ['assigned', 'submitted', 'completed', 'overdue'].includes(args?.status) ? args.status : null;
+
+  const snap = await adminDb.collection('tasks').where('createdBy', '==', uid).get();
+  let tasks = snap.docs.map(d => {
+    const t = d.data();
+    const deadline = t.deadline?.toDate ? t.deadline.toDate() : null;
+    return {
+      id: d.id,
+      title: t.title,
+      deadline: deadline ? deadline.toISOString().slice(0, 10) : null,
+      _ms: deadline ? deadline.getTime() : null,
+      priority: t.priority || 'medium',
+      status: t.status || 'assigned',
+      assigneeNames: t.assignedToNames || [],
+      assigneeCount: (t.assignedTo || []).length,
+    };
+  });
+
+  if (from !== null) tasks = tasks.filter(t => t._ms !== null && t._ms >= from);
+  if (to !== null) tasks = tasks.filter(t => t._ms !== null && t._ms <= to);
+  if (statusFilter) tasks = tasks.filter(t => t.status === statusFilter);
+
+  tasks.sort((a, b) => (a._ms ?? Infinity) - (b._ms ?? Infinity));
+  tasks.forEach(t => { delete t._ms; });
+
+  return { count: tasks.length, tasks };
+}
+
 // Tìm task theo tên để sửa danh sách người được giao — CHỈ trả về (không sửa gì) để AI/người
 // dùng xác nhận đúng task trước khi gọi confirm_edit_task_assignees.
 async function toolFindTasksToEdit(uid, keyword) {
@@ -2029,6 +2078,7 @@ async function executeChatTool(name, uid, args) {
     case 'confirm_request_extension': return toolConfirmReportUpdate(uid, args, 'extension');
     case 'list_assignable_people': return toolListAssignablePeople();
     case 'confirm_create_task': return toolConfirmCreateTask(uid, args);
+    case 'list_created_tasks': return toolListCreatedTasks(uid, args);
     case 'find_tasks_to_edit': return toolFindTasksToEdit(uid, args?.keyword);
     case 'confirm_edit_task_assignees': return toolConfirmEditTaskAssignees(uid, args);
     case 'find_submissions_for_grading': return toolFindSubmissionsForGrading(uid, args?.taskKeyword, args?.teacherName);
@@ -2071,8 +2121,10 @@ app.post('/api/chat', verifyAuth, express.json(), async (req, res) => {
     if (!keys.length) return res.status(500).json({ error: 'no_api_key' });
 
     const isFirstMessage = messages.length === 1;
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }); // YYYY-MM-DD theo giờ VN
     const systemPrompt = `Bạn là trợ lý AI thân thiện cho giáo viên "${displayName || ''}" trong ứng dụng quản lý công việc trường học.
 Trả lời ngắn gọn, tiếng Việt, lịch sự.
+Hôm nay là ${todayStr} (định dạng YYYY-MM-DD). Dùng mốc này khi người dùng nói "từ nay", "hôm nay", "tuần này", "sắp tới", "cuối tháng"... để tự suy ra ngày cụ thể.
 Khi giáo viên hỏi về công việc/nhiệm vụ của mình, hoặc việc nào cần làm/ưu tiên, hãy gọi hàm list_my_tasks rồi dựa vào priority và deadline trong dữ liệu trả về để tư vấn — KHÔNG tự bịa công việc.
 Mặc định khi liệt kê, CHỈ nêu các việc có status "assigned" hoặc "overdue" (chưa hoàn thành) — không nhắc tới việc "submitted"/"completed" trừ khi giáo viên hỏi rõ về việc đã nộp/đã hoàn thành.
 Khi giáo viên hỏi về điểm số, hãy gọi hàm get_my_scores.
@@ -2100,6 +2152,12 @@ QUAN TRỌNG — phân biệt HỒ SƠ và CÔNG VIỆC, KHÔNG được lẫn l
 - Hỏi tổng quát "ai chưa hoàn thành việc được giao", "tuần này còn ai chưa xong việc" (không nhắc tên việc cụ thể): gọi get_task_completion_summary() KHÔNG truyền keyword, trình bày danh sách người/việc/hạn trong trường "incomplete".
 - Hỏi về TÌNH HÌNH 1 việc cụ thể (có nhắc tên việc, ví dụ "báo cáo tình hình việc kiểm kê cơ sở vật chất", "việc X ai đúng hạn ai trễ"): gọi get_task_completion_summary(keyword="tên việc"), trình bày theo 3 nhóm dựa vào trường "status" của từng người trong "assignees": completed_on_time (đúng hạn), completed_late (trễ hạn nhưng đã nộp), not_completed_overdue/not_completed_within_deadline (chưa hoàn thành). Nếu keyword không khớp việc nào, báo thẳng không tìm thấy việc đó, đừng tự bịa.
 Cả 2 cách dùng trên chỉ dành cho hiệu trưởng/hiệu phó — nếu not_authorized thì báo thẳng không có quyền, đừng thử gọi get_submission_summary thay thế (2 hàm theo dõi 2 loại dữ liệu khác nhau, không thể dùng thay nhau).
+Khi admin/hiệu phó/hiệu trưởng muốn XEM LẠI CÁC CÔNG VIỆC HỌ ĐÃ GIAO/tạo (khác get_task_completion_summary chỉ liệt kê ai chưa xong): gọi list_created_tasks. Ví dụ:
+- "Xem lại các việc tôi đã giao" / "tôi đã giao những việc gì" → list_created_tasks() không tham số, liệt kê tất cả theo hạn tăng dần.
+- "Từ nay đến 30/9 có việc nào" → list_created_tasks(fromDate=hôm nay, toDate="2026-09-30").
+- "Việc nào sắp tới hạn trong tuần này" → list_created_tasks(fromDate=hôm nay, toDate=hôm nay+7 ngày).
+- "Việc nào đang quá hạn" → list_created_tasks(status="overdue").
+Tự suy fromDate/toDate dạng YYYY-MM-DD dựa vào ngày hôm nay đã cho ở đầu. Trình bày gọn: mỗi việc 1 dòng gồm tên, hạn, người nhận, trạng thái; nếu danh sách rỗng thì báo không có việc nào khớp.
 Khi admin/hiệu phó/hiệu trưởng muốn GIAO 1 việc mới trực tiếp bằng lời (không có file đính kèm), ví dụ "giao việc cho cô Lan: nộp báo cáo X, hạn 20/11" hoặc "giao cho tổ Toán chuẩn bị đề thi":
 1. Gọi list_assignable_people để lấy danh sách người + tổ, tự suy luận đúng người/nhóm người theo Ý NGHĨA (tên riêng, hoặc cả tổ nếu nói "tổ X"/"toàn trường").
 2. Gọi confirm_create_task(title, description, deadline nếu có, priority nếu có, assigneeUids, assigneeNames) với đúng uid lấy được ở bước 1 — KHÔNG tự bịa uid.
