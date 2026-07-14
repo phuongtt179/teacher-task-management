@@ -44,14 +44,17 @@ export const taskService = {
   // Create new task
   async createTask(taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'status'>): Promise<string> {
     try {
-      const docRef = await addDoc(collection(db, 'tasks'), {
+      const payload: Record<string, any> = {
         ...taskData,
         status: 'assigned' as TaskStatus,
         deadline: Timestamp.fromDate(taskData.deadline),
         deadline2: taskData.deadline2 ? Timestamp.fromDate(taskData.deadline2) : null,
         createdAt: Timestamp.fromDate(new Date()),
         updatedAt: Timestamp.fromDate(new Date()),
-      });
+      };
+      // Firestore không chấp nhận field = undefined (vd semester khi năm học chưa đặt học kỳ) — loại bỏ trước khi ghi
+      Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+      const docRef = await addDoc(collection(db, 'tasks'), payload);
       // Notify assigned teachers
       await notificationService.notifyTaskAssigned(
         taskData.assignedTo,
