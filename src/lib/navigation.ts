@@ -13,7 +13,8 @@ import {
     FileCheck,
     FileText,
     Cog,
-    User
+    User,
+    Table
   } from 'lucide-react';
   import { UserRole } from '../types';
 
@@ -66,6 +67,13 @@ import {
       path: '/vp/statistics',
       icon: BarChart3,
       roles: ['vice_principal', 'principal'],
+    },
+    {
+      label: 'Theo dõi nộp hồ sơ',
+      shortLabel: 'Nộp hồ sơ',
+      path: '/vp/submission-matrix',
+      icon: Table,
+      roles: ['admin', 'vice_principal', 'principal'],
     },
 
     // Teacher

@@ -1323,11 +1323,15 @@ async function computeSubmissionSummary(memberUids) {
   const subsSnap = await adminDb.collection('documentSubCategories')
     .where('categoryId', 'in', categoryIds.slice(0, 10))
     .get();
-  const subCountByCategory = new Map();
+  // categoryId -> [{id, name, order}] (đã sắp theo order để liệt kê tuần thiếu đúng thứ tự)
+  const subsByCategory = new Map();
   subsSnap.docs.forEach(d => {
-    const catId = d.data().categoryId;
-    subCountByCategory.set(catId, (subCountByCategory.get(catId) || 0) + 1);
+    const s = d.data();
+    const arr = subsByCategory.get(s.categoryId) || [];
+    arr.push({ id: d.id, name: s.name || '(mục con)', order: s.order || 0 });
+    subsByCategory.set(s.categoryId, arr);
   });
+  subsByCategory.forEach(arr => arr.sort((a, b) => a.order - b.order));
 
   // Firestore 'in' tối đa 10 phần tử — 3 danh mục mục tiêu chắc chắn nằm trong giới hạn này.
   const documentsSnap = await adminDb.collection('documents').where('categoryId', 'in', categoryIds.slice(0, 10)).get();
@@ -1344,11 +1348,15 @@ async function computeSubmissionSummary(memberUids) {
 
   const members = memberUids.map(uid => {
     const categories = targetCategories.map(d => {
-      const totalSubs = subCountByCategory.get(d.id) || 0;
+      const subs = subsByCategory.get(d.id) || [];
+      const totalSubs = subs.length;
       const submittedSet = submittedByMemberCategory.get(`${uid}|${d.id}`) || new Set();
-      return totalSubs > 0
-        ? { categoryName: d.data().name, submittedCount: submittedSet.size, totalCount: totalSubs }
-        : { categoryName: d.data().name, submitted: submittedSet.size > 0 };
+      if (totalSubs > 0) {
+        // Tên các mục con (tuần) CHƯA nộp — để AI liệt kê "thiếu tuần nào" của từng người
+        const missingSubs = subs.filter(s => !submittedSet.has(s.id)).map(s => s.name);
+        return { categoryName: d.data().name, submittedCount: submittedSet.size, totalCount: totalSubs, missingSubs };
+      }
+      return { categoryName: d.data().name, submitted: submittedSet.size > 0 };
     });
     return { uid, name: nameById.get(uid) || uid, categories };
   });
@@ -2147,7 +2155,7 @@ Khi giáo viên hỏi về tài liệu CHÍNH HỌ đã nộp (ví dụ "tôi đ
 2. Nếu chỉ hỏi xem đã nộp gì, trả lời trực tiếp dựa trên danh sách (ví dụ liệt kê các tuần đã nộp của "Kế hoạch bài dạy"), không cần làm gì thêm.
 3. Nếu muốn SỬA 1 tài liệu cụ thể, tự suy luận đúng tài liệu đó từ danh sách (theo tên danh mục/mục con, ví dụ "tuần 3"), rồi gọi confirm_edit_target(documentId) với đúng id lấy được — KHÔNG tự bịa id. Nếu không xác định được rõ tài liệu nào, hỏi lại.
 4. Sau khi confirm_edit_target trả về confirmed=true, xác nhận lại bằng lời (tên tài liệu, số file hiện có), mời giáo viên tự thêm file mới hoặc xóa bớt file qua giao diện hiện ra — không tự sửa giúp.
-Khi người dùng hỏi tổng hợp tình hình nộp HỒ SƠ (giáo án/kế hoạch bài dạy/sổ chủ nhiệm/sổ dự giờ) CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): gọi get_submission_summary (hàm tự xác định phạm vi phù hợp với người hỏi, không cần đoán trước là tổ hay trường); nếu hàm báo lỗi not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Kết quả có trường "scope": "department" (chỉ 1 tổ, xem trường "members") hoặc "school" (toàn trường, xem trường "departments" gồm nhiều tổ + "unassigned" là người chưa thuộc tổ nào). Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần).
+Khi người dùng hỏi tổng hợp tình hình nộp HỒ SƠ (giáo án/kế hoạch bài dạy/sổ chủ nhiệm/sổ dự giờ) CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): gọi get_submission_summary (hàm tự xác định phạm vi phù hợp với người hỏi, không cần đoán trước là tổ hay trường); nếu hàm báo lỗi not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Kết quả có trường "scope": "department" (chỉ 1 tổ, xem trường "members") hoặc "school" (toàn trường, xem trường "departments" gồm nhiều tổ + "unassigned" là người chưa thuộc tổ nào). Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần). Nếu người dùng hỏi CỤ THỂ thiếu tuần/mục nào (vd "cô A còn thiếu tuần nào", "ai chưa nộp tuần 5"), dùng trường "missingSubs" (danh sách tên mục con CHƯA nộp của từng người trong từng danh mục) để liệt kê chính xác — nếu missingSubs rỗng thì người đó đã nộp đủ.
 QUAN TRỌNG — phân biệt HỒ SƠ và CÔNG VIỆC, KHÔNG được lẫn lộn: "hồ sơ" (giáo án, sổ chủ nhiệm, sổ dự giờ...) dùng get_submission_summary như trên. Còn "công việc"/"nhiệm vụ" (task nói chung, ví dụ "họp phụ huynh", "báo cáo tổng kết", "kiểm kê cơ sở vật chất"...) là chuyện KHÁC HẲN, dùng get_task_completion_summary:
 - Hỏi tổng quát "ai chưa hoàn thành việc được giao", "tuần này còn ai chưa xong việc" (không nhắc tên việc cụ thể): gọi get_task_completion_summary() KHÔNG truyền keyword, trình bày danh sách người/việc/hạn trong trường "incomplete".
 - Hỏi về TÌNH HÌNH 1 việc cụ thể (có nhắc tên việc, ví dụ "báo cáo tình hình việc kiểm kê cơ sở vật chất", "việc X ai đúng hạn ai trễ"): gọi get_task_completion_summary(keyword="tên việc"), trình bày theo 3 nhóm dựa vào trường "status" của từng người trong "assignees": completed_on_time (đúng hạn), completed_late (trễ hạn nhưng đã nộp), not_completed_overdue/not_completed_within_deadline (chưa hoàn thành). Nếu keyword không khớp việc nào, báo thẳng không tìm thấy việc đó, đừng tự bịa.

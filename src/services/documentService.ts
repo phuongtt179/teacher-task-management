@@ -98,6 +98,26 @@ export const documentService = {
     }
   },
 
+  // Lấy gọn dữ liệu để dựng bảng ma trận nộp hồ sơ (ai đã nộp mục con nào, trạng thái gì).
+  // Chỉ where theo categoryId (không orderBy) để KHÔNG cần composite index.
+  async getSubmissionCells(categoryId: string): Promise<Array<{ uploadedBy: string; subCategoryId?: string; status: DocumentStatus }>> {
+    try {
+      const q = query(collection(db, 'documents'), where('categoryId', '==', categoryId));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          uploadedBy: data.uploadedBy,
+          subCategoryId: data.subCategoryId,
+          status: (data.status || 'pending') as DocumentStatus,
+        };
+      });
+    } catch (error) {
+      console.error('Error getting submission cells:', error);
+      throw error;
+    }
+  },
+
   // Get pending documents for approval (by department)
   async getPendingDocumentsByDepartment(departmentId: string): Promise<Document[]> {
     try {

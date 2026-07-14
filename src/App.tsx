@@ -12,6 +12,7 @@ import { CreateTaskScreen } from './features/vice-principal/CreateTaskScreen';
 import { ImportTasksScreen } from './features/vice-principal/ImportTasksScreen';
 import { TaskListScreen } from './features/vice-principal/TaskListScreen';
 import { TaskDetailScreen } from './features/vice-principal/TaskDetailScreen';
+import { SubmissionMatrixScreen } from './features/vice-principal/SubmissionMatrixScreen';
 import { StatisticsScreen } from './features/vice-principal/StatisticsScreen';
 import { TaskDetailStatisticsScreen } from './features/vice-principal/TaskDetailStatisticsScreen';
 import { TeacherDetailStatisticsScreen } from './features/vice-principal/TeacherDetailStatisticsScreen';
@@ -245,6 +246,16 @@ function App() {
             <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
               <AppLayout>
                 <StatisticsScreen />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/vp/submission-matrix"
+          element={
+            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'principal']}>
+              <AppLayout>
+                <SubmissionMatrixScreen />
               </AppLayout>
             </ProtectedRoute>
           }
