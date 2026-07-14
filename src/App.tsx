@@ -17,7 +17,6 @@ import { TaskDetailStatisticsScreen } from './features/vice-principal/TaskDetail
 import { TeacherDetailStatisticsScreen } from './features/vice-principal/TeacherDetailStatisticsScreen';
 import { TeacherDashboard } from './features/teacher/TeacherDashboard';
 import { ChatScreen } from './features/teacher/ChatScreen';
-import { useChatUIEnabled } from './hooks/useFeatureFlags';
 import { MyTasksScreen } from './features/teacher/MyTasksScreen';
 import { SubmitReportScreen } from './features/teacher/SubmitReportScreen';
 import { MyScoresScreen } from './features/teacher/MyScoresScreen';
@@ -35,42 +34,45 @@ import { DocumentApprovalsScreen } from './features/documents/DocumentApprovalsS
 import { MyRequestsScreen } from './features/documents/MyRequestsScreen';
 import { TeacherProfileScreen } from './features/teacher/TeacherProfileScreen';
 import { deadlineCheckerService } from './services/deadlineCheckerService';
-// Dashboard router based on role
-const DashboardRouter = ({ chatMode }: { chatMode: boolean }) => {
+// Dashboard router based on role — trang chủ luôn là dashboard; Trợ lý AI truy cập
+// qua icon robot trên Header (route /chat riêng), mở cho mọi vai trò.
+const DashboardRouter = () => {
   const { user } = useAuth();
 
   if (!user) return null;
 
   switch (user.role) {
     case 'admin':
-      return chatMode ? <ChatScreen /> : <AdminDashboard />;
+      return <AdminDashboard />;
     case 'principal':
     case 'vice_principal':
-      return chatMode ? <ChatScreen /> : <VPDashboard />;
+      return <VPDashboard />;
     case 'teacher':
     case 'department_head':
     case 'staff':
-      return chatMode ? <ChatScreen /> : <TeacherDashboard />;
+      return <TeacherDashboard />;
     case 'van_thu':
-      return chatMode ? <ChatScreen /> : <PlaceholderScreen title="Tính năng dành cho văn thư hiện chỉ dùng qua Trợ lý AI (chat) — vui lòng liên hệ quản trị viên để được bật." />;
+      return <PlaceholderScreen title="Bấm biểu tượng 🤖 Trợ lý AI ở góc trên bên phải để bắt đầu — nghiệp vụ văn thư thực hiện qua Trợ lý AI." />;
     default:
       return <div>Invalid role</div>;
   }
 };
 
-// Wraps DashboardRouter, deciding once whether chat mode is active so AppLayout
-// knows whether to hide its own Sidebar/BottomNav in favor of ChatScreen's own layout.
 const HomeScreen = () => {
-  const { user } = useAuth();
-  const chatUIEnabled = useChatUIEnabled(user?.email);
-  const chatMode = !!chatUIEnabled;
-
   return (
-    <AppLayout hideSidebar={chatMode}>
-      <DashboardRouter chatMode={chatMode} />
+    <AppLayout>
+      <DashboardRouter />
     </AppLayout>
   );
 };
+
+// Trang Trợ lý AI (chat) — mở từ icon robot trên Header, dùng chung cho mọi vai trò.
+// hideSidebar để ChatScreen tự quản lý bố cục danh sách kênh + khung chat.
+const ChatPage = () => (
+  <AppLayout hideSidebar>
+    <ChatScreen />
+  </AppLayout>
+);
 
 // Placeholder components
 const PlaceholderScreen = ({ title }: { title: string }) => (
@@ -150,6 +152,16 @@ function App() {
           element={
             <ProtectedRoute>
               <HomeScreen />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Trợ lý AI (chat) — mọi vai trò, mở từ icon robot trên Header */}
+        <Route
+          path="/chat"
+          element={
+            <ProtectedRoute>
+              <ChatPage />
             </ProtectedRoute>
           }
         />

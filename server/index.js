@@ -2055,7 +2055,7 @@ const APP_GUIDE = `HƯỚNG DẪN SỬ DỤNG APP (dùng để trả lời khi g
 - Sửa hồ sơ đã nộp (thêm/xóa file): hỏi "sửa giáo án tuần 3" hoặc "xóa file trong sổ chủ nhiệm", AI xác nhận đúng tài liệu rồi hiện khung thêm/xóa file.
 - Tìm tài liệu người khác đã công khai: hỏi "tìm file X" hoặc "có sổ Y không".
 - Xem điểm số, thống kê tỷ lệ hoàn thành/đúng hạn của bản thân, hoặc hồ sơ còn thiếu: hỏi thẳng trong chat (vd "điểm của tôi thế nào", "tôi còn thiếu hồ sơ gì").
-- Nếu bật app mà không thấy giao diện chat (vẫn thấy menu cũ): tính năng chat đang được bật dần theo tài khoản, báo giáo viên liên hệ quản trị viên (admin) để được bật.
+- Trợ lý AI luôn có sẵn cho mọi người: mở bằng cách bấm biểu tượng robot 🤖 ở góc trên bên phải màn hình (cạnh chuông thông báo). Nếu ai đó không tìm thấy, hướng dẫn họ tìm icon robot đó.
 - Nếu tải file lỗi hoặc app báo lỗi hệ thống khi nộp hồ sơ: đây thường là lỗi kỹ thuật phía máy chủ (không phải do thao tác sai) — khuyên giáo viên thử lại sau ít phút, nếu vẫn lỗi thì báo admin.
 - Mọi thao tác quan trọng (nộp bài, tải file, xác nhận danh mục) đều cần giáo viên tự bấm nút xác nhận hiện ra trong chat — AI không tự ý nộp/sửa thay.`;
 

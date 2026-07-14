@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { LogOut, User, Settings, Bell } from 'lucide-react';
+import { LogOut, User, Settings, Bell, Bot } from 'lucide-react';
 import { MobileMenu } from './MobileMenu';
 
 interface HeaderProps {
@@ -87,6 +87,18 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Trợ lý AI — mở màn hình chat, dùng được cho mọi vai trò */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="relative text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+            onClick={() => navigate('/chat')}
+            title="Trợ lý AI"
+            aria-label="Trợ lý AI"
+          >
+            <Bot className="w-5 h-5" />
+          </Button>
+
           {/* Notifications Button */}
           <Button
             variant="ghost"
