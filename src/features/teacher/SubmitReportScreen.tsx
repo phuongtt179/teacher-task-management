@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { ArrowLeft, Calendar, Upload, FileText, Download, Award, Loader2, TrendingUp, AlertCircle, CalendarClock } from 'lucide-react';
+import { ArrowLeft, Calendar, Upload, FileText, Download, Award, Loader2, TrendingUp, AlertCircle, CalendarClock, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 
@@ -25,6 +25,7 @@ const UPDATE_TYPE_LABEL: Record<string, string> = {
   progress: 'Tiến độ',
   blocker: 'Vướng mắc',
   extension: 'Xin gia hạn',
+  help_request: 'Đề xuất bổ sung người',
 };
 
 export const SubmitReportScreen = () => {
@@ -41,7 +42,7 @@ export const SubmitReportScreen = () => {
 
   // Cập nhật giữa chừng: tiến độ / vướng mắc / xin gia hạn
   const [updates, setUpdates] = useState<TaskUpdate[]>([]);
-  const [activeAction, setActiveAction] = useState<'progress' | 'blocker' | 'extension' | null>(null);
+  const [activeAction, setActiveAction] = useState<'progress' | 'blocker' | 'extension' | 'help_request' | null>(null);
   const [updateNote, setUpdateNote] = useState('');
   const [updatePercent, setUpdatePercent] = useState('50');
   const [requestedDate, setRequestedDate] = useState('');
@@ -146,11 +147,16 @@ export const SubmitReportScreen = () => {
       toast({ variant: 'destructive', title: 'Lỗi', description: 'Vui lòng chọn hạn mới mong muốn' });
       return;
     }
-    if ((activeAction === 'blocker' || activeAction === 'extension') && !updateNote.trim()) {
+    if ((activeAction === 'blocker' || activeAction === 'extension' || activeAction === 'help_request') && !updateNote.trim()) {
       toast({
         variant: 'destructive',
         title: 'Lỗi',
-        description: activeAction === 'blocker' ? 'Vui lòng mô tả vướng mắc' : 'Vui lòng nêu lý do xin gia hạn',
+        description:
+          activeAction === 'blocker'
+            ? 'Vui lòng mô tả vướng mắc'
+            : activeAction === 'help_request'
+            ? 'Vui lòng nêu nên bổ sung ai và vì sao'
+            : 'Vui lòng nêu lý do xin gia hạn',
       });
       return;
     }
@@ -175,6 +181,8 @@ export const SubmitReportScreen = () => {
             ? 'Đã báo tiến độ tới ban giám hiệu'
             : activeAction === 'blocker'
             ? 'Đã báo vướng mắc tới ban giám hiệu'
+            : activeAction === 'help_request'
+            ? 'Đã gửi đề xuất bổ sung người tới ban giám hiệu'
             : 'Đã gửi yêu cầu gia hạn, chờ ban giám hiệu duyệt',
       });
       resetActionForm();
@@ -301,6 +309,14 @@ export const SubmitReportScreen = () => {
                   <CalendarClock className="w-4 h-4 mr-2" />
                   Xin gia hạn
                 </Button>
+                <Button
+                  variant={activeAction === 'help_request' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => (activeAction === 'help_request' ? resetActionForm() : setActiveAction('help_request'))}
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Đề xuất bổ sung người
+                </Button>
               </div>
 
               {activeAction && (
@@ -337,6 +353,8 @@ export const SubmitReportScreen = () => {
                         ? 'Ghi chú (tùy chọn)'
                         : activeAction === 'blocker'
                         ? 'Mô tả vướng mắc *'
+                        : activeAction === 'help_request'
+                        ? 'Nên bổ sung ai, vì sao? *'
                         : 'Lý do xin gia hạn *'}
                     </Label>
                     <Textarea
@@ -347,6 +365,8 @@ export const SubmitReportScreen = () => {
                           ? 'VD: Đã xong phần thống kê, còn phần nhận xét...'
                           : activeAction === 'blocker'
                           ? 'VD: Thiếu số liệu từ tổ 2 nên chưa tổng hợp được...'
+                          : activeAction === 'help_request'
+                          ? 'VD: Việc nhiều, nên giao thêm cô B hỗ trợ phần thống kê...'
                           : 'VD: Bận công tác đột xuất, xin dời hạn...'
                       }
                       rows={3}

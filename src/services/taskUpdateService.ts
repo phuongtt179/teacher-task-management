@@ -98,6 +98,11 @@ export const taskUpdateService = {
           title: 'Cập nhật tiến độ',
           message: `${input.teacherName} báo tiến độ "${data.taskTitle}": ${data.percent ?? 0}%${input.note ? ' - ' + input.note : ''}`,
         },
+        help_request: {
+          type: 'task_help_request',
+          title: 'Đề xuất bổ sung người',
+          message: `${input.teacherName} đề xuất bổ sung người cho "${data.taskTitle}": ${input.note}`,
+        },
       };
       const n = notifByType[input.type];
       await notificationService.createNotification(recipientId, n.type, n.title, n.message, {
@@ -150,7 +155,7 @@ export const taskUpdateService = {
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   },
 
-  /** BGH đánh dấu đã xử lý xong 1 vướng mắc */
+  /** BGH đánh dấu đã xử lý xong 1 vướng mắc HOẶC 1 đề xuất bổ sung người */
   async resolveBlocker(
     update: TaskUpdate,
     reviewedBy: string,
@@ -164,11 +169,14 @@ export const taskUpdateService = {
       reviewedAt: Timestamp.fromDate(new Date()),
       reviewNote: reviewNote || '',
     });
+    const isHelp = update.type === 'help_request';
     await notificationService.createNotification(
       update.teacherId,
-      'task_blocker',
-      'Vướng mắc đã được xử lý',
-      `${reviewedByName} đã phản hồi vướng mắc "${update.taskTitle}"${reviewNote ? ': ' + reviewNote : ''}`,
+      isHelp ? 'task_help_request' : 'task_blocker',
+      isHelp ? 'Đã xử lý đề xuất bổ sung người' : 'Vướng mắc đã được xử lý',
+      isHelp
+        ? `${reviewedByName} đã phản hồi đề xuất bổ sung người cho "${update.taskTitle}"${reviewNote ? ': ' + reviewNote : ''}`
+        : `${reviewedByName} đã phản hồi vướng mắc "${update.taskTitle}"${reviewNote ? ': ' + reviewNote : ''}`,
       { taskId: update.taskId, taskTitle: update.taskTitle }
     );
   },

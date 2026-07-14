@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { TaskStatusBadge } from '../../components/tasks/TaskStatusBadge';
-import { ArrowLeft, Calendar, Award, Download, TrendingUp, AlertCircle, CalendarClock, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Calendar, Award, Download, TrendingUp, AlertCircle, CalendarClock, CheckCircle2, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { useAuth } from '../../hooks/useAuth';
@@ -278,7 +278,10 @@ export const TaskDetailScreen = () => {
             {updates.map((u) => {
               const meta = UPDATE_STATUS_META[u.status] || UPDATE_STATUS_META.open;
               const TypeIcon =
-                u.type === 'progress' ? TrendingUp : u.type === 'blocker' ? AlertCircle : CalendarClock;
+                u.type === 'progress' ? TrendingUp
+                  : u.type === 'blocker' ? AlertCircle
+                  : u.type === 'help_request' ? UserPlus
+                  : CalendarClock;
               const isOpen = u.status === 'open';
               const isReviewing = reviewingId === u.id;
               const busy = processingUpdateId === u.id;
@@ -292,6 +295,8 @@ export const TaskDetailScreen = () => {
                         ? `báo tiến độ ${u.percent ?? 0}%`
                         : u.type === 'blocker'
                         ? 'báo vướng mắc'
+                        : u.type === 'help_request'
+                        ? 'đề xuất bổ sung người'
                         : 'xin gia hạn'}
                     </span>
                     {u.type === 'extension' && (
@@ -336,20 +341,17 @@ export const TaskDetailScreen = () => {
                               value={reviewNote}
                               onChange={(e) => setReviewNote(e.target.value)}
                               placeholder={
-                                u.type === 'blocker'
-                                  ? 'VD: Đã yêu cầu tổ 2 gửi số liệu trước thứ 5...'
-                                  : 'VD: Đồng ý cho lùi hạn...'
+                                u.type === 'extension'
+                                  ? 'VD: Đồng ý cho lùi hạn...'
+                                  : u.type === 'help_request'
+                                  ? 'VD: Đã bổ sung cô B vào việc này...'
+                                  : 'VD: Đã yêu cầu tổ 2 gửi số liệu trước thứ 5...'
                               }
                               rows={2}
                             />
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            {u.type === 'blocker' ? (
-                              <Button size="sm" disabled={busy} onClick={() => handleResolveBlocker(u)}>
-                                <CheckCircle2 className="w-4 h-4 mr-2" />
-                                Đánh dấu đã xử lý
-                              </Button>
-                            ) : (
+                            {u.type === 'extension' ? (
                               <>
                                 <Button size="sm" disabled={busy} onClick={() => handleReviewExtension(u, true)}>
                                   <CheckCircle2 className="w-4 h-4 mr-2" />
@@ -364,6 +366,11 @@ export const TaskDetailScreen = () => {
                                   Từ chối
                                 </Button>
                               </>
+                            ) : (
+                              <Button size="sm" disabled={busy} onClick={() => handleResolveBlocker(u)}>
+                                <CheckCircle2 className="w-4 h-4 mr-2" />
+                                Đánh dấu đã xử lý
+                              </Button>
                             )}
                             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setReviewingId(null)}>
                               Hủy
@@ -372,7 +379,7 @@ export const TaskDetailScreen = () => {
                         </div>
                       ) : (
                         <Button size="sm" variant="outline" onClick={() => startReview(u)}>
-                          {u.type === 'blocker' ? 'Phản hồi / Xử lý' : 'Duyệt gia hạn'}
+                          {u.type === 'extension' ? 'Duyệt gia hạn' : 'Phản hồi / Xử lý'}
                         </Button>
                       )}
                     </div>

@@ -79,7 +79,8 @@ export interface Submission {
 // ==================== TASK UPDATES (báo tiến độ / vướng mắc / xin gia hạn) ====================
 
 // Loại cập nhật giữa chừng của công việc do giáo viên gửi
-export type TaskUpdateType = 'progress' | 'blocker' | 'extension';
+// - help_request: đề xuất BGH bổ sung thêm người vào việc (giáo viên không tự thêm được)
+export type TaskUpdateType = 'progress' | 'blocker' | 'extension' | 'help_request';
 
 // Trạng thái xử lý của BGH:
 // - open: mới gửi, chờ BGH xem/xử lý (blocker) hoặc duyệt (extension); progress mặc định open (chỉ để thông tin)
@@ -116,6 +117,7 @@ export type NotificationType =
   | 'task_submitted'
   | 'task_blocker'
   | 'task_progress'
+  | 'task_help_request'
   | 'task_extension_request'
   | 'task_extension_approved'
   | 'task_extension_rejected'

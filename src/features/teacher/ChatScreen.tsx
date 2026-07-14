@@ -24,7 +24,7 @@ interface ChatTask {
 }
 
 interface ChatReportUpdateCandidate {
-  type: 'progress' | 'blocker' | 'extension';
+  type: 'progress' | 'blocker' | 'extension' | 'help_request';
   taskId: string;
   taskTitle: string;
   teacherName: string;
@@ -858,6 +858,8 @@ export function ChatScreen() {
             ? 'Đã gửi yêu cầu gia hạn'
             : c.type === 'blocker'
             ? 'Đã báo vướng mắc'
+            : c.type === 'help_request'
+            ? 'Đã gửi đề xuất bổ sung người'
             : 'Đã báo tiến độ',
       });
     } catch (err: any) {
@@ -1344,6 +1346,8 @@ export function ChatScreen() {
                           ? '📊 Báo tiến độ'
                           : m.reportUpdateCandidate.type === 'blocker'
                           ? '⚠️ Báo vướng mắc'
+                          : m.reportUpdateCandidate.type === 'help_request'
+                          ? '🙋 Đề xuất bổ sung người'
                           : '🗓️ Xin gia hạn'}
                         {' · '}{m.reportUpdateCandidate.taskTitle}
                       </span>
