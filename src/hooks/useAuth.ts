@@ -11,12 +11,26 @@ export const useAuth = () => {
     user,
     isLoading,
     isWhitelisted,
+    suspendedSchoolName,
     setFirebaseUser,
     setUser,
     setIsLoading,
     setIsWhitelisted,
+    setSuspendedSchoolName,
     logout: clearAuth
   } = useAuthStore();
+
+  // schools/{schoolId} stays readable even when isActive is false (see
+  // firestore.rules — deliberately NOT gated by schoolIsActive), so this check
+  // must run BEFORE getUserDocument: once a school is suspended, sameSchool()
+  // blocks the users/{uid} read too, and that would otherwise look like a
+  // generic "account not found" instead of a clear suspension message.
+  const checkSchoolActive = async (schoolId: string): Promise<{ active: boolean; name: string }> => {
+    const snap = await getDoc(doc(db, 'schools', schoolId));
+    if (!snap.exists()) return { active: true, name: '' }; // fail open on missing doc, not our problem to diagnose here
+    const data = snap.data();
+    return { active: data.isActive !== false, name: data.name || '' };
+  };
 
   // Whitelist doc ID is the email itself — a direct get(), not a query, since a
   // brand-new user has no users/{uid} doc yet (so schoolId isn't known until
@@ -105,6 +119,14 @@ export const useAuth = () => {
         throw new Error('Email không có trong danh sách cho phép');
       }
 
+      const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
+      if (!active) {
+        setSuspendedSchoolName(name);
+        setUser(null);
+        return result.user;
+      }
+      setSuspendedSchoolName(null);
+
       // Get user document
       const userData = await getUserDocument(result.user.uid, email, whitelistEntry);
       if (userData) {
@@ -140,8 +162,15 @@ export const useAuth = () => {
         setIsWhitelisted(whitelistEntry !== null);
 
         if (whitelistEntry) {
-          const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
-          setUser(userData);
+          const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
+          if (!active) {
+            setSuspendedSchoolName(name);
+            setUser(null);
+          } else {
+            setSuspendedSchoolName(null);
+            const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
+            setUser(userData);
+          }
         } else {
           setUser(null);
         }
@@ -161,6 +190,7 @@ export const useAuth = () => {
     user,
     isLoading,
     isWhitelisted,
+    suspendedSchoolName,
     login,
     logout,
   };

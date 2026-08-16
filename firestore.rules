@@ -24,9 +24,21 @@ service cloud.firestore {
       return isSignedIn() ? userData().schoolId : null;
     }
 
-    // Core tenant guard: does this document belong to the caller's own school?
+    // "Ngắt/mở" — a super-admin can flip schools/{id}.isActive to false to cut off
+    // ALL data access for that school (e.g. unpaid invoice), and back to true to
+    // restore it instantly. Deliberately NOT applied to the schools/{schoolId}
+    // match itself below, so a suspended school's own users can still read their
+    // school doc and see a clear "tạm khóa" message instead of a wall of
+    // permission-denied errors everywhere.
+    function schoolIsActive(schoolId) {
+      return get(/databases/$(database)/documents/schools/$(schoolId)).data.isActive != false;
+    }
+
+    // Core tenant guard: does this document belong to the caller's own school,
+    // AND is that school currently active (not suspended)?
     function sameSchool(data) {
-      return isSignedIn() && userSchoolId() != null && data.schoolId == userSchoolId();
+      return isSignedIn() && userSchoolId() != null && data.schoolId == userSchoolId() &&
+             schoolIsActive(userSchoolId());
     }
 
     function isAdmin() {
@@ -74,7 +86,7 @@ service cloud.firestore {
                  (request.auth.token.email == email || isSuperAdmin() || sameSchool(resource.data));
       allow list: if isSuperAdmin() || sameSchool(resource.data);
       allow create: if isSignedIn() && email == request.resource.data.email &&
-                    (isSuperAdmin() || (isAdmin() && request.resource.data.schoolId == userSchoolId()));
+                    (isSuperAdmin() || (isAdmin() && request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId())));
       allow update, delete: if isSuperAdmin() || (isAdmin() && sameSchool(resource.data));
     }
 
@@ -83,6 +95,13 @@ service cloud.firestore {
     match /config/{configId} {
       allow read: if isSignedIn();
       allow write: if isAdmin() || isSuperAdmin();
+    }
+
+    // Billing plans catalog (đọc để mọi trường tự so hạn mức gói mình đang dùng;
+    // chỉ super-admin được tạo/sửa/xóa — đây là nơi ĐỔI GIÁ, không phải trong code).
+    match /plans/{planId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSuperAdmin();
     }
 
     // ==================== USERS ====================
@@ -115,7 +134,7 @@ service cloud.firestore {
 
       // Văn thư chỉ được tạo (chuyển) công việc, không được sửa/xóa sau đó — xem update/delete bên dưới.
       allow create: if (isVicePrincipal() || isAdmin() || isPrincipal() || isVanThu()) &&
-                    request.resource.data.schoolId == userSchoolId();
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
 
       // VP/Admin/Principal: full update. Teachers/dept heads: only update tasks assigned to them, only status+updatedAt fields
       allow update: if (
@@ -137,7 +156,7 @@ service cloud.firestore {
       // Giáo viên chỉ tạo cập nhật ĐỨNG TÊN CHÍNH MÌNH — tránh giả mạo báo cáo đứng tên người khác.
       allow create: if isSignedIn() &&
                     request.resource.data.teacherId == request.auth.uid &&
-                    request.resource.data.schoolId == userSchoolId();
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       // Chỉ BGH (admin/VP/hiệu trưởng) được xử lý (duyệt gia hạn / đánh dấu đã xử lý vướng mắc).
       allow update: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
       allow delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
@@ -150,7 +169,7 @@ service cloud.firestore {
       // request.resource.data.teacherId phải khớp người đang tạo — tránh giả mạo bài nộp đứng tên người khác.
       allow create: if isSignedIn() &&
                     request.resource.data.teacherId == request.auth.uid &&
-                    request.resource.data.schoolId == userSchoolId() &&
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) &&
                     (isTeacher() || isVicePrincipal() || isAdmin() || isPrincipal() || isDepartmentHead());
       allow update: if sameSchool(resource.data) &&
                     (request.auth.uid == resource.data.teacherId ||
@@ -164,7 +183,7 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if isSignedIn() && request.auth.uid == resource.data.userId;
-      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId();
+      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
       allow delete: if isSignedIn() &&
                     (request.auth.uid == resource.data.userId || (isAdmin() && sameSchool(resource.data)));
@@ -176,7 +195,7 @@ service cloud.firestore {
     match /schoolYears/{yearId} {
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId();
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
@@ -184,7 +203,7 @@ service cloud.firestore {
     match /documentTypes/{typeId} {
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId();
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
@@ -192,7 +211,7 @@ service cloud.firestore {
     match /documentCategories/{categoryId} {
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId();
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
@@ -200,7 +219,7 @@ service cloud.firestore {
     match /documentSubCategories/{subCategoryId} {
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId();
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
@@ -208,7 +227,7 @@ service cloud.firestore {
     match /departments/{departmentId} {
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId();
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
@@ -243,7 +262,7 @@ service cloud.firestore {
 
       // CREATE permissions based on category type
       allow create: if isSignedIn() &&
-        request.resource.data.schoolId == userSchoolId() && (
+        request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) && (
         // Public documents: admin/VP/Principal can upload
         (getRequestCategoryType() == 'public' && (isAdmin() || isVicePrincipal() || isPrincipal())) ||
 
@@ -271,7 +290,7 @@ service cloud.firestore {
                    isPrincipal() ||
                    isDepartmentHead());
 
-      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId();
+      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
 
       // Admin/VP/Principal/dept head can approve/reject
       allow update: if sameSchool(resource.data) &&
@@ -284,15 +303,21 @@ service cloud.firestore {
     match /documentPermissions/{permissionId} {
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId();
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
     // School Info (used by the AI chat assistant's schoolInfo tools)
     match /schoolInfo/{infoId} {
       allow read: if sameSchool(resource.data);
-      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId();
+      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update, delete: if sameSchool(resource.data);
+    }
+
+    // Monthly AI usage counters — written only by the server (Admin SDK bypasses
+    // rules), read-only here for the school's own dashboard + super-admin.
+    match /usageStats/{statId} {
+      allow read: if isSuperAdmin() || sameSchool(resource.data);
     }
   }
 }

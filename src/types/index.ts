@@ -4,16 +4,42 @@
 // modeled via the orthogonal `isSuperAdmin` flag below instead (see WhitelistEmail/User).
 export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'staff' | 'van_thu' | 'super_admin';
 
+// Billing plan (tenant-independent, managed by super-admin via /super-admin/plans —
+// numbers live in Firestore, NOT hardcoded, so pricing changes don't need a deploy).
+export interface Plan {
+  id: string;
+  name: string; // "Siêu rẻ", "Cơ bản", "Nâng cao"...
+  priceVnd: number; // đồng/tháng
+  promoPriceVnd?: number; // giá khuyến mãi những tháng đầu, nếu có
+  promoMonths?: number; // số tháng áp dụng promoPriceVnd
+  aiMessageLimit: number; // tin nhắn/tháng; -1 = không giới hạn
+  storageLimitBytes: number; // -1 = không giới hạn
+  isActive: boolean; // ẩn khỏi danh sách chọn khi tạo/sửa trường mới, không xóa gói đang có trường dùng
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // School (tenant) model
 export interface School {
   id: string;
   name: string;
   shortName?: string;
-  isActive: boolean;
+  isActive: boolean; // "ngắt/mở" — false blocks all data access for this school, not just cosmetic
   driveRootFolderId: string; // Root Google Drive folder for this school's files
+  planId: string | null; // references plans/{id}; null = chưa gán gói (chưa tính hạn mức)
+  storageUsedBytes: number; // running total, updated on every upload/delete
   createdBy: string; // super_admin uid
   createdAt: Date;
   updatedAt: Date;
+}
+
+// Monthly AI chat usage counter — one doc per school per calendar month
+// (doc id: `${schoolId}_${yyyy-MM}`), so counts reset naturally with no cron job.
+export interface UsageStat {
+  id: string;
+  schoolId: string;
+  month: string; // yyyy-MM
+  aiMessageCount: number;
 }
 
 // User model

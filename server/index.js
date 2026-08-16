@@ -66,6 +66,18 @@ async function verifyAuth(req, res, next) {
     req.schoolId = userData.schoolId || null;
     req.isSuperAdmin = userData.isSuperAdmin === true;
 
+    // "Ngắt/mở": Admin SDK bypasses firestore.rules, so this server must enforce
+    // the same schools/{id}.isActive check the rules already apply to direct
+    // Firestore access — otherwise a suspended school could still use the AI
+    // chat / upload endpoints. Super-admin is exempt (needs to manage schools
+    // regardless of any one school's billing state).
+    if (req.schoolId && !req.isSuperAdmin) {
+      const schoolSnap = await adminDb.collection('schools').doc(req.schoolId).get();
+      if (schoolSnap.exists && schoolSnap.data().isActive === false) {
+        return res.status(403).json({ error: 'school_suspended' });
+      }
+    }
+
     next();
   } catch (error) {
     return res.status(401).json({ error: 'invalid_token' });
@@ -535,13 +547,19 @@ app.post('/api/upload', verifyAuth, upload.single('file'), async (req, res) => {
     console.log(`🔓 Making file public: ${driveFile.id}`);
     const publicUrl = await makeFilePublic(driveFile.id);
 
+    const fileSize = parseInt(driveFile.size || '0');
+    // Best-effort usage counter — never fail the upload itself over this.
+    adminDb.collection('schools').doc(req.schoolId)
+      .update({ storageUsedBytes: admin.firestore.FieldValue.increment(fileSize) })
+      .catch(err => console.error('⚠️  Failed to update storageUsedBytes:', err.message));
+
     res.json({
       success: true,
       file: {
         id: driveFile.id,
         name: driveFile.name,
         mimeType: driveFile.mimeType,
-        size: parseInt(driveFile.size || '0'),
+        size: fileSize,
         webViewLink: publicUrl,
         webContentLink: driveFile.webContentLink,
         thumbnailLink: driveFile.thumbnailLink,
@@ -576,9 +594,19 @@ app.delete('/api/files/:fileId', verifyAuth, async (req, res) => {
       return res.status(403).json({ error: 'file_not_in_your_school' });
     }
 
+    // Need the size BEFORE deleting so storageUsedBytes can be decremented.
+    const meta = await drive.files.get({ fileId, fields: 'size' }).catch(() => null);
+    const fileSize = meta ? parseInt(meta.data.size || '0') : 0;
+
     await drive.files.delete({
       fileId: fileId,
     });
+
+    if (fileSize > 0) {
+      adminDb.collection('schools').doc(req.schoolId)
+        .update({ storageUsedBytes: admin.firestore.FieldValue.increment(-fileSize) })
+        .catch(err => console.error('⚠️  Failed to update storageUsedBytes:', err.message));
+    }
 
     res.json({
       success: true,
@@ -602,7 +630,7 @@ app.delete('/api/files/:fileId', verifyAuth, async (req, res) => {
  */
 app.post('/api/schools', verifyAuth, requireSuperAdmin, express.json(), async (req, res) => {
   try {
-    const { name, shortName } = req.body;
+    const { name, shortName, planId } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Missing required field: name' });
     }
@@ -615,6 +643,8 @@ app.post('/api/schools', verifyAuth, requireSuperAdmin, express.json(), async (r
       shortName: shortName ? shortName.trim() : null,
       isActive: true,
       driveRootFolderId,
+      planId: planId || null,
+      storageUsedBytes: 0,
       createdBy: req.uid,
       createdAt: now,
       updatedAt: now,
@@ -2426,6 +2456,16 @@ Khi giáo viên hỏi CÁCH DÙNG app (không phải hỏi dữ liệu cụ th�
 
     const answer = (parts.find(p => p.text)?.text || '').trim();
     if (!answer) return res.status(500).json({ error: 'empty' });
+
+    // Usage counter for billing — 1 count per user-initiated chat turn (not
+    // per Gemini call, so a multi-round function-calling exchange still only
+    // counts once). Doc id resets naturally every calendar month, no cron job.
+    // Soft limit only (per product decision) — never blocks sending, only
+    // feeds the usage dashard/warning banner.
+    const usageMonthKey = new Date().toISOString().slice(0, 7);
+    adminDb.collection('usageStats').doc(`${req.schoolId}_${usageMonthKey}`)
+      .set({ schoolId: req.schoolId, month: usageMonthKey, aiMessageCount: admin.firestore.FieldValue.increment(1) }, { merge: true })
+      .catch(err => console.error('⚠️  Failed to update aiMessageCount:', err.message));
 
     const responseBody = { success: true, answer };
     if (taskListForUI) responseBody.taskList = taskListForUI;

@@ -4,7 +4,8 @@ import { tenantCollection } from '../../lib/tenantQuery';
 import { useAuth } from '../../hooks/useAuth';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { QuickAction } from '../../components/dashboard/QuickAction';
-import { Users, Mail, ClipboardList, Award, FolderTree, Building2 } from 'lucide-react';
+import { UsagePanel } from '../../components/dashboard/UsagePanel';
+import { Users, Mail, ClipboardList, Award, FolderTree, Building2, Tag } from 'lucide-react';
 
 export const AdminDashboard = () => {
   const { user } = useAuth();
@@ -88,6 +89,8 @@ export const AdminDashboard = () => {
         />
       </div>
 
+      {user?.schoolId && <UsagePanel schoolId={user.schoolId} />}
+
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <QuickAction
@@ -114,6 +117,14 @@ export const AdminDashboard = () => {
             label="Quản lý trường"
             icon={Building2}
             path="/super-admin/schools"
+          />
+        )}
+
+        {user?.isSuperAdmin && (
+          <QuickAction
+            label="Quản lý gói"
+            icon={Tag}
+            path="/super-admin/plans"
           />
         )}
       </div>

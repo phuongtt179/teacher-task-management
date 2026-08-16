@@ -16,6 +16,7 @@ import {
     User,
     Table,
     Building2,
+    Tag,
   } from 'lucide-react';
   import { User as AppUser, UserRole } from '../types';
 
@@ -58,6 +59,13 @@ import {
       label: 'Quản lý trường',
       path: '/super-admin/schools',
       icon: Building2,
+      roles: [],
+      requiresSuperAdmin: true,
+    },
+    {
+      label: 'Quản lý gói',
+      path: '/super-admin/plans',
+      icon: Tag,
       roles: [],
       requiresSuperAdmin: true,
     },

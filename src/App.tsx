@@ -3,11 +3,13 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { LoginScreen } from './features/auth/LoginScreen';
 import { WhitelistChecker } from './features/auth/WhitelistChecker';
+import { SchoolSuspendedScreen } from './features/auth/SchoolSuspendedScreen';
 import { WhitelistScreen } from './features/admin/WhitelistScreen';
 import { AdminDashboard } from './features/admin/AdminDashboard';
 import UserManagementScreen from './features/admin/UserManagementScreen';
 import { DocumentTypesScreen } from './features/admin/DocumentTypesScreen';
 import { SchoolsScreen } from './features/admin/SchoolsScreen';
+import { PlansScreen } from './features/admin/PlansScreen';
 import { VPDashboard } from './features/vice-principal/VPDashboard';
 import { CreateTaskScreen } from './features/vice-principal/CreateTaskScreen';
 import { ImportTasksScreen } from './features/vice-principal/ImportTasksScreen';
@@ -87,7 +89,7 @@ const PlaceholderScreen = ({ title }: { title: string }) => (
 );
 
 function App() {
-  const { firebaseUser, user, isLoading, isWhitelisted } = useAuth();
+  const { firebaseUser, user, isLoading, isWhitelisted, suspendedSchoolName } = useAuth();
 
   // Initialize FCM
   useFCM();
@@ -138,6 +140,20 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="*" element={<WhitelistChecker />} />
+        </Routes>
+        <Toaster />
+      </BrowserRouter>
+    );
+  }
+
+  // Whitelisted, but their school has been suspended (isActive: false) — checked
+  // before any user doc / route rendering, since sameSchool() in firestore.rules
+  // would otherwise block virtually every read/write and look like random errors.
+  if (suspendedSchoolName !== null) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="*" element={<SchoolSuspendedScreen />} />
         </Routes>
         <Toaster />
       </BrowserRouter>
@@ -207,6 +223,16 @@ function App() {
             <ProtectedRoute requireSuperAdmin>
               <AppLayout>
                 <SchoolsScreen />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/super-admin/plans"
+          element={
+            <ProtectedRoute requireSuperAdmin>
+              <AppLayout>
+                <PlansScreen />
               </AppLayout>
             </ProtectedRoute>
           }

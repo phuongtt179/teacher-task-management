@@ -4,6 +4,7 @@ import { analyticsService } from '../../services/analyticsService';
 import { schoolYearService } from '../../services/schoolYearService';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { QuickAction } from '../../components/dashboard/QuickAction';
+import { UsagePanel } from '../../components/dashboard/UsagePanel';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SemesterFilter, SEMESTER_FILTER_LABELS } from '../../utils/semesterUtils';
 import { SchoolYear } from '../../types';
@@ -176,6 +177,8 @@ export const VPDashboard = () => {
           />
         </div>
       )}
+
+      {user?.schoolId && <UsagePanel schoolId={user.schoolId} />}
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
