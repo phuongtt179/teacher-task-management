@@ -7,16 +7,17 @@ import {
   getDocs,
   query,
   where,
-  orderBy,
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { tenantCollection } from '../lib/tenantQuery';
 import { notificationService } from './notificationService';
 import { TaskUpdate, TaskUpdateType } from '../types';
 
 // Chuyển dữ liệu Firestore -> TaskUpdate (đổi Timestamp sang Date)
 const mapTaskUpdate = (id: string, data: any): TaskUpdate => ({
   id,
+  schoolId: data.schoolId,
   taskId: data.taskId,
   taskTitle: data.taskTitle || '',
   teacherId: data.teacherId,
@@ -51,12 +52,13 @@ export const taskUpdateService = {
    * Giáo viên gửi 1 cập nhật giữa chừng (tiến độ / vướng mắc / xin gia hạn).
    * Ghi vào collection taskUpdates rồi báo cho người đã giao việc (task.createdBy).
    */
-  async createUpdate(input: CreateUpdateInput): Promise<string> {
+  async createUpdate(schoolId: string, input: CreateUpdateInput): Promise<string> {
     const taskSnap = await getDoc(doc(db, 'tasks', input.taskId));
     if (!taskSnap.exists()) throw new Error('Không tìm thấy công việc');
     const task = taskSnap.data();
 
     const data: any = {
+      schoolId,
       taskId: input.taskId,
       taskTitle: input.taskTitle || task.title || '',
       teacherId: input.teacherId,
@@ -105,7 +107,7 @@ export const taskUpdateService = {
         },
       };
       const n = notifByType[input.type];
-      await notificationService.createNotification(recipientId, n.type, n.title, n.message, {
+      await notificationService.createNotification(schoolId, recipientId, n.type, n.title, n.message, {
         taskId: input.taskId,
         taskTitle: data.taskTitle,
       });
@@ -115,8 +117,8 @@ export const taskUpdateService = {
   },
 
   /** Lấy các cập nhật của chính 1 giáo viên (mọi công việc), mới nhất trước */
-  async getUpdatesForTeacher(teacherId: string): Promise<TaskUpdate[]> {
-    const q = query(collection(db, 'taskUpdates'), where('teacherId', '==', teacherId));
+  async getUpdatesForTeacher(schoolId: string, teacherId: string): Promise<TaskUpdate[]> {
+    const q = query(tenantCollection('taskUpdates', schoolId), where('teacherId', '==', teacherId));
     const snap = await getDocs(q);
     return snap.docs
       .map((d) => mapTaskUpdate(d.id, d.data()))
@@ -124,9 +126,9 @@ export const taskUpdateService = {
   },
 
   /** Lấy các cập nhật của 1 giáo viên cho 1 công việc cụ thể */
-  async getUpdatesForTeacherTask(teacherId: string, taskId: string): Promise<TaskUpdate[]> {
+  async getUpdatesForTeacherTask(schoolId: string, teacherId: string, taskId: string): Promise<TaskUpdate[]> {
     const q = query(
-      collection(db, 'taskUpdates'),
+      tenantCollection('taskUpdates', schoolId),
       where('teacherId', '==', teacherId),
       where('taskId', '==', taskId)
     );
@@ -137,8 +139,8 @@ export const taskUpdateService = {
   },
 
   /** BGH: lấy toàn bộ cập nhật của 1 công việc (mọi giáo viên) */
-  async getUpdatesForTask(taskId: string): Promise<TaskUpdate[]> {
-    const q = query(collection(db, 'taskUpdates'), where('taskId', '==', taskId));
+  async getUpdatesForTask(schoolId: string, taskId: string): Promise<TaskUpdate[]> {
+    const q = query(tenantCollection('taskUpdates', schoolId), where('taskId', '==', taskId));
     const snap = await getDocs(q);
     return snap.docs
       .map((d) => mapTaskUpdate(d.id, d.data()))
@@ -146,8 +148,8 @@ export const taskUpdateService = {
   },
 
   /** BGH: các việc đang có yêu cầu chờ xử lý (blocker/extension còn 'open') — để hiện badge/nhắc */
-  async getPendingUpdates(): Promise<TaskUpdate[]> {
-    const q = query(collection(db, 'taskUpdates'), where('status', '==', 'open'));
+  async getPendingUpdates(schoolId: string): Promise<TaskUpdate[]> {
+    const q = query(tenantCollection('taskUpdates', schoolId), where('status', '==', 'open'));
     const snap = await getDocs(q);
     return snap.docs
       .map((d) => mapTaskUpdate(d.id, d.data()))
@@ -157,6 +159,7 @@ export const taskUpdateService = {
 
   /** BGH đánh dấu đã xử lý xong 1 vướng mắc HOẶC 1 đề xuất bổ sung người */
   async resolveBlocker(
+    schoolId: string,
     update: TaskUpdate,
     reviewedBy: string,
     reviewedByName: string,
@@ -171,6 +174,7 @@ export const taskUpdateService = {
     });
     const isHelp = update.type === 'help_request';
     await notificationService.createNotification(
+      schoolId,
       update.teacherId,
       isHelp ? 'task_help_request' : 'task_blocker',
       isHelp ? 'Đã xử lý đề xuất bổ sung người' : 'Vướng mắc đã được xử lý',
@@ -187,6 +191,7 @@ export const taskUpdateService = {
    * việc về 'assigned' nếu đang 'overdue', rồi báo giáo viên.
    */
   async reviewExtension(
+    schoolId: string,
     update: TaskUpdate,
     approve: boolean,
     reviewedBy: string,
@@ -226,6 +231,7 @@ export const taskUpdateService = {
       });
 
       await notificationService.createNotification(
+        schoolId,
         update.teacherId,
         'task_extension_approved',
         'Được chấp thuận gia hạn',
@@ -241,6 +247,7 @@ export const taskUpdateService = {
         reviewNote: reviewNote || '',
       });
       await notificationService.createNotification(
+        schoolId,
         update.teacherId,
         'task_extension_rejected',
         'Không được gia hạn',

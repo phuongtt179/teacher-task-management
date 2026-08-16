@@ -1,25 +1,40 @@
 import { useState, useEffect } from 'react';
-import { collection, addDoc, deleteDoc, doc, getDocs, query, orderBy } from 'firebase/firestore';
+import { deleteDoc, doc, getDocs, query, orderBy, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { tenantCollection } from '../../lib/tenantQuery';
 import { useAuth } from '../../hooks/useAuth';
-import { WhitelistEmail } from '../../types';
+import { UserRole, WhitelistEmail } from '../../types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Trash2, Plus, Mail } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+
+const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
+  { value: 'teacher', label: 'Giáo viên' },
+  { value: 'department_head', label: 'Tổ trưởng' },
+  { value: 'vice_principal', label: 'Hiệu phó' },
+  { value: 'principal', label: 'Hiệu trưởng' },
+  { value: 'staff', label: 'Nhân viên' },
+  { value: 'van_thu', label: 'Văn thư' },
+  { value: 'admin', label: 'Admin' },
+];
 
 export const WhitelistScreen = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [emails, setEmails] = useState<WhitelistEmail[]>([]);
   const [newEmail, setNewEmail] = useState('');
+  const [newRole, setNewRole] = useState<UserRole>('teacher');
   const [isLoading, setIsLoading] = useState(false);
+  const schoolId = user?.schoolId;
 
-  // Load whitelist
+  // Load whitelist for this school only
   const loadWhitelist = async () => {
+    if (!schoolId) return;
     try {
-      const q = query(collection(db, 'whitelist'), orderBy('addedAt', 'desc'));
+      const q = query(tenantCollection('whitelist', schoolId), orderBy('addedAt', 'desc'));
       const snapshot = await getDocs(q);
       const data = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -39,11 +54,12 @@ export const WhitelistScreen = () => {
 
   useEffect(() => {
     loadWhitelist();
-  }, []);
+  }, [schoolId]);
 
-  // Add email to whitelist
+  // Add email to whitelist — doc ID is the email itself (matches firestore.rules
+  // and userService.addToWhitelist's convention).
   const handleAddEmail = async () => {
-    if (!newEmail.trim()) return;
+    if (!newEmail.trim() || !schoolId) return;
 
     // Validate email
     if (!newEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
@@ -55,8 +71,10 @@ export const WhitelistScreen = () => {
       return;
     }
 
+    const emailLower = newEmail.toLowerCase();
+
     // Check duplicate
-    if (emails.some(e => e.email === newEmail.toLowerCase())) {
+    if (emails.some(e => e.email === emailLower)) {
       toast({
         variant: 'destructive',
         title: 'Email đã tồn tại',
@@ -67,10 +85,12 @@ export const WhitelistScreen = () => {
 
     setIsLoading(true);
     try {
-      await addDoc(collection(db, 'whitelist'), {
-        email: newEmail.toLowerCase(),
+      await setDoc(doc(db, 'whitelist', emailLower), {
+        email: emailLower,
+        schoolId,
+        role: newRole,
         addedBy: user?.email || 'admin',
-        addedAt: new Date(),
+        addedAt: Timestamp.now(),
       });
 
       toast({
@@ -92,7 +112,7 @@ export const WhitelistScreen = () => {
     }
   };
 
-  // Remove email from whitelist
+  // Remove email from whitelist (doc ID == id == email)
   const handleRemoveEmail = async (id: string, email: string) => {
     if (!confirm(`Xóa ${email} khỏi whitelist?`)) return;
 
@@ -132,6 +152,16 @@ export const WhitelistScreen = () => {
               onChange={(e) => setNewEmail(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddEmail()}
             />
+            <Select value={newRole} onValueChange={(v) => setNewRole(v as UserRole)}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLE_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button onClick={handleAddEmail} disabled={isLoading}>
               <Plus className="w-4 h-4 mr-2" />
               Thêm
@@ -157,7 +187,14 @@ export const WhitelistScreen = () => {
                     className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div>
-                      <p className="font-medium">{item.email}</p>
+                      <p className="font-medium">
+                        {item.email}
+                        {item.role && (
+                          <span className="ml-2 text-xs text-gray-500">
+                            ({ROLE_OPTIONS.find(o => o.value === item.role)?.label || item.role})
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-gray-500">
                         Thêm bởi {item.addedBy} • {item.addedAt?.toLocaleDateString('vi-VN')}
                       </p>

@@ -15,6 +15,7 @@ import { Plus, Edit, Trash2, FolderTree, RefreshCw, X } from 'lucide-react';
 export const DocumentTypesScreen = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const schoolId = user?.schoolId;
   const [types, setTypes] = useState<DocumentType[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,15 +38,17 @@ export const DocumentTypesScreen = () => {
   });
 
   useEffect(() => {
+    if (!schoolId) return;
     loadData();
-  }, []);
+  }, [schoolId]);
 
   const loadData = async () => {
+    if (!schoolId) return;
     try {
       setLoading(true);
       const [typesData, usersData] = await Promise.all([
-        documentTypeService.getAllDocumentTypes(),
-        userService.getAllUsers(),
+        documentTypeService.getAllDocumentTypes(schoolId),
+        userService.getAllUsers(schoolId),
       ]);
       setTypes(typesData);
       setAllUsers(usersData);
@@ -62,11 +65,11 @@ export const DocumentTypesScreen = () => {
   };
 
   const handleInitializeDefaults = async () => {
-    if (!user) return;
+    if (!user || !schoolId) return;
 
     try {
       setIsInitializing(true);
-      await documentTypeService.initializeDefaultTypes(user.uid);
+      await documentTypeService.initializeDefaultTypes(schoolId, user.uid);
       toast({
         title: 'Thành công',
         description: 'Đã khởi tạo 4 loại hồ sơ mặc định. Vui lòng cấu hình người được phép upload.',
@@ -121,7 +124,7 @@ export const DocumentTypesScreen = () => {
 
   const handleSubmitCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !schoolId) return;
 
     // Validation
     if (formData.viewPermissionType === 'specific_users' && formData.allowedViewerUserIds.length === 0) {
@@ -143,7 +146,7 @@ export const DocumentTypesScreen = () => {
     }
 
     try {
-      await documentTypeService.createDocumentType({
+      await documentTypeService.createDocumentType(schoolId, {
         ...formData,
         createdBy: user.uid,
       });

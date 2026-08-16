@@ -34,6 +34,7 @@ import {
   Crown,
   FileText
 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { toast as globalToast } from '@/components/ui/use-toast';  // Import toast directly
 import { format } from 'date-fns';
@@ -59,13 +60,16 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
   const [currentDepartment, setCurrentDepartment] = useState<Department | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+  const schoolId = currentUser?.schoolId;
 
   useEffect(() => {
+    if (!schoolId) return;
     loadDepartments();
-  }, []);
+  }, [schoolId]);
 
   useEffect(() => {
-    if (user) {
+    if (user && schoolId) {
       setDisplayName(user.displayName);
       setRole(user.role);
       setIsActive(user.isActive !== false);
@@ -73,11 +77,12 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
       loadDepartments(); // Reload departments to get fresh data including headTeacherId
       loadUserDepartment();
     }
-  }, [user]);
+  }, [user, schoolId]);
 
   const loadDepartments = async () => {
+    if (!schoolId) return;
     try {
-      const depts = await departmentService.getAllDepartments();
+      const depts = await departmentService.getAllDepartments(schoolId);
       setDepartments(depts);
     } catch (error) {
       console.error('Error loading departments:', error);
@@ -85,9 +90,9 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
   };
 
   const loadUserDepartment = async () => {
-    if (!user) return;
+    if (!user || !schoolId) return;
     try {
-      const dept = await departmentService.getDepartmentByUserId(user.uid);
+      const dept = await departmentService.getDepartmentByUserId(schoolId, user.uid);
       setCurrentDepartment(dept);
       setSelectedDepartmentId(dept?.id || '');
     } catch (error) {
@@ -350,20 +355,24 @@ export default function UserManagementScreen() {
   });
 
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+  const schoolId = currentUser?.schoolId;
 
   useEffect(() => {
+    if (!schoolId) return;
     loadUsers();
     loadStats();
-  }, []);
+  }, [schoolId]);
 
   useEffect(() => {
     filterUsers();
   }, [users, searchQuery, roleFilter]);
 
   const loadUsers = async () => {
+    if (!schoolId) return;
     try {
       setLoading(true);
-      const data = await userService.getAllUsers();
+      const data = await userService.getAllUsers(schoolId);
       setUsers(data);
     } catch (error) {
       toast({
@@ -377,8 +386,9 @@ export default function UserManagementScreen() {
   };
 
   const loadStats = async () => {
+    if (!schoolId) return;
     try {
-      const data = await userService.getUserStats();
+      const data = await userService.getUserStats(schoolId);
       setStats(data);
     } catch (error) {
       console.error('Error loading stats:', error);

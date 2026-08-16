@@ -23,12 +23,14 @@ export function DocumentApprovalsScreen() {
   const [bulkProcessing, setBulkProcessing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
+  const schoolId = user?.schoolId;
+
   useEffect(() => {
     loadPendingItems();
-  }, [user]);
+  }, [user, schoolId]);
 
   const loadPendingItems = async () => {
-    if (!user) return;
+    if (!user || !schoolId) return;
     try {
       setLoading(true);
       setSelectedDocIds(new Set());
@@ -36,21 +38,21 @@ export function DocumentApprovalsScreen() {
 
       let departmentId: string | undefined;
       if (user.role === 'teacher' || user.role === 'department_head') {
-        const dept = await departmentService.getDepartmentByUserId(user.uid);
+        const dept = await departmentService.getDepartmentByUserId(schoolId, user.uid);
         departmentId = dept?.id;
       }
 
       if (departmentId) {
         const [docs, reqs] = await Promise.all([
-          documentService.getPendingDocumentsByDepartment(departmentId),
-          fileRequestService.getPendingRequestsByDepartment(departmentId),
+          documentService.getPendingDocumentsByDepartment(schoolId, departmentId),
+          fileRequestService.getPendingRequestsByDepartment(schoolId, departmentId),
         ]);
         setPendingDocuments(docs);
         setPendingRequests(reqs);
       } else {
         const [docs, reqs] = await Promise.all([
-          documentService.getDocuments({ status: 'pending' }),
-          fileRequestService.getRequests({ status: 'pending' }),
+          documentService.getDocuments(schoolId, { status: 'pending' }),
+          fileRequestService.getRequests(schoolId, { status: 'pending' }),
         ]);
         setPendingDocuments(docs);
         setPendingRequests(reqs);

@@ -642,7 +642,7 @@ export function ChatScreen() {
   // Ghi trực tiếp qua Firestore client SDK (không qua endpoint Admin SDK) — firestore.rules đã
   // cho phép admin/VP/hiệu trưởng tạo task, đúng cơ chế UI cũ (CreateTaskScreen) đang dùng.
   const handleCreateTask = async (candidate: ChatCreateTaskCandidate) => {
-    if (!user) return;
+    if (!user || !user.schoolId) return;
     const key = createTaskKey(candidate);
     setCreatingTaskKey(key);
     try {
@@ -650,6 +650,7 @@ export function ChatScreen() {
       const deadline2 = new Date(deadline);
       deadline2.setDate(deadline2.getDate() + 5);
       await taskService.createTask({
+        schoolId: user.schoolId,
         schoolYearId: candidate.schoolYearId,
         semester: candidate.semester === 'HK1' || candidate.semester === 'HK2' ? candidate.semester : undefined,
         title: candidate.title,
@@ -677,7 +678,7 @@ export function ChatScreen() {
   const editAssigneesKey = (c: ChatEditTaskAssigneesCandidate) => `${c.taskId}|${c.afterUids.join(',')}`;
 
   const handleEditTaskAssignees = async (candidate: ChatEditTaskAssigneesCandidate) => {
-    if (!user) return;
+    if (!user || !user.schoolId) return;
     const key = editAssigneesKey(candidate);
     setEditingAssigneesKey(key);
     try {
@@ -687,7 +688,7 @@ export function ChatScreen() {
       });
       const newlyAddedUids = candidate.afterUids.filter(uid => !candidate.beforeUids.includes(uid));
       if (newlyAddedUids.length > 0) {
-        await notificationService.notifyTaskAssigned(newlyAddedUids, candidate.taskId, candidate.taskTitle, user.displayName);
+        await notificationService.notifyTaskAssigned(user.schoolId, newlyAddedUids, candidate.taskId, candidate.taskTitle, user.displayName);
       }
       setEditedAssigneesKeys(prev => new Set(prev).add(key));
       toast({ title: 'Đã cập nhật phân công' });
@@ -703,12 +704,12 @@ export function ChatScreen() {
   const [parseTasksSemester, setParseTasksSemester] = useState<'HK1' | 'HK2' | undefined>(undefined);
 
   const analyzeTasksFromText = async () => {
-    if (!parseTasksText.trim() || !user) return;
+    if (!parseTasksText.trim() || !user || !user.schoolId) return;
     setIsAnalyzingTasks(true);
     try {
       const [allUsers, activeYear] = await Promise.all([
-        userService.getAllUsers(),
-        schoolYearService.getActiveSchoolYear(),
+        userService.getAllUsers(user.schoolId),
+        schoolYearService.getActiveSchoolYear(user.schoolId),
       ]);
       if (!activeYear) throw new Error('Chưa có năm học nào đang hoạt động');
       setParseTasksSchoolYearId(activeYear.id);
@@ -771,13 +772,14 @@ export function ChatScreen() {
   };
 
   const createOneParsedTask = async (card: ParsedTaskCard) => {
-    if (!user || !parseTasksSchoolYearId || card.assigneeUids.length === 0) return;
+    if (!user || !user.schoolId || !parseTasksSchoolYearId || card.assigneeUids.length === 0) return;
     setCreatingParsedTaskId(card.localId);
     try {
       const deadline = card.deadline ? new Date(`${card.deadline}T23:59:59`) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       const deadline2 = new Date(deadline);
       deadline2.setDate(deadline2.getDate() + 5);
       await taskService.createTask({
+        schoolId: user.schoolId,
         schoolYearId: parseTasksSchoolYearId,
         semester: parseTasksSemester,
         title: card.title,
@@ -813,10 +815,11 @@ export function ChatScreen() {
   };
 
   const handleGradeSubmission = async (candidate: ChatGradeSubmissionCandidate) => {
-    if (!user) return;
+    if (!user || !user.schoolId) return;
     setGradingSubmissionId(candidate.submissionId);
     try {
       await taskService.scoreSubmission(
+        user.schoolId,
         candidate.submissionId,
         candidate.newScore,
         candidate.newFeedback,
@@ -836,11 +839,11 @@ export function ChatScreen() {
   const reportKey = (c: ChatReportUpdateCandidate) => `${c.taskId}|${c.type}|${c.note}|${c.requestedDeadline || ''}`;
 
   const handleSendReport = async (c: ChatReportUpdateCandidate) => {
-    if (!user) return;
+    if (!user || !user.schoolId) return;
     const key = reportKey(c);
     setSendingReportKey(key);
     try {
-      await taskUpdateService.createUpdate({
+      await taskUpdateService.createUpdate(user.schoolId, {
         taskId: c.taskId,
         taskTitle: c.taskTitle,
         teacherId: user.uid,

@@ -1,25 +1,24 @@
 import {
-  collection,
-  query,
-  getDocs,
   doc,
   getDoc,
+  getDocs,
   updateDoc,
   deleteDoc,
   where,
   orderBy,
+  query,
   Timestamp,
   setDoc
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { tenantCollection } from '@/lib/tenantQuery';
 import { User, UserRole } from '@/types';
 
 export const userService = {
-  // Get all users
-  async getAllUsers(): Promise<User[]> {
+  // Get all users in a school
+  async getAllUsers(schoolId: string): Promise<User[]> {
     try {
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, orderBy('createdAt', 'desc'));
+      const q = query(tenantCollection('users', schoolId), orderBy('createdAt', 'desc'));
       const snapshot = await getDocs(q);
 
       return snapshot.docs.map(doc => {
@@ -30,6 +29,8 @@ export const userService = {
           displayName: data.displayName || '',
           photoURL: data.photoURL,
           role: data.role || 'teacher',
+          schoolId: data.schoolId ?? null,
+          isSuperAdmin: data.isSuperAdmin === true,
           phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -43,12 +44,11 @@ export const userService = {
     }
   },
 
-  // Get users by role
-  async getUsersByRole(role: UserRole): Promise<User[]> {
+  // Get users by role within a school
+  async getUsersByRole(schoolId: string, role: UserRole): Promise<User[]> {
     try {
-      const usersRef = collection(db, 'users');
       const q = query(
-        usersRef,
+        tenantCollection('users', schoolId),
         where('role', '==', role),
         orderBy('createdAt', 'desc')
       );
@@ -62,6 +62,8 @@ export const userService = {
           displayName: data.displayName || '',
           photoURL: data.photoURL,
           role: data.role || 'teacher',
+          schoolId: data.schoolId ?? null,
+          isSuperAdmin: data.isSuperAdmin === true,
           phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -92,6 +94,8 @@ export const userService = {
         displayName: data.displayName || '',
         photoURL: data.photoURL,
         role: data.role || 'teacher',
+        schoolId: data.schoolId ?? null,
+        isSuperAdmin: data.isSuperAdmin === true,
         phoneNumber: data.phoneNumber,
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -211,7 +215,7 @@ export const userService = {
   },
 
   // Get user statistics
-  async getUserStats(): Promise<{
+  async getUserStats(schoolId: string): Promise<{
     total: number;
     admins: number;
     vicePrincipals: number;
@@ -221,7 +225,7 @@ export const userService = {
     inactive: number;
   }> {
     try {
-      const users = await this.getAllUsers();
+      const users = await this.getAllUsers(schoolId);
 
       return {
         total: users.length,
@@ -238,10 +242,11 @@ export const userService = {
     }
   },
 
-  // Add user to whitelist
+  // Add user to whitelist (grants access to a specific school)
   async addToWhitelist(
     email: string,
     role: UserRole,
+    schoolId: string,
     addedBy: string
   ): Promise<void> {
     try {
@@ -249,6 +254,7 @@ export const userService = {
       await setDoc(whitelistRef, {
         email,
         role,
+        schoolId,
         addedAt: Timestamp.now(),
         addedBy
       });

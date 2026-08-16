@@ -16,12 +16,15 @@ export const RankingsScreen = () => {
   const [semesterFilter, setSemesterFilter] = useState<SemesterFilter>('all');
   const [isLoading, setIsLoading] = useState(true);
 
+  const schoolId = user?.schoolId;
+
   useEffect(() => {
+    if (!schoolId) return;
     const loadRankings = async () => {
       try {
         setIsLoading(true);
         const semesterParam = semesterFilter === 'all' || semesterFilter === 'unassigned' ? 'all' : semesterFilter;
-        const data = await rankingService.getRankings(period, rankBy, semesterParam, user?.uid, user?.role);
+        const data = await rankingService.getRankings(schoolId, period, rankBy, semesterParam, user?.uid, user?.role);
         setRankings(data);
       } catch (error) {
         console.error('Error loading rankings:', error);
@@ -31,7 +34,7 @@ export const RankingsScreen = () => {
     };
 
     loadRankings();
-  }, [period, rankBy, semesterFilter, user]);
+  }, [schoolId, period, rankBy, semesterFilter, user]);
 
   const getMedalIcon = (rank: number) => {
     switch (rank) {

@@ -1,38 +1,49 @@
 import { useEffect } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../lib/firebase';
 import { useAuthStore } from '../stores/authStore';
-import { User } from '../types';
+import { User, WhitelistEmail } from '../types';
 
 export const useAuth = () => {
-  const { 
-    firebaseUser, 
-    user, 
-    isLoading, 
+  const {
+    firebaseUser,
+    user,
+    isLoading,
     isWhitelisted,
-    setFirebaseUser, 
-    setUser, 
+    setFirebaseUser,
+    setUser,
     setIsLoading,
     setIsWhitelisted,
-    logout: clearAuth 
+    logout: clearAuth
   } = useAuthStore();
 
-  // Check if email is whitelisted
-  const checkWhitelist = async (email: string): Promise<boolean> => {
+  // Whitelist doc ID is the email itself — a direct get(), not a query, since a
+  // brand-new user has no users/{uid} doc yet (so schoolId isn't known until
+  // this lookup resolves it).
+  const checkWhitelist = async (email: string): Promise<WhitelistEmail | null> => {
     try {
-      const whitelistRef = collection(db, 'whitelist');
-      const q = query(whitelistRef, where('email', '==', email));
-      const snapshot = await getDocs(q);
-      return !snapshot.empty;
+      const snap = await getDoc(doc(db, 'whitelist', email));
+      if (!snap.exists()) return null;
+      const data = snap.data();
+      return {
+        id: snap.id,
+        email: data.email,
+        schoolId: data.schoolId,
+        role: data.role,
+        addedBy: data.addedBy,
+        addedAt: data.addedAt?.toDate ? data.addedAt.toDate() : data.addedAt,
+      };
     } catch (error) {
       console.error('Error checking whitelist:', error);
-      return false;
+      return null;
     }
   };
 
-  // Get or create user document
-  const getUserDocument = async (uid: string, email: string): Promise<User | null> => {
+  // Get or create user document. `whitelistEntry` supplies role/schoolId when the
+  // user doc doesn't exist yet — the account is provisioned into whichever school
+  // its matching whitelist entry grants access to, never a school the caller chooses.
+  const getUserDocument = async (uid: string, email: string, whitelistEntry: WhitelistEmail): Promise<User | null> => {
     try {
       const userRef = doc(db, 'users', uid);
       const userSnap = await getDoc(userRef);
@@ -45,18 +56,22 @@ export const useAuth = () => {
           displayName: data.displayName,
           photoURL: data.photoURL,
           role: data.role,
+          schoolId: data.schoolId ?? null,
+          isSuperAdmin: data.isSuperAdmin === true,
           phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate(),
           updatedAt: data.updatedAt?.toDate(),
         } as User;
       }
 
-      // Create new user document (default role: teacher)
+      // Create new user document — role/schoolId come from the whitelist entry
+      // that matched this email (not hardcoded, and not chosen by the user).
       const newUser: User = {
         uid,
         email,
         displayName: email.split('@')[0],
-        role: 'teacher',
+        role: whitelistEntry.role,
+        schoolId: whitelistEntry.schoolId,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -82,16 +97,16 @@ export const useAuth = () => {
       const email = result.user.email!;
 
       // Check whitelist
-      const whitelisted = await checkWhitelist(email);
-      setIsWhitelisted(whitelisted);
+      const whitelistEntry = await checkWhitelist(email);
+      setIsWhitelisted(whitelistEntry !== null);
 
-      if (!whitelisted) {
+      if (!whitelistEntry) {
         await signOut(auth);
         throw new Error('Email không có trong danh sách cho phép');
       }
 
       // Get user document
-      const userData = await getUserDocument(result.user.uid, email);
+      const userData = await getUserDocument(result.user.uid, email, whitelistEntry);
       if (userData) {
         setUser(userData);
       }
@@ -121,11 +136,11 @@ export const useAuth = () => {
       setFirebaseUser(firebaseUser);
       
       if (firebaseUser?.email) {
-        const whitelisted = await checkWhitelist(firebaseUser.email);
-        setIsWhitelisted(whitelisted);
+        const whitelistEntry = await checkWhitelist(firebaseUser.email);
+        setIsWhitelisted(whitelistEntry !== null);
 
-        if (whitelisted) {
-          const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email);
+        if (whitelistEntry) {
+          const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
           setUser(userData);
         } else {
           setUser(null);

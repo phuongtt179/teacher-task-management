@@ -1,17 +1,22 @@
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { tenantCollection } from '@/lib/tenantQuery';
 import { notificationService } from './notificationService';
 import { taskService } from './taskService';
 
 class DeadlineCheckerService {
   private intervalId: number | null = null;
+  private schoolId: string | null = null;
 
   /**
    * Start checking for upcoming deadlines
    * Check every 30 minutes
    */
-  startChecking(): void {
-    if (this.intervalId) return; // Already running
+  startChecking(schoolId: string): void {
+    if (this.intervalId && this.schoolId === schoolId) return; // Already running for this school
+
+    // Restart if school changed
+    this.stopChecking();
+    this.schoolId = schoolId;
 
     // Check immediately
     this.checkDeadlines();
@@ -27,17 +32,20 @@ class DeadlineCheckerService {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.schoolId = null;
   }
 
   private async checkDeadlines(): Promise<void> {
+    const schoolId = this.schoolId;
+    if (!schoolId) return;
+
     try {
       const now = new Date();
       const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
       // Query tasks with deadline in next 24 hours
-      const tasksRef = collection(db, 'tasks');
       const q = query(
-        tasksRef,
+        tenantCollection('tasks', schoolId),
         where('deadline', '>', Timestamp.fromDate(now)),
         where('deadline', '<', Timestamp.fromDate(in24Hours)),
         where('status', 'in', ['assigned', 'in_progress'])
@@ -55,7 +63,7 @@ class DeadlineCheckerService {
         };
 
         // Get submissions for this task
-        const submissions = await taskService.getSubmissionsForTask(task.id);
+        const submissions = await taskService.getSubmissionsForTask(schoolId, task.id);
         const submittedTeacherIds = submissions.map(s => s.teacherId);
 
         // Find teachers who haven't submitted
@@ -69,6 +77,7 @@ class DeadlineCheckerService {
         // Send reminder to each teacher who hasn't submitted
         for (const teacherId of teachersNotSubmitted) {
           await notificationService.notifyDeadline(
+            schoolId,
             teacherId,
             task.id,
             task.title,

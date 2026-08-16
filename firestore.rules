@@ -1,150 +1,215 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
+    // ==================== HELPERS ====================
+
     function isSignedIn() {
       return request.auth != null;
     }
 
+    // Single shared accessor for the caller's own user doc — every role/tenant
+    // helper below reads through this instead of doing its own get().
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Orthogonal platform-admin capability. Independent of `role` — a school's own
+    // admin can also carry this flag (see users/{userId} docs), so this is checked
+    // separately from isAdmin() everywhere it matters.
+    function isSuperAdmin() {
+      return isSignedIn() && userData().isSuperAdmin == true;
+    }
+
+    function userSchoolId() {
+      return isSignedIn() ? userData().schoolId : null;
+    }
+
+    // Core tenant guard: does this document belong to the caller's own school?
+    function sameSchool(data) {
+      return isSignedIn() && userSchoolId() != null && data.schoolId == userSchoolId();
+    }
+
     function isAdmin() {
-      return isSignedIn() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return isSignedIn() && userData().role == 'admin';
     }
 
     function isPrincipal() {
-      return isSignedIn() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'principal';
+      return isSignedIn() && userData().role == 'principal';
     }
 
     function isVicePrincipal() {
-      return isSignedIn() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vice_principal';
+      return isSignedIn() && userData().role == 'vice_principal';
     }
 
     function isDepartmentHead() {
-      return isSignedIn() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'department_head';
+      return isSignedIn() && userData().role == 'department_head';
     }
 
     function isTeacher() {
-      return isSignedIn() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+      return isSignedIn() && userData().role == 'teacher';
     }
 
     function isStaff() {
-      return isSignedIn() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff';
+      return isSignedIn() && userData().role == 'staff';
     }
 
     function isVanThu() {
-      return isSignedIn() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'van_thu';
+      return isSignedIn() && userData().role == 'van_thu';
     }
 
-    // Whitelist collection
+    // ==================== SCHOOLS (tenants) ====================
+
+    match /schools/{schoolId} {
+      allow read: if isSuperAdmin() || userSchoolId() == schoolId;
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ==================== WHITELIST ====================
+    // Doc ID MUST equal the email it grants access to (enforced in `create` below).
+
     match /whitelist/{email} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      // Self-lookup at login time, before the caller has any users/{uid} doc yet
+      // (so schoolId isn't known — gate on the auth token's own email instead).
+      allow get: if isSignedIn() &&
+                 (request.auth.token.email == email || isSuperAdmin() || sameSchool(resource.data));
+      allow list: if isSuperAdmin() || sameSchool(resource.data);
+      allow create: if isSignedIn() && email == request.resource.data.email &&
+                    (isSuperAdmin() || (isAdmin() && request.resource.data.schoolId == userSchoolId()));
+      allow update, delete: if isSuperAdmin() || (isAdmin() && sameSchool(resource.data));
     }
 
-    // App-wide feature flags (e.g. chat UI beta rollout)
+    // App-wide feature flags (e.g. chat UI beta rollout) — intentionally global,
+    // not tenant-scoped.
     match /config/{configId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isSuperAdmin();
     }
 
-    // Users collection
+    // ==================== USERS ====================
+
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      // Self-update allowed but cannot change own role; admin can change anything
-      allow update: if isSignedIn() && (
-        isAdmin() ||
-        (request.auth.uid == userId &&
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
-      );
-      allow delete: if isAdmin();
+      allow read: if isSuperAdmin() || sameSchool(resource.data);
+
+      // A user doc can only ever be created by the person it belongs to (fixes a
+      // prior bug where any signed-in user could create/overwrite any other uid's doc).
+      allow create: if isSignedIn() && request.auth.uid == userId &&
+                    request.resource.data.schoolId is string;
+
+      // Self-update allowed but cannot touch role/schoolId/isSuperAdmin.
+      // School admin can update anyone in their own school but cannot move them to
+      // another school. Super-admin is unrestricted.
+      allow update: if isSuperAdmin() ||
+                    (isAdmin() && sameSchool(resource.data) &&
+                     request.resource.data.schoolId == resource.data.schoolId) ||
+                    (request.auth.uid == userId &&
+                     !request.resource.data.diff(resource.data).affectedKeys()
+                       .hasAny(['role', 'schoolId', 'isSuperAdmin']));
+
+      allow delete: if isSuperAdmin() || (isAdmin() && sameSchool(resource.data));
     }
 
-    // Tasks collection
+    // ==================== TASKS ====================
+
     match /tasks/{taskId} {
-      allow read: if isSignedIn();
+      allow read: if sameSchool(resource.data);
+
       // Văn thư chỉ được tạo (chuyển) công việc, không được sửa/xóa sau đó — xem update/delete bên dưới.
-      allow create: if isVicePrincipal() || isAdmin() || isPrincipal() || isVanThu();
+      allow create: if (isVicePrincipal() || isAdmin() || isPrincipal() || isVanThu()) &&
+                    request.resource.data.schoolId == userSchoolId();
+
       // VP/Admin/Principal: full update. Teachers/dept heads: only update tasks assigned to them, only status+updatedAt fields
-      allow update: if isVicePrincipal() || isAdmin() || isPrincipal() ||
-                    (isSignedIn() &&
-                     (isTeacher() || isDepartmentHead()) &&
-                     resource.data.assignedTo.hasAny([request.auth.uid]) &&
-                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
-      allow delete: if isVicePrincipal() || isAdmin() || isPrincipal();
+      allow update: if (
+                      (isVicePrincipal() || isAdmin() || isPrincipal()) && sameSchool(resource.data)
+                    ) || (
+                      (isTeacher() || isDepartmentHead()) &&
+                      sameSchool(resource.data) &&
+                      resource.data.assignedTo.hasAny([request.auth.uid]) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+                    );
+
+      allow delete: if (isVicePrincipal() || isAdmin() || isPrincipal()) && sameSchool(resource.data);
     }
 
-    // Task Updates (báo tiến độ / báo vướng mắc / xin gia hạn giữa chừng)
+    // ==================== TASK UPDATES (báo tiến độ / báo vướng mắc / xin gia hạn) ====================
+
     match /taskUpdates/{updateId} {
-      allow read: if isSignedIn();
+      allow read: if sameSchool(resource.data);
       // Giáo viên chỉ tạo cập nhật ĐỨNG TÊN CHÍNH MÌNH — tránh giả mạo báo cáo đứng tên người khác.
       allow create: if isSignedIn() &&
-                    request.resource.data.teacherId == request.auth.uid;
+                    request.resource.data.teacherId == request.auth.uid &&
+                    request.resource.data.schoolId == userSchoolId();
       // Chỉ BGH (admin/VP/hiệu trưởng) được xử lý (duyệt gia hạn / đánh dấu đã xử lý vướng mắc).
-      allow update: if isAdmin() || isVicePrincipal() || isPrincipal();
-      allow delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow update: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
+      allow delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
-    // Submissions collection (top-level, not nested)
+    // ==================== SUBMISSIONS ====================
+
     match /submissions/{submissionId} {
-      allow read: if isSignedIn();
+      allow read: if sameSchool(resource.data);
       // request.resource.data.teacherId phải khớp người đang tạo — tránh giả mạo bài nộp đứng tên người khác.
       allow create: if isSignedIn() &&
                     request.resource.data.teacherId == request.auth.uid &&
+                    request.resource.data.schoolId == userSchoolId() &&
                     (isTeacher() || isVicePrincipal() || isAdmin() || isPrincipal() || isDepartmentHead());
-      allow update: if isSignedIn() &&
+      allow update: if sameSchool(resource.data) &&
                     (request.auth.uid == resource.data.teacherId ||
                      isVicePrincipal() ||
                      isAdmin() ||
                      isPrincipal());
-      allow delete: if isVicePrincipal() || isAdmin() || isPrincipal();
+      allow delete: if (isVicePrincipal() || isAdmin() || isPrincipal()) && sameSchool(resource.data);
     }
 
-    // Notifications
+    // ==================== NOTIFICATIONS ====================
+
     match /notifications/{notificationId} {
       allow read: if isSignedIn() && request.auth.uid == resource.data.userId;
-      allow create: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId();
       allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
       allow delete: if isSignedIn() &&
-                    (request.auth.uid == resource.data.userId || isAdmin());
+                    (request.auth.uid == resource.data.userId || (isAdmin() && sameSchool(resource.data)));
     }
 
     // ==================== DOCUMENT MANAGEMENT ====================
 
     // School Years
     match /schoolYears/{yearId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow read: if sameSchool(resource.data);
+      allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
+                    request.resource.data.schoolId == userSchoolId();
+      allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
     // Document Types
     match /documentTypes/{typeId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow read: if sameSchool(resource.data);
+      allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
+                    request.resource.data.schoolId == userSchoolId();
+      allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
     // Document Categories
     match /documentCategories/{categoryId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow read: if sameSchool(resource.data);
+      allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
+                    request.resource.data.schoolId == userSchoolId();
+      allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
     // Document Sub-Categories
     match /documentSubCategories/{subCategoryId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow read: if sameSchool(resource.data);
+      allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
+                    request.resource.data.schoolId == userSchoolId();
+      allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
     // Departments
     match /departments/{departmentId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow read: if sameSchool(resource.data);
+      allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
+                    request.resource.data.schoolId == userSchoolId();
+      allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
     // Documents (file metadata)
@@ -174,11 +239,11 @@ service cloud.firestore {
                get(/databases/$(database)/documents/departments/$(deptId)).data.memberIds.hasAny([request.auth.uid]);
       }
 
-      // READ permissions: all signed-in users
-      allow read: if isSignedIn();
+      allow read: if sameSchool(resource.data);
 
       // CREATE permissions based on category type
-      allow create: if isSignedIn() && (
+      allow create: if isSignedIn() &&
+        request.resource.data.schoolId == userSchoolId() && (
         // Public documents: admin/VP/Principal can upload
         (getRequestCategoryType() == 'public' && (isAdmin() || isVicePrincipal() || isPrincipal())) ||
 
@@ -188,37 +253,46 @@ service cloud.firestore {
       );
 
       // UPDATE permissions: admin/VP/Principal, or the uploader editing their own document
-      allow update: if isAdmin() || isVicePrincipal() || isPrincipal() ||
-                    (isSignedIn() && resource.data.uploadedBy == request.auth.uid);
+      allow update: if sameSchool(resource.data) &&
+                    (isAdmin() || isVicePrincipal() || isPrincipal() ||
+                     resource.data.uploadedBy == request.auth.uid);
 
       // DELETE permissions: admin, VP, or Principal
-      allow delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
     // File Requests (delete/edit requests)
     match /fileRequests/{requestId} {
-      // Users can read their own requests, or admin/vp/principal/dept head can read all
-      allow read: if isSignedIn() &&
+      // Users can read their own requests, or admin/vp/principal/dept head can read all (same school only)
+      allow read: if sameSchool(resource.data) &&
                   (resource.data.requestedBy == request.auth.uid ||
                    isAdmin() ||
                    isVicePrincipal() ||
                    isPrincipal() ||
                    isDepartmentHead());
 
-      // Anyone can create requests
-      allow create: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId();
 
       // Admin/VP/Principal/dept head can approve/reject
-      allow update: if isAdmin() || isVicePrincipal() || isPrincipal() || isDepartmentHead();
+      allow update: if sameSchool(resource.data) &&
+                    (isAdmin() || isVicePrincipal() || isPrincipal() || isDepartmentHead());
 
-      // Only admin can delete
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() && sameSchool(resource.data);
     }
 
     // Document Permissions
     match /documentPermissions/{permissionId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin() || isVicePrincipal() || isPrincipal();
+      allow read: if sameSchool(resource.data);
+      allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
+                    request.resource.data.schoolId == userSchoolId();
+      allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
+    }
+
+    // School Info (used by the AI chat assistant's schoolInfo tools)
+    match /schoolInfo/{infoId} {
+      allow read: if sameSchool(resource.data);
+      allow create: if isSignedIn() && request.resource.data.schoolId == userSchoolId();
+      allow update, delete: if sameSchool(resource.data);
     }
   }
 }

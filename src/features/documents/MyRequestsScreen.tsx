@@ -15,11 +15,11 @@ export function MyRequestsScreen() {
   }, [user]);
 
   const loadMyRequests = async () => {
-    if (!user) return;
+    if (!user || !user.schoolId) return;
 
     try {
       setLoading(true);
-      const reqs = await fileRequestService.getRequests({
+      const reqs = await fileRequestService.getRequests(user.schoolId, {
         requestedBy: user.uid,
       });
       setRequests(reqs);

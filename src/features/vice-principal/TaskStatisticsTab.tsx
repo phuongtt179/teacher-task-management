@@ -31,12 +31,12 @@ export const TaskStatisticsTab = () => {
   }, [tasks, searchQuery, selectedMonth]);
 
   const loadTasks = async () => {
-    if (!user) return;
+    if (!user || !user.schoolId) return;
 
     try {
       setIsLoading(true);
       setError(null);
-      const allTasks = await taskService.getTasksByCreator(user.uid);
+      const allTasks = await taskService.getTasksByCreator(user.schoolId, user.uid);
       setTasks(allTasks);
     } catch (error) {
       console.error('Error loading tasks:', error);

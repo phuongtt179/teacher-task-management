@@ -14,9 +14,10 @@ import {
     FileText,
     Cog,
     User,
-    Table
+    Table,
+    Building2,
   } from 'lucide-react';
-  import { UserRole } from '../types';
+  import { User as AppUser, UserRole } from '../types';
 
   export interface NavItem {
     label: string;
@@ -24,6 +25,9 @@ import {
     path: string;
     icon: any;
     roles: UserRole[];
+    // Orthogonal to `roles` — a school's own admin can also carry this flag
+    // (see the User type), so it can't be expressed as a `roles` entry.
+    requiresSuperAdmin?: boolean;
   }
 
   export const navigationItems: NavItem[] = [
@@ -47,6 +51,15 @@ import {
       path: '/admin/users',
       icon: Users,
       roles: ['admin'],
+    },
+
+    // Super-admin only (platform-level, orthogonal to role)
+    {
+      label: 'Quản lý trường',
+      path: '/super-admin/schools',
+      icon: Building2,
+      roles: [],
+      requiresSuperAdmin: true,
     },
 
     // Vice Principal & Principal
@@ -142,4 +155,13 @@ import {
 
   export const getNavigationForRole = (role: UserRole): NavItem[] => {
     return navigationItems.filter(item => item.roles.includes(role));
+  };
+
+  // Preferred over getNavigationForRole now that some items gate on the
+  // orthogonal isSuperAdmin flag instead of (or in addition to) role.
+  export const getNavigationForUser = (user: Pick<AppUser, 'role' | 'isSuperAdmin'>): NavItem[] => {
+    return navigationItems.filter(item => {
+      if (item.requiresSuperAdmin) return user.isSuperAdmin === true;
+      return item.roles.includes(user.role);
+    });
   };

@@ -5,9 +5,13 @@ import { UserRole } from '../types';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   allowedRoles?: UserRole[];
+  // isSuperAdmin is an orthogonal flag (not a `role` value) — use this instead of
+  // allowedRoles for platform-level routes, since a school's own admin can also
+  // carry this flag (see the User type).
+  requireSuperAdmin?: boolean;
 }
 
-export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
+export const ProtectedRoute = ({ children, allowedRoles, requireSuperAdmin }: ProtectedRouteProps) => {
   const { user, isLoading, isWhitelisted } = useAuth();
 
   if (isLoading) {
@@ -23,6 +27,10 @@ export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (requireSuperAdmin && !user.isSuperAdmin) {
     return <Navigate to="/" replace />;
   }
 

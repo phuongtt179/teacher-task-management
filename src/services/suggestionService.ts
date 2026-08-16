@@ -9,11 +9,11 @@ export interface TeacherSuggestion extends TeacherStats {
 
 export const suggestionService = {
   // Get smart assignment suggestions
-  async getAssignmentSuggestions(): Promise<TeacherSuggestion[]> {
+  async getAssignmentSuggestions(schoolId: string): Promise<TeacherSuggestion[]> {
     try {
       // Get all teachers stats
-      const teachersStats = await analyticsService.getAllTeachersStats();
-      const schoolStats = await analyticsService.getSchoolStats();
+      const teachersStats = await analyticsService.getAllTeachersStats(schoolId);
+      const schoolStats = await analyticsService.getSchoolStats(schoolId);
 
       // Calculate suggestion score for each teacher
       const suggestions = teachersStats.map(teacher => {
@@ -91,8 +91,8 @@ export const suggestionService = {
   },
 
   // Get recommended teachers for a task
-  async getRecommendedTeachers(count: number = 5): Promise<TeacherSuggestion[]> {
-    const suggestions = await this.getAssignmentSuggestions();
+  async getRecommendedTeachers(schoolId: string, count: number = 5): Promise<TeacherSuggestion[]> {
+    const suggestions = await this.getAssignmentSuggestions(schoolId);
     return suggestions.slice(0, count);
   },
 };

@@ -40,17 +40,18 @@ export const TaskDetailStatisticsScreen = () => {
   const [feedbacks, setFeedbacks] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (taskId) {
+    if (taskId && user?.schoolId) {
       loadTaskDetails();
     }
-  }, [taskId]);
+  }, [taskId, user?.schoolId]);
 
   useEffect(() => {
     applyFilter();
   }, [teacherSubmissions, filter]);
 
   const loadTaskDetails = async () => {
-    if (!taskId) return;
+    if (!taskId || !user?.schoolId) return;
+    const schoolId = user.schoolId;
 
     try {
       setIsLoading(true);
@@ -64,7 +65,7 @@ export const TaskDetailStatisticsScreen = () => {
       setTask(taskData);
 
       // Load submissions for this task
-      const submissions = await submissionService.getSubmissionsByTask(taskId);
+      const submissions = await submissionService.getSubmissionsByTask(schoolId, taskId);
 
       // Load teacher details
       const teacherDetails = await Promise.all(
@@ -143,7 +144,7 @@ export const TaskDetailStatisticsScreen = () => {
   };
 
   const handleSaveScore = async (submissionId: string) => {
-    if (!task || !user) return;
+    if (!task || !user || !user.schoolId) return;
 
     const score = scores[submissionId];
     const feedback = feedbacks[submissionId] || '';
@@ -158,6 +159,7 @@ export const TaskDetailStatisticsScreen = () => {
     try {
       setSavingScores((prev) => new Set(prev).add(submissionId));
       await submissionService.scoreSubmission(
+        user.schoolId,
         submissionId,
         score,
         feedback,

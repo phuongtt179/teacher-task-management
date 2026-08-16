@@ -8,21 +8,22 @@ export const submissionService = {
   /**
    * Get all submissions for a task
    */
-  async getSubmissionsByTask(taskId: string) {
-    return taskService.getSubmissionsForTask(taskId);
+  async getSubmissionsByTask(schoolId: string, taskId: string) {
+    return taskService.getSubmissionsForTask(schoolId, taskId);
   },
 
   /**
    * Get a submission for a specific teacher and task
    */
-  async getSubmission(taskId: string, teacherId: string) {
-    return taskService.getSubmission(taskId, teacherId);
+  async getSubmission(schoolId: string, taskId: string, teacherId: string) {
+    return taskService.getSubmission(schoolId, taskId, teacherId);
   },
 
   /**
    * Score a submission
    */
   async scoreSubmission(
+    schoolId: string,
     submissionId: string,
     score: number,
     feedback: string,
@@ -30,19 +31,20 @@ export const submissionService = {
     scoredByName: string,
     taskId: string
   ) {
-    return taskService.scoreSubmission(submissionId, score, feedback, scoredBy, scoredByName, taskId);
+    return taskService.scoreSubmission(schoolId, submissionId, score, feedback, scoredBy, scoredByName, taskId);
   },
 
   /**
    * Submit a report
    */
   async submitReport(
+    schoolId: string,
     taskId: string,
     teacherId: string,
     teacherName: string,
     content: string,
     files: File[]
   ) {
-    return taskService.submitReport(taskId, teacherId, teacherName, content, files);
+    return taskService.submitReport(schoolId, taskId, teacherId, teacherName, content, files);
   },
 };

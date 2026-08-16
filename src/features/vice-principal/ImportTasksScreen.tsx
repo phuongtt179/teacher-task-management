@@ -64,11 +64,13 @@ export const ImportTasksScreen = () => {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
 
   useEffect(() => {
+    if (!user?.schoolId) return;
+    const schoolId = user.schoolId;
     const load = async () => {
       const [years, activeYear, allUsers] = await Promise.all([
-        schoolYearService.getAllSchoolYears(),
-        schoolYearService.getActiveSchoolYear(),
-        userService.getAllUsers(),
+        schoolYearService.getAllSchoolYears(schoolId),
+        schoolYearService.getActiveSchoolYear(schoolId),
+        userService.getAllUsers(schoolId),
       ]);
       setSchoolYears(years);
       if (activeYear) {
@@ -81,7 +83,7 @@ export const ImportTasksScreen = () => {
       setTeachers(teacherList);
     };
     load();
-  }, []);
+  }, [user?.schoolId]);
 
   // Find all teachers whose name contains the given assignee name (honorifics stripped)
   const findCandidates = (name: string): Teacher[] => {
@@ -168,6 +170,7 @@ export const ImportTasksScreen = () => {
   };
 
   const handleCreate = async () => {
+    if (!user?.schoolId) return;
     const selected = parsedTasks.filter(t => t.selected);
     if (selected.length === 0) {
       toast({ title: 'Chưa chọn công việc nào', variant: 'destructive' });
@@ -208,6 +211,7 @@ export const ImportTasksScreen = () => {
         deadline2.setDate(deadline2.getDate() + 5);
 
         await taskService.createTask({
+          schoolId: user.schoolId,
           schoolYearId: selectedSchoolYearId,
           semester: selectedSemester,
           title: task.title,

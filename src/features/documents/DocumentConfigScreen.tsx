@@ -70,11 +70,14 @@ export function DocumentConfigScreen() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [selectedHeadTeacherId, setSelectedHeadTeacherId] = useState<string>('');
 
+  const schoolId = user?.schoolId;
+
   // Load school years and document types
   useEffect(() => {
+    if (!schoolId) return;
     loadSchoolYears();
     loadDocumentTypes();
-  }, []);
+  }, [schoolId]);
 
   // Load categories when year changes
   useEffect(() => {
@@ -88,12 +91,13 @@ export function DocumentConfigScreen() {
     if (activeTab === 'departments') {
       loadDepartments();
     }
-  }, [activeTab]);
+  }, [activeTab, schoolId]);
 
   const loadSchoolYears = async () => {
+    if (!schoolId) return;
     try {
       setLoadingYears(true);
-      const years = await schoolYearService.getAllSchoolYears();
+      const years = await schoolYearService.getAllSchoolYears(schoolId);
       setSchoolYears(years);
 
       // Auto-select active year
@@ -114,9 +118,10 @@ export function DocumentConfigScreen() {
   };
 
   const loadCategories = async (yearId: string) => {
+    if (!schoolId) return;
     try {
       setLoadingCategories(true);
-      const cats = await documentCategoryService.getCategoriesBySchoolYear(yearId);
+      const cats = await documentCategoryService.getCategoriesBySchoolYear(schoolId, yearId);
       setCategories(cats);
     } catch (error) {
       console.error('Error loading categories:', error);
@@ -126,9 +131,10 @@ export function DocumentConfigScreen() {
   };
 
   const loadDocumentTypes = async () => {
+    if (!schoolId) return;
     try {
       setLoadingDocumentTypes(true);
-      const types = await documentTypeService.getActiveDocumentTypes();
+      const types = await documentTypeService.getActiveDocumentTypes(schoolId);
       setDocumentTypes(types);
     } catch (error) {
       console.error('Error loading document types:', error);
@@ -138,9 +144,10 @@ export function DocumentConfigScreen() {
   };
 
   const loadDepartments = async () => {
+    if (!schoolId) return;
     try {
       setLoadingDepartments(true);
-      const depts = await departmentService.getAllDepartments();
+      const depts = await departmentService.getAllDepartments(schoolId);
       setDepartments(depts);
     } catch (error) {
       console.error('Error loading departments:', error);
@@ -225,7 +232,7 @@ export function DocumentConfigScreen() {
   };
 
   const handleSaveYear = async () => {
-    if (!yearName || !yearStartDate || !yearEndDate) {
+    if (!yearName || !yearStartDate || !yearEndDate || !schoolId) {
       toast({
         title: 'Lỗi',
         description: 'Vui lòng điền đầy đủ thông tin',
@@ -237,7 +244,7 @@ export function DocumentConfigScreen() {
     try {
       if (editingYearId) {
         // Update existing year
-        await schoolYearService.updateSchoolYear(editingYearId, {
+        await schoolYearService.updateSchoolYear(schoolId, editingYearId, {
           name: yearName,
           startDate: new Date(yearStartDate),
           endDate: new Date(yearEndDate),
@@ -247,7 +254,7 @@ export function DocumentConfigScreen() {
         toast({ title: 'Thành công', description: 'Đã cập nhật năm học' });
       } else {
         // Create new year
-        await schoolYearService.createSchoolYear({
+        await schoolYearService.createSchoolYear(schoolId, {
           name: yearName,
           startDate: new Date(yearStartDate),
           endDate: new Date(yearEndDate),
@@ -278,10 +285,11 @@ export function DocumentConfigScreen() {
   };
 
   const handleOpenCategoryDialog = async (category?: DocumentCategory) => {
+    if (!schoolId) return;
     // Load document types first
     try {
       setLoadingDocumentTypes(true);
-      const types = await documentTypeService.getAllDocumentTypes();
+      const types = await documentTypeService.getAllDocumentTypes(schoolId);
       setDocumentTypes(types);
     } catch (error) {
       console.error('Error loading document types:', error);
@@ -307,7 +315,7 @@ export function DocumentConfigScreen() {
   };
 
   const handleSaveCategoryDialog = async () => {
-    if (!categoryName) {
+    if (!categoryName || !schoolId) {
       toast({
         title: 'Lỗi',
         description: 'Vui lòng nhập tên danh mục',
@@ -347,7 +355,7 @@ export function DocumentConfigScreen() {
           createdBy: user!.uid,
         };
 
-        await documentCategoryService.createCategory(createData);
+        await documentCategoryService.createCategory(schoolId, createData);
         toast({ title: 'Thành công', description: 'Đã tạo danh mục mới' });
       }
 
@@ -376,7 +384,7 @@ export function DocumentConfigScreen() {
   };
 
   const handleCopyCategories = async () => {
-    if (!copyTargetYearId) {
+    if (!copyTargetYearId || !schoolId) {
       toast({
         title: 'Lỗi',
         description: 'Vui lòng chọn năm học đích',
@@ -388,6 +396,7 @@ export function DocumentConfigScreen() {
     try {
       setCopying(true);
       const count = await documentCategoryService.copyCategoriesToSchoolYear(
+        schoolId,
         selectedYearId,
         copyTargetYearId,
         user!.uid
@@ -416,8 +425,9 @@ export function DocumentConfigScreen() {
   // ============ SUBCATEGORY FUNCTIONS ============
 
   const loadSubCategories = async (categoryId: string) => {
+    if (!schoolId) return;
     try {
-      const subs = await documentCategoryService.getSubCategories(categoryId);
+      const subs = await documentCategoryService.getSubCategories(schoolId, categoryId);
       setSubCategories(subs);
     } catch (error) {
       console.error('Error loading subcategories:', error);
@@ -452,7 +462,7 @@ export function DocumentConfigScreen() {
   };
 
   const handleSaveSubCategoryDialog = async () => {
-    if (!subCategoryName) {
+    if (!subCategoryName || !schoolId) {
       toast({
         title: 'Lỗi',
         description: 'Vui lòng nhập tên danh mục con',
@@ -468,7 +478,7 @@ export function DocumentConfigScreen() {
         });
         toast({ title: 'Thành công', description: 'Đã cập nhật danh mục con' });
       } else {
-        await documentCategoryService.createSubCategory({
+        await documentCategoryService.createSubCategory(schoolId, {
           categoryId: currentCategoryId,
           name: subCategoryName,
           order: subCategories.length,
@@ -526,8 +536,9 @@ export function DocumentConfigScreen() {
     setShowDepartmentDialog(true);
 
     // Then load available users (teachers and department heads)
+    if (!schoolId) return;
     try {
-      const users = await userService.getAllUsers();
+      const users = await userService.getAllUsers(schoolId);
       const teachersAndHeads = users.filter(
         u => u.role === 'teacher' || u.role === 'department_head'
       );
@@ -543,7 +554,7 @@ export function DocumentConfigScreen() {
   };
 
   const handleSaveDepartmentDialog = async () => {
-    if (!departmentName) {
+    if (!departmentName || !schoolId) {
       toast({
         title: 'Lỗi',
         description: 'Vui lòng nhập tên tổ chuyên môn',
@@ -571,7 +582,7 @@ export function DocumentConfigScreen() {
         toast({ title: 'Thành công', description: 'Đã cập nhật tổ chuyên môn' });
       } else {
         // Create new department
-        await departmentService.createDepartment({
+        await departmentService.createDepartment(schoolId, {
           name: departmentName,
           memberIds: selectedMemberIds,
           headTeacherId: selectedHeadTeacherId || undefined,

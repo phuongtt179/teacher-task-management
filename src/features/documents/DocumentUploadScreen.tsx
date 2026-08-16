@@ -29,10 +29,13 @@ export function DocumentUploadScreen() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
+  const schoolId = user?.schoolId;
+
   useEffect(() => {
+    if (!schoolId) return;
     loadSchoolYears();
     loadUserDepartment();
-  }, [user]);
+  }, [user, schoolId]);
 
   useEffect(() => {
     if (selectedYearId) {
@@ -60,8 +63,9 @@ export function DocumentUploadScreen() {
   }, [selectedCategoryId]);
 
   const loadSchoolYears = async () => {
+    if (!schoolId) return;
     try {
-      const years = await schoolYearService.getAllSchoolYears();
+      const years = await schoolYearService.getAllSchoolYears(schoolId);
       setSchoolYears(years);
       const activeYear = years.find(y => y.isActive);
       if (activeYear) {
@@ -73,8 +77,9 @@ export function DocumentUploadScreen() {
   };
 
   const loadCategories = async (yearId: string) => {
+    if (!schoolId) return;
     try {
-      const cats = await documentCategoryService.getCategoriesBySchoolYear(yearId);
+      const cats = await documentCategoryService.getCategoriesBySchoolYear(schoolId, yearId);
       setCategories(cats);
     } catch (error) {
       console.error('Error loading categories:', error);
@@ -82,8 +87,9 @@ export function DocumentUploadScreen() {
   };
 
   const loadSubCategories = async (categoryId: string) => {
+    if (!schoolId) return;
     try {
-      const subs = await documentCategoryService.getSubCategories(categoryId);
+      const subs = await documentCategoryService.getSubCategories(schoolId, categoryId);
       setSubCategories(subs);
     } catch (error) {
       console.error('Error loading subcategories:', error);
@@ -91,9 +97,9 @@ export function DocumentUploadScreen() {
   };
 
   const loadUserDepartment = async () => {
-    if (!user) return;
+    if (!user || !schoolId) return;
     try {
-      const dept = await departmentService.getDepartmentByUserId(user.uid);
+      const dept = await departmentService.getDepartmentByUserId(schoolId, user.uid);
       setUserDepartment(dept);
     } catch (error) {
       console.error('Error loading user department:', error);
@@ -121,6 +127,7 @@ export function DocumentUploadScreen() {
   };
 
   const handleUpload = async () => {
+    if (!schoolId) return;
     if (!documentTitle.trim()) {
       toast({
         title: 'Lỗi',
@@ -202,7 +209,7 @@ export function DocumentUploadScreen() {
         }
       }
 
-      await documentService.createDocument({
+      await documentService.createDocument(schoolId, {
         schoolYearId: selectedYearId,
         categoryId: selectedCategoryId,
         subCategoryId: selectedSubCategoryId || undefined,

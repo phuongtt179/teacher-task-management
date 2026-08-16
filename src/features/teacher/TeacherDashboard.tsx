@@ -31,15 +31,16 @@ export const TeacherDashboard = () => {
   // Load school years and set initial filters
   useEffect(() => {
     const loadData = async () => {
-      if (!user) return;
+      if (!user || !user.schoolId) return;
+      const schoolId = user.schoolId;
 
       try {
         setIsLoading(true);
 
         // Load school years and active year
         const [years, activeYear] = await Promise.all([
-          schoolYearService.getAllSchoolYears(),
-          schoolYearService.getActiveSchoolYear(),
+          schoolYearService.getAllSchoolYears(schoolId),
+          schoolYearService.getActiveSchoolYear(schoolId),
         ]);
 
         setSchoolYears(years);
@@ -61,8 +62,8 @@ export const TeacherDashboard = () => {
         // Load stats with initial filters
         const semesterParam = (initialSemester === 'all' || initialSemester === 'unassigned') ? 'all' : initialSemester;
         const [teacherStats, schoolStats] = await Promise.all([
-          analyticsService.getTeacherStats(user.uid, semesterParam, initialSchoolYearId),
-          analyticsService.getSchoolStats(semesterParam, initialSchoolYearId),
+          analyticsService.getTeacherStats(schoolId, user.uid, semesterParam, initialSchoolYearId),
+          analyticsService.getSchoolStats(schoolId, semesterParam, initialSchoolYearId),
         ]);
 
         setStats(teacherStats);
@@ -80,15 +81,16 @@ export const TeacherDashboard = () => {
   // Reload stats when filters change (but not on initial load)
   useEffect(() => {
     // Skip if initial load hasn't completed (selectedSchoolYearId is still empty)
-    if (!user || selectedSchoolYearId === '') return;
+    if (!user || !user.schoolId || selectedSchoolYearId === '') return;
+    const schoolId = user.schoolId;
 
     const loadStats = async () => {
       try {
         setIsLoading(true);
         const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
         const [teacherStats, schoolStats] = await Promise.all([
-          analyticsService.getTeacherStats(user.uid, semesterParam, selectedSchoolYearId),
-          analyticsService.getSchoolStats(semesterParam, selectedSchoolYearId),
+          analyticsService.getTeacherStats(schoolId, user.uid, semesterParam, selectedSchoolYearId),
+          analyticsService.getSchoolStats(schoolId, semesterParam, selectedSchoolYearId),
         ]);
 
         setStats(teacherStats);

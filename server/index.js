@@ -55,10 +55,27 @@ async function verifyAuth(req, res, next) {
   try {
     const decoded = await admin.auth().verifyIdToken(token);
     req.uid = decoded.uid;
+
+    // Resolve tenant/role once per request so downstream handlers never need
+    // their own users/{uid} lookup — also the single source of truth for
+    // schoolId-scoping every Firestore query and Drive folder lookup below.
+    const userSnap = await adminDb.collection('users').doc(decoded.uid).get();
+    if (!userSnap.exists) return res.status(403).json({ error: 'user_not_provisioned' });
+    const userData = userSnap.data();
+    req.role = userData.role;
+    req.schoolId = userData.schoolId || null;
+    req.isSuperAdmin = userData.isSuperAdmin === true;
+
     next();
   } catch (error) {
     return res.status(401).json({ error: 'invalid_token' });
   }
+}
+
+// Gate for super-admin-only endpoints (platform-level: creating/managing schools).
+function requireSuperAdmin(req, res, next) {
+  if (!req.isSuperAdmin) return res.status(403).json({ error: 'super_admin_required' });
+  next();
 }
 
 // Configure multer for file uploads
@@ -105,6 +122,36 @@ if (loadSavedCredentials()) {
 } else {
   console.log('⚠️  OAuth credentials not found. Admin needs to authorize first.');
   console.log('👉 Visit: http://localhost:3001/api/auth/google');
+}
+
+/**
+ * Look up a school's own Drive root folder (each school's files live under their
+ * own subfolder of ROOT_FOLDER_ID — see /api/schools which creates it).
+ */
+async function getSchoolDriveRootFolderId(schoolId) {
+  const schoolSnap = await adminDb.collection('schools').doc(schoolId).get();
+  if (!schoolSnap.exists || !schoolSnap.data().driveRootFolderId) {
+    throw new Error('school_drive_not_configured');
+  }
+  return schoolSnap.data().driveRootFolderId;
+}
+
+/**
+ * Walk up a Drive file's parent chain to check whether it lives anywhere under
+ * `ancestorFolderId` — used to stop a user from deleting another school's file
+ * by guessing/reusing a Drive fileId (defense in depth; Firestore rules can't
+ * cover Drive itself).
+ */
+async function isDescendantOfFolder(drive, fileId, ancestorFolderId, maxDepth = 12) {
+  let currentId = fileId;
+  for (let i = 0; i < maxDepth; i++) {
+    const meta = await drive.files.get({ fileId: currentId, fields: 'id, parents' });
+    const parents = meta.data.parents || [];
+    if (parents.includes(ancestorFolderId)) return true;
+    if (parents.length === 0) return false;
+    currentId = parents[0];
+  }
+  return false;
 }
 
 /**
@@ -428,17 +475,19 @@ app.post('/api/upload', verifyAuth, upload.single('file'), async (req, res) => {
       });
     }
 
+    const schoolRootFolderId = await getSchoolDriveRootFolderId(req.schoolId);
+
     // Create folder structure
     let targetFolderId;
 
     if (uploaderName && documentTitle) {
-      // NEW Structure with DocumentType: Root > SchoolYear > DocumentType > Category > [SubCategory] > UploaderName > DocumentTitle
+      // NEW Structure with DocumentType: SchoolRoot > SchoolYear > DocumentType > Category > [SubCategory] > UploaderName > DocumentTitle
       const folderPath = documentType
         ? `${schoolYear} > ${documentType} > ${category}${subCategory ? ' > ' + subCategory : ''} > ${uploaderName} > ${documentTitle}`
         : `${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''} > ${uploaderName} > ${documentTitle}`;
       console.log(`📁 Creating folder structure: ${folderPath}`);
 
-      const yearFolderId = await getOrCreateFolder(schoolYear, ROOT_FOLDER_ID);
+      const yearFolderId = await getOrCreateFolder(schoolYear, schoolRootFolderId);
 
       // NEW: Add DocumentType folder if provided
       let parentFolderId = yearFolderId;
@@ -456,13 +505,13 @@ app.post('/api/upload', verifyAuth, upload.single('file'), async (req, res) => {
       const uploaderFolderId = await getOrCreateFolder(uploaderName, subParentFolderId);
       targetFolderId = await getOrCreateFolder(documentTitle, uploaderFolderId);
     } else {
-      // Backward compatibility: Root > School Year > [DocumentType] > Category > Subcategory
+      // Backward compatibility: SchoolRoot > School Year > [DocumentType] > Category > Subcategory
       const folderPath = documentType
         ? `${schoolYear} > ${documentType} > ${category}${subCategory ? ' > ' + subCategory : ''}`
         : `${schoolYear} > ${category}${subCategory ? ' > ' + subCategory : ''}`;
       console.log(`📁 Creating folder structure: ${folderPath}`);
 
-      const yearFolderId = await getOrCreateFolder(schoolYear, ROOT_FOLDER_ID);
+      const yearFolderId = await getOrCreateFolder(schoolYear, schoolRootFolderId);
 
       // NEW: Add DocumentType folder if provided
       let parentFolderId = yearFolderId;
@@ -517,6 +566,16 @@ app.delete('/api/files/:fileId', verifyAuth, async (req, res) => {
 
     const { fileId } = req.params;
 
+    // Defense in depth: Drive itself has no concept of "school", so confirm the
+    // file actually lives under the caller's own school's root folder before
+    // deleting it — otherwise a guessed/reused fileId could delete another
+    // school's file.
+    const schoolRootFolderId = await getSchoolDriveRootFolderId(req.schoolId);
+    const belongsToCallerSchool = await isDescendantOfFolder(drive, fileId, schoolRootFolderId);
+    if (!belongsToCallerSchool) {
+      return res.status(403).json({ error: 'file_not_in_your_school' });
+    }
+
     await drive.files.delete({
       fileId: fileId,
     });
@@ -531,6 +590,40 @@ app.delete('/api/files/:fileId', verifyAuth, async (req, res) => {
       error: 'Delete failed',
       message: error.message,
     });
+  }
+});
+
+/**
+ * Create a new school (tenant). Super-admin only — this is the one school-admin
+ * action that must go through the server, because creating the school's Drive
+ * root folder requires the shared OAuth credential that only the server holds.
+ * Everything else about a school (name edits, isActive toggle) can be a plain
+ * Firestore client write, gated by the `schools/{schoolId}` rule.
+ */
+app.post('/api/schools', verifyAuth, requireSuperAdmin, express.json(), async (req, res) => {
+  try {
+    const { name, shortName } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Missing required field: name' });
+    }
+
+    const driveRootFolderId = await getOrCreateFolder(name.trim(), ROOT_FOLDER_ID);
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const ref = await adminDb.collection('schools').add({
+      name: name.trim(),
+      shortName: shortName ? shortName.trim() : null,
+      isActive: true,
+      driveRootFolderId,
+      createdBy: req.uid,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    res.json({ id: ref.id, driveRootFolderId });
+  } catch (error) {
+    console.error('❌ Create school error:', error);
+    res.status(500).json({ error: 'create_school_failed', message: error.message });
   }
 });
 
@@ -967,11 +1060,12 @@ function computeTeacherStatus(deadline, deadline2, submission) {
   return 'assigned';
 }
 
-async function toolListMyTasks(uid) {
+async function toolListMyTasks(ctx) {
   const [tasksSnap, subsSnap, updatesSnap] = await Promise.all([
-    adminDb.collection('tasks').where('assignedTo', 'array-contains', uid).get(),
-    adminDb.collection('submissions').where('teacherId', '==', uid).get(),
-    adminDb.collection('taskUpdates').where('teacherId', '==', uid).get(),
+    // NOTE: may need a new composite index (schoolId + assignedTo array-contains) — Firestore will surface a console link on first query if missing
+    adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('taskUpdates').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const latestSubByTask = new Map();
@@ -1015,8 +1109,8 @@ async function toolListMyTasks(uid) {
   return { tasks };
 }
 
-async function toolGetMyScores(uid) {
-  const subsSnap = await adminDb.collection('submissions').where('teacherId', '==', uid).get();
+async function toolGetMyScores(ctx) {
+  const subsSnap = await adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get();
   const scored = subsSnap.docs
     .map(d => d.data())
     .filter(s => s.isLatest !== false && s.score !== undefined && s.score !== null);
@@ -1039,10 +1133,11 @@ async function toolGetMyScores(uid) {
 
 // Tổng hợp số liệu công việc của CHÍNH giáo viên này: tỷ lệ hoàn thành, tỷ lệ nộp đúng hạn,
 // điểm trung bình — cả tổng chung lẫn tách theo từng học kỳ.
-async function toolGetMyTaskStats(uid) {
+async function toolGetMyTaskStats(ctx) {
   const [tasksSnap, subsSnap] = await Promise.all([
-    adminDb.collection('tasks').where('assignedTo', 'array-contains', uid).get(),
-    adminDb.collection('submissions').where('teacherId', '==', uid).get(),
+    // NOTE: may need a new composite index (schoolId + assignedTo array-contains) — Firestore will surface a console link on first query if missing
+    adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const latestSubByTask = new Map();
@@ -1096,14 +1191,16 @@ async function toolGetMyTaskStats(uid) {
 
 // Xem lại nội dung/file báo cáo CHÍNH giáo viên này đã nộp cho 1 công việc cụ thể,
 // kèm toàn bộ lịch sử các lần nộp lại (version) nếu có.
-async function toolGetMySubmission(uid, taskId) {
+async function toolGetMySubmission(ctx, taskId) {
   if (!taskId) return { error: 'missing_task_id' };
   const taskSnap = await adminDb.collection('tasks').doc(taskId).get();
   if (!taskSnap.exists) return { error: 'task_not_found' };
+  if (taskSnap.data().schoolId !== ctx.schoolId) return { error: 'task_not_found' };
 
   const subsSnap = await adminDb.collection('submissions')
     .where('taskId', '==', taskId)
-    .where('teacherId', '==', uid)
+    .where('teacherId', '==', ctx.uid)
+    .where('schoolId', '==', ctx.schoolId)
     .get();
   if (subsSnap.empty) return { taskTitle: taskSnap.data().title, submitted: false };
 
@@ -1132,14 +1229,14 @@ async function toolGetMySubmission(uid, taskId) {
   };
 }
 
-async function toolSearchPublicDocuments(keyword) {
+async function toolSearchPublicDocuments(ctx, keyword) {
   const kw = String(keyword || '').trim().toLowerCase();
   if (!kw) return { documents: [] };
 
   const [categoriesSnap, typesSnap, documentsSnap] = await Promise.all([
-    adminDb.collection('documentCategories').get(),
-    adminDb.collection('documentTypes').get(),
-    adminDb.collection('documents').where('status', '==', 'approved').get(),
+    adminDb.collection('documentCategories').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('documentTypes').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('documents').where('status', '==', 'approved').where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const typeById = new Map();
@@ -1186,14 +1283,15 @@ async function toolSearchPublicDocuments(keyword) {
 
 // Tìm xuyên suốt theo 1 từ khóa: công việc CỦA CHÍNH giáo viên (tên+mô tả), tài liệu CỦA CHÍNH
 // giáo viên (tên), và tài liệu công khai toàn trường (tên/tên file) — gộp lại 1 kết quả duy nhất.
-async function toolSearchEverything(uid, keyword) {
+async function toolSearchEverything(ctx, keyword) {
   const kw = String(keyword || '').trim().toLowerCase();
   if (!kw) return { tasks: [], myDocuments: [], publicDocuments: [] };
 
   const [tasksSnap, myDocsResult, publicDocsResult] = await Promise.all([
-    adminDb.collection('tasks').where('assignedTo', 'array-contains', uid).get(),
-    toolListMyDocuments(uid),
-    toolSearchPublicDocuments(keyword),
+    // NOTE: may need a new composite index (schoolId + assignedTo array-contains) — Firestore will surface a console link on first query if missing
+    adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    toolListMyDocuments(ctx),
+    toolSearchPublicDocuments(ctx, keyword),
   ]);
 
   const matchedTasks = tasksSnap.docs
@@ -1216,18 +1314,18 @@ async function toolSearchEverything(uid, keyword) {
 // Chuẩn bị bản nháp "chuyển công việc cho BGH" — CHỈ tìm người nhận + validate quyền,
 // KHÔNG ghi Firestore (theo đúng nguyên tắc confirm-before-write của cả app: việc ghi
 // thật sự chỉ xảy ra khi văn thư bấm nút xác nhận ở UI, gọi /api/chat/forward-task).
-async function toolConfirmForwardTaskToBgh(uid, args) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (role !== 'van_thu') return { error: 'not_authorized' };
+async function toolConfirmForwardTaskToBgh(ctx, args) {
+  const callerSnap = await adminDb.collection('users').doc(ctx.uid).get();
+  if (ctx.role !== 'van_thu') return { error: 'not_authorized' };
 
   const title = String(args?.title || '').trim();
   const description = String(args?.description || '').trim();
   if (!title || !description) return { error: 'missing_fields' };
 
   const [bghSnap, yearsSnap] = await Promise.all([
-    adminDb.collection('users').where('role', 'in', ['principal', 'vice_principal']).get(),
-    adminDb.collection('schoolYears').where('isActive', '==', true).limit(1).get(),
+    // NOTE: may need a new composite index (schoolId + role in) — Firestore will surface a console link on first query if missing
+    adminDb.collection('users').where('role', 'in', ['principal', 'vice_principal']).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('schoolYears').where('isActive', '==', true).where('schoolId', '==', ctx.schoolId).limit(1).get(),
   ]);
   if (bghSnap.empty) return { error: 'no_bgh_members' };
   if (yearsSnap.empty) return { error: 'no_active_school_year' };
@@ -1243,18 +1341,19 @@ async function toolConfirmForwardTaskToBgh(uid, args) {
 
   return {
     confirmed: true,
+    schoolId: ctx.schoolId,
     title, description, priority, deadline, schoolYearId,
     targetUids, targetNames,
-    createdByName: callerSnap.data().displayName || callerSnap.data().email || uid,
+    createdByName: callerSnap.data().displayName || callerSnap.data().email || ctx.uid,
   };
 }
 
 // Tài liệu mà ĐÚNG giáo viên này đã tự nộp (mọi trạng thái: chờ duyệt/đã duyệt/từ chối), mọi năm học.
-async function toolListMyDocuments(uid) {
+async function toolListMyDocuments(ctx) {
   const [documentsSnap, categoriesSnap, subsSnap] = await Promise.all([
-    adminDb.collection('documents').where('uploadedBy', '==', uid).get(),
-    adminDb.collection('documentCategories').get(),
-    adminDb.collection('documentSubCategories').get(),
+    adminDb.collection('documents').where('uploadedBy', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('documentCategories').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('documentSubCategories').where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const categoryById = new Map();
@@ -1279,18 +1378,20 @@ async function toolListMyDocuments(uid) {
 
 // Xác nhận 1 tài liệu CỤ THỂ (thuộc đúng giáo viên đang hỏi) để sửa — trả chi tiết từng file
 // bên trong để AI/giao diện cho chọn xóa, hoặc để thêm file mới vào.
-async function toolConfirmEditTarget(uid, documentId) {
+async function toolConfirmEditTarget(ctx, documentId) {
   if (!documentId) return { error: 'missing_document_id' };
   const docSnap = await adminDb.collection('documents').doc(documentId).get();
   if (!docSnap.exists) return { error: 'document_not_found' };
   const doc = docSnap.data();
-  if (doc.uploadedBy !== uid) return { error: 'not_owner' };
+  if (doc.schoolId !== ctx.schoolId) return { error: 'document_not_found' };
+  if (doc.uploadedBy !== ctx.uid) return { error: 'not_owner' };
 
   const categorySnap = doc.categoryId ? await adminDb.collection('documentCategories').doc(doc.categoryId).get() : null;
   const subSnap = doc.subCategoryId ? await adminDb.collection('documentSubCategories').doc(doc.subCategoryId).get() : null;
 
   return {
     confirmed: true,
+    schoolId: ctx.schoolId,
     documentId,
     schoolYearId: doc.schoolYearId || null,
     title: doc.title,
@@ -1310,16 +1411,16 @@ const OVERSIGHT_CATEGORY_NAMES = ['kế hoạch bài dạy', 'sổ chủ nhiệm
 
 // Tính tình hình nộp 3 loại hồ sơ trên cho 1 danh sách giáo viên (dùng chung cho cả
 // báo cáo tổ trưởng lẫn báo cáo toàn trường, chỉ khác nhau ở việc truyền vào ai).
-async function computeSubmissionSummary(memberUids) {
+async function computeSubmissionSummary(ctx, memberUids) {
   if (memberUids.length === 0) return { members: [] };
 
-  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).limit(1).get();
+  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).where('schoolId', '==', ctx.schoolId).limit(1).get();
   if (yearsSnap.empty) return { members: [], note: 'no_active_school_year' };
   const schoolYearId = yearsSnap.docs[0].id;
 
   const [categoriesSnap, usersSnap] = await Promise.all([
-    adminDb.collection('documentCategories').where('schoolYearId', '==', schoolYearId).get(),
-    adminDb.collection('users').get(),
+    adminDb.collection('documentCategories').where('schoolYearId', '==', schoolYearId).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('users').where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const nameById = new Map();
@@ -1332,8 +1433,10 @@ async function computeSubmissionSummary(memberUids) {
   if (targetCategories.length === 0) return { members: [], note: 'no_target_categories_this_year' };
 
   const categoryIds = targetCategories.map(d => d.id);
+  // NOTE: may need a new composite index (schoolId + categoryId in) — Firestore will surface a console link on first query if missing
   const subsSnap = await adminDb.collection('documentSubCategories')
     .where('categoryId', 'in', categoryIds.slice(0, 10))
+    .where('schoolId', '==', ctx.schoolId)
     .get();
   // categoryId -> [{id, name, order}] (đã sắp theo order để liệt kê tuần thiếu đúng thứ tự)
   const subsByCategory = new Map();
@@ -1346,7 +1449,8 @@ async function computeSubmissionSummary(memberUids) {
   subsByCategory.forEach(arr => arr.sort((a, b) => a.order - b.order));
 
   // Firestore 'in' tối đa 10 phần tử — 3 danh mục mục tiêu chắc chắn nằm trong giới hạn này.
-  const documentsSnap = await adminDb.collection('documents').where('categoryId', 'in', categoryIds.slice(0, 10)).get();
+  // NOTE: may need a new composite index (schoolId + categoryId in) — Firestore will surface a console link on first query if missing
+  const documentsSnap = await adminDb.collection('documents').where('categoryId', 'in', categoryIds.slice(0, 10)).where('schoolId', '==', ctx.schoolId).get();
 
   // key: uid|categoryId -> Set(subCategoryId hoặc 'x' nếu không có mục con)
   const submittedByMemberCategory = new Map();
@@ -1379,18 +1483,16 @@ async function computeSubmissionSummary(memberUids) {
 // 1 tool duy nhất, backend tự dò phạm vi cao nhất người gọi được phép xem
 // (thay vì 1 tool riêng cho tổ trưởng + 1 tool riêng cho hiệu trưởng/hiệu phó/admin).
 // Tự tra role/headTeacherId từ Firestore, KHÔNG tin role client tự khai báo.
-async function toolGetSubmissionSummary(uid) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-
-  if (['admin', 'vice_principal', 'principal'].includes(role)) {
+async function toolGetSubmissionSummary(ctx) {
+  if (['admin', 'vice_principal', 'principal'].includes(ctx.role)) {
     const [departmentsSnap, usersSnap] = await Promise.all([
-      adminDb.collection('departments').get(),
-      adminDb.collection('users').where('role', 'in', ['teacher', 'department_head']).get(),
+      adminDb.collection('departments').where('schoolId', '==', ctx.schoolId).get(),
+      // NOTE: may need a new composite index (schoolId + role in) — Firestore will surface a console link on first query if missing
+      adminDb.collection('users').where('role', 'in', ['teacher', 'department_head']).where('schoolId', '==', ctx.schoolId).get(),
     ]);
 
     const allTeacherUids = usersSnap.docs.map(d => d.id);
-    const summary = await computeSubmissionSummary(allTeacherUids);
+    const summary = await computeSubmissionSummary(ctx, allTeacherUids);
     const memberByUid = new Map(summary.members.map(m => [m.uid, m]));
 
     const departments = departmentsSnap.docs.map(d => {
@@ -1407,10 +1509,10 @@ async function toolGetSubmissionSummary(uid) {
     return { scope: 'school', departments, unassigned, note: summary.note };
   }
 
-  const deptSnap = await adminDb.collection('departments').where('headTeacherId', '==', uid).limit(1).get();
+  const deptSnap = await adminDb.collection('departments').where('headTeacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).limit(1).get();
   if (!deptSnap.empty) {
     const dept = deptSnap.docs[0].data();
-    const summary = await computeSubmissionSummary(dept.memberIds || []);
+    const summary = await computeSubmissionSummary(ctx, dept.memberIds || []);
     return { scope: 'department', departmentName: dept.name, ...summary };
   }
 
@@ -1423,15 +1525,13 @@ async function toolGetSubmissionSummary(uid) {
 // - Không truyền keyword: trả tổng quan CHƯA HOÀN THÀNH của toàn trường (câu hỏi kiểu "ai chưa làm xong việc gì").
 // - Có keyword (khớp tên việc): trả đầy đủ TỪNG người được giao việc đó, phân loại đúng hạn/trễ hạn/chưa làm
 //   (câu hỏi kiểu "báo cáo tình hình công việc A — ai đúng hạn, ai trễ, ai chưa làm").
-async function toolGetTaskCompletionSummary(uid, keyword) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!['principal', 'vice_principal'].includes(role)) return { error: 'not_authorized' };
+async function toolGetTaskCompletionSummary(ctx, keyword) {
+  if (!['principal', 'vice_principal'].includes(ctx.role)) return { error: 'not_authorized' };
 
   const [tasksSnap, subsSnap, usersSnap] = await Promise.all([
-    adminDb.collection('tasks').get(),
-    adminDb.collection('submissions').get(),
-    adminDb.collection('users').get(),
+    adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('submissions').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('users').where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const nameById = new Map(usersSnap.docs.map(d => [d.id, d.data().displayName || d.data().email || d.id]));
@@ -1494,10 +1594,11 @@ const ASSIGNABLE_ROLES = ['teacher', 'department_head', 'vice_principal', 'princ
 
 // Danh sách người có thể giao việc — trả đủ tên + tổ để AI tự khớp ngữ nghĩa (vd "tổ Toán",
 // "cô Lan") giống hệt cách list_upload_categories để AI tự suy luận, không so khớp cứng ở server.
-async function toolListAssignablePeople() {
+async function toolListAssignablePeople(ctx) {
   const [usersSnap, deptsSnap] = await Promise.all([
-    adminDb.collection('users').where('role', 'in', ASSIGNABLE_ROLES).get(),
-    adminDb.collection('departments').get(),
+    // NOTE: may need a new composite index (schoolId + role in) — Firestore will surface a console link on first query if missing
+    adminDb.collection('users').where('role', 'in', ASSIGNABLE_ROLES).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('departments').where('schoolId', '==', ctx.schoolId).get(),
   ]);
   const deptByMember = new Map();
   deptsSnap.docs.forEach(d => {
@@ -1516,20 +1617,21 @@ async function toolListAssignablePeople() {
 // KHÔNG ghi Firestore — chỉ kiểm tra giáo viên có được giao việc này không + hợp lệ hóa dữ liệu.
 // Việc ghi thật xảy ra ở client (taskUpdateService.createUpdate), theo firestore.rules cho phép
 // người tạo cập nhật đứng tên chính mình.
-async function toolConfirmReportUpdate(uid, args, type) {
+async function toolConfirmReportUpdate(ctx, args, type) {
   const taskId = String(args?.taskId || '').trim();
   if (!taskId) return { error: 'missing_task_id' };
   const taskSnap = await adminDb.collection('tasks').doc(taskId).get();
   if (!taskSnap.exists) return { error: 'task_not_found' };
   const task = taskSnap.data();
-  if (!(task.assignedTo || []).includes(uid)) return { error: 'not_assigned' };
+  if (task.schoolId !== ctx.schoolId) return { error: 'task_not_found' };
+  if (!(task.assignedTo || []).includes(ctx.uid)) return { error: 'not_assigned' };
 
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
+  const callerSnap = await adminDb.collection('users').doc(ctx.uid).get();
   const teacherName = callerSnap.exists
-    ? (callerSnap.data().displayName || callerSnap.data().email || uid)
-    : uid;
+    ? (callerSnap.data().displayName || callerSnap.data().email || ctx.uid)
+    : ctx.uid;
   const note = String(args?.note || '').trim();
-  const base = { confirmed: true, type, taskId, taskTitle: task.title, teacherName, note };
+  const base = { confirmed: true, schoolId: ctx.schoolId, type, taskId, taskTitle: task.title, teacherName, note };
 
   if (type === 'progress') {
     let percent = Number(args?.percent);
@@ -1555,10 +1657,9 @@ async function toolConfirmReportUpdate(uid, args, type) {
 // Chuẩn bị bản nháp giao việc trực tiếp (không qua file) — KHÔNG ghi Firestore, chỉ xác nhận
 // quyền + dữ liệu hợp lệ. Việc ghi thật xảy ra ở client (taskService.createTask), theo đúng
 // firestore.rules đã cho phép admin/VP/hiệu trưởng tạo task — không cần endpoint Admin SDK riêng.
-async function toolConfirmCreateTask(uid, args) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!TASK_MANAGER_ROLES.includes(role)) return { error: 'not_authorized' };
+async function toolConfirmCreateTask(ctx, args) {
+  const callerSnap = await adminDb.collection('users').doc(ctx.uid).get();
+  if (!TASK_MANAGER_ROLES.includes(ctx.role)) return { error: 'not_authorized' };
 
   const title = String(args?.title || '').trim();
   const description = String(args?.description || '').trim();
@@ -1567,7 +1668,7 @@ async function toolConfirmCreateTask(uid, args) {
   if (!title || !description) return { error: 'missing_fields' };
   if (assigneeUids.length === 0) return { error: 'missing_assignees' };
 
-  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).limit(1).get();
+  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).where('schoolId', '==', ctx.schoolId).limit(1).get();
   if (yearsSnap.empty) return { error: 'no_active_school_year' };
   const schoolYearId = yearsSnap.docs[0].id;
   const activeSemester = yearsSnap.docs[0].data().activeSemester || null;
@@ -1579,24 +1680,23 @@ async function toolConfirmCreateTask(uid, args) {
 
   return {
     confirmed: true,
+    schoolId: ctx.schoolId,
     title, description, priority, deadline, schoolYearId, semester: activeSemester,
     assigneeUids, assigneeNames,
-    createdByName: callerSnap.data().displayName || callerSnap.data().email || uid,
+    createdByName: callerSnap.data().displayName || callerSnap.data().email || ctx.uid,
   };
 }
 
 // Liệt kê các công việc do CHÍNH người hỏi (BGH) đã tạo/giao, lọc theo khoảng hạn + trạng thái.
 // Dùng cho câu hỏi "xem việc tôi đã giao", "từ nay đến X có việc nào", "việc sắp tới hạn".
-async function toolListCreatedTasks(uid, args) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!TASK_MANAGER_ROLES.includes(role)) return { error: 'not_authorized' };
+async function toolListCreatedTasks(ctx, args) {
+  if (!TASK_MANAGER_ROLES.includes(ctx.role)) return { error: 'not_authorized' };
 
   const from = /^\d{4}-\d{2}-\d{2}$/.test(args?.fromDate || '') ? new Date(`${args.fromDate}T00:00:00`).getTime() : null;
   const to = /^\d{4}-\d{2}-\d{2}$/.test(args?.toDate || '') ? new Date(`${args.toDate}T23:59:59`).getTime() : null;
   const statusFilter = ['assigned', 'submitted', 'completed', 'overdue'].includes(args?.status) ? args.status : null;
 
-  const snap = await adminDb.collection('tasks').where('createdBy', '==', uid).get();
+  const snap = await adminDb.collection('tasks').where('createdBy', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get();
   let tasks = snap.docs.map(d => {
     const t = d.data();
     const deadline = t.deadline?.toDate ? t.deadline.toDate() : null;
@@ -1624,15 +1724,13 @@ async function toolListCreatedTasks(uid, args) {
 
 // Tìm task theo tên để sửa danh sách người được giao — CHỈ trả về (không sửa gì) để AI/người
 // dùng xác nhận đúng task trước khi gọi confirm_edit_task_assignees.
-async function toolFindTasksToEdit(uid, keyword) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!TASK_MANAGER_ROLES.includes(role)) return { error: 'not_authorized' };
+async function toolFindTasksToEdit(ctx, keyword) {
+  if (!TASK_MANAGER_ROLES.includes(ctx.role)) return { error: 'not_authorized' };
 
   const kw = String(keyword || '').trim().toLowerCase();
   if (!kw) return { tasks: [] };
 
-  const tasksSnap = await adminDb.collection('tasks').get();
+  const tasksSnap = await adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get();
   const matches = tasksSnap.docs
     .filter(d => (d.data().title || '').toLowerCase().includes(kw))
     .map(d => {
@@ -1654,16 +1752,15 @@ async function toolFindTasksToEdit(uid, keyword) {
 // Chuẩn bị bản nháp thêm/bớt người trong 1 task đã có — KHÔNG ghi Firestore. Việc ghi thật xảy
 // ra ở client (updateDoc trực tiếp), firestore.rules đã cho phép admin/VP/hiệu trưởng sửa toàn
 // bộ trường của task (không giới hạn như teacher/department_head chỉ được sửa status).
-async function toolConfirmEditTaskAssignees(uid, args) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!TASK_MANAGER_ROLES.includes(role)) return { error: 'not_authorized' };
+async function toolConfirmEditTaskAssignees(ctx, args) {
+  if (!TASK_MANAGER_ROLES.includes(ctx.role)) return { error: 'not_authorized' };
 
   const taskId = String(args?.taskId || '').trim();
   if (!taskId) return { error: 'missing_task_id' };
   const taskSnap = await adminDb.collection('tasks').doc(taskId).get();
   if (!taskSnap.exists) return { error: 'task_not_found' };
   const task = taskSnap.data();
+  if (task.schoolId !== ctx.schoolId) return { error: 'task_not_found' };
 
   const addUids = Array.isArray(args?.addUids) ? args.addUids : [];
   const addNames = Array.isArray(args?.addNames) ? args.addNames : [];
@@ -1683,6 +1780,7 @@ async function toolConfirmEditTaskAssignees(uid, args) {
 
   return {
     confirmed: true,
+    schoolId: ctx.schoolId,
     taskId,
     taskTitle: task.title,
     beforeUids: currentUids,
@@ -1696,20 +1794,19 @@ const GRADER_ROLES = ['admin', 'vice_principal', 'principal'];
 
 // Tìm bài nộp cần chấm điểm theo tên việc (+ tên giáo viên nếu có) — CHỈ trả về (không chấm),
 // để AI/người dùng xác nhận đúng bài trước khi gọi confirm_grade_submission.
-async function toolFindSubmissionsForGrading(uid, taskKeyword, teacherName) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!GRADER_ROLES.includes(role)) return { error: 'not_authorized' };
+async function toolFindSubmissionsForGrading(ctx, taskKeyword, teacherName) {
+  if (!GRADER_ROLES.includes(ctx.role)) return { error: 'not_authorized' };
 
   const kw = String(taskKeyword || '').trim().toLowerCase();
   if (!kw) return { submissions: [] };
 
-  const tasksSnap = await adminDb.collection('tasks').get();
+  const tasksSnap = await adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get();
   const matchingTasks = tasksSnap.docs.filter(d => (d.data().title || '').toLowerCase().includes(kw));
   if (matchingTasks.length === 0) return { submissions: [] };
 
   const taskIds = matchingTasks.map(d => d.id).slice(0, 10);
-  const subsSnap = await adminDb.collection('submissions').where('taskId', 'in', taskIds).get();
+  // NOTE: may need a new composite index (schoolId + taskId in) — Firestore will surface a console link on first query if missing
+  const subsSnap = await adminDb.collection('submissions').where('taskId', 'in', taskIds).where('schoolId', '==', ctx.schoolId).get();
   const taskById = new Map(matchingTasks.map(d => [d.id, d.data()]));
 
   const nameKw = String(teacherName || '').trim().toLowerCase();
@@ -1735,19 +1832,19 @@ async function toolFindSubmissionsForGrading(uid, taskKeyword, teacherName) {
 
 // Chuẩn bị bản nháp chấm điểm — KHÔNG ghi Firestore. Việc ghi thật xảy ra ở client
 // (taskService.scoreSubmission, đã có sẵn — tự cập nhật điểm, thông báo, trạng thái task).
-async function toolConfirmGradeSubmission(uid, args) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!GRADER_ROLES.includes(role)) return { error: 'not_authorized' };
+async function toolConfirmGradeSubmission(ctx, args) {
+  if (!GRADER_ROLES.includes(ctx.role)) return { error: 'not_authorized' };
 
   const submissionId = String(args?.submissionId || '').trim();
   if (!submissionId) return { error: 'missing_submission_id' };
   const subSnap = await adminDb.collection('submissions').doc(submissionId).get();
   if (!subSnap.exists) return { error: 'submission_not_found' };
   const sub = subSnap.data();
+  if (sub.schoolId !== ctx.schoolId) return { error: 'submission_not_found' };
 
   const taskSnap = await adminDb.collection('tasks').doc(sub.taskId).get();
   const task = taskSnap.exists ? taskSnap.data() : {};
+  if (taskSnap.exists && task.schoolId !== ctx.schoolId) return { error: 'submission_not_found' };
   const maxScore = task.maxScore ?? 10;
 
   const score = Number(args?.score);
@@ -1758,6 +1855,7 @@ async function toolConfirmGradeSubmission(uid, args) {
 
   return {
     confirmed: true,
+    schoolId: ctx.schoolId,
     submissionId, taskId: sub.taskId, taskTitle: task.title || '',
     teacherName: sub.teacherName, maxScore,
     oldScore: sub.score ?? null, oldFeedback: sub.feedback || null,
@@ -1769,19 +1867,18 @@ async function toolConfirmGradeSubmission(uid, args) {
 // - Không truyền keyword: điểm trung bình từng người trên toàn bộ bài đã chấm, sắp xếp THẤP → CAO
 //   (ưu tiên nêu người cần lưu ý trước, giống tinh thần get_task_completion_summary).
 // - Có keyword (tên việc): điểm từng người cho đúng việc đó.
-async function toolGetScoreOverview(uid, keyword) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!['principal', 'vice_principal'].includes(role)) return { error: 'not_authorized' };
+async function toolGetScoreOverview(ctx, keyword) {
+  if (!['principal', 'vice_principal'].includes(ctx.role)) return { error: 'not_authorized' };
 
   const kw = String(keyword || '').trim().toLowerCase();
 
   if (kw) {
-    const tasksSnap = await adminDb.collection('tasks').get();
+    const tasksSnap = await adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get();
     const matchingTasks = tasksSnap.docs.filter(d => (d.data().title || '').toLowerCase().includes(kw));
     if (matchingTasks.length === 0) return { mode: 'task_detail', tasks: [] };
     const taskIds = matchingTasks.map(d => d.id).slice(0, 10);
-    const subsSnap = await adminDb.collection('submissions').where('taskId', 'in', taskIds).get();
+    // NOTE: may need a new composite index (schoolId + taskId in) — Firestore will surface a console link on first query if missing
+    const subsSnap = await adminDb.collection('submissions').where('taskId', 'in', taskIds).where('schoolId', '==', ctx.schoolId).get();
     const taskById = new Map(matchingTasks.map(d => [d.id, d.data()]));
 
     const byTask = new Map();
@@ -1802,8 +1899,8 @@ async function toolGetScoreOverview(uid, keyword) {
   }
 
   const [subsSnap, usersSnap] = await Promise.all([
-    adminDb.collection('submissions').get(),
-    adminDb.collection('users').get(),
+    adminDb.collection('submissions').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('users').where('schoolId', '==', ctx.schoolId).get(),
   ]);
   const nameById = new Map(usersSnap.docs.map(d => [d.id, d.data().displayName || d.data().email || d.id]));
 
@@ -1830,15 +1927,15 @@ async function toolGetScoreOverview(uid, keyword) {
 // Danh sách danh mục mà ĐÚNG giáo viên này được phép nộp, trong năm học đang hoạt động.
 // Không tự so khớp tên ở đây — trả hết danh sách để AI tự suy luận ngữ nghĩa
 // (vd "giáo án" ứng với danh mục "Kế hoạch bài dạy" dù không trùng chữ nào).
-async function getAllowedUploadCategories(uid) {
-  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).limit(1).get();
+async function getAllowedUploadCategories(ctx) {
+  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).where('schoolId', '==', ctx.schoolId).limit(1).get();
   if (yearsSnap.empty) return { schoolYearId: null, categories: [] };
   const schoolYearId = yearsSnap.docs[0].id;
 
   const [categoriesSnap, typesSnap, subsSnap] = await Promise.all([
-    adminDb.collection('documentCategories').where('schoolYearId', '==', schoolYearId).get(),
-    adminDb.collection('documentTypes').get(),
-    adminDb.collection('documentSubCategories').get(),
+    adminDb.collection('documentCategories').where('schoolYearId', '==', schoolYearId).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('documentTypes').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('documentSubCategories').where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const typeById = new Map();
@@ -1855,10 +1952,10 @@ async function getAllowedUploadCategories(uid) {
     const c = d.data();
     const docType = c.documentTypeId ? typeById.get(c.documentTypeId) : null;
     if (docType) {
-      return Array.isArray(docType.allowedUploaderUserIds) && docType.allowedUploaderUserIds.includes(uid);
+      return Array.isArray(docType.allowedUploaderUserIds) && docType.allowedUploaderUserIds.includes(ctx.uid);
     }
     if (Array.isArray(c.allowedUploaders) && c.allowedUploaders.length > 0) {
-      return c.allowedUploaders.includes(uid);
+      return c.allowedUploaders.includes(ctx.uid);
     }
     // Danh mục kiểu cũ không khai báo allowedUploaders: coi như hồ sơ cá nhân, ai cũng nộp được
     return c.categoryType !== 'public';
@@ -1880,8 +1977,8 @@ async function getAllowedUploadCategories(uid) {
   return { schoolYearId, categories };
 }
 
-async function toolListUploadCategories(uid) {
-  const { schoolYearId, categories } = await getAllowedUploadCategories(uid);
+async function toolListUploadCategories(ctx) {
+  const { schoolYearId, categories } = await getAllowedUploadCategories(ctx);
   return {
     schoolYearId,
     categories: categories.map(c => ({
@@ -1895,10 +1992,10 @@ async function toolListUploadCategories(uid) {
 
 // Đối chiếu danh mục ĐƯỢC PHÉP nộp (kèm mục con, vd 36 tuần) với những gì CHÍNH giáo viên
 // này đã thực sự nộp, để chỉ ra rõ còn THIẾU mục con nào — vd "còn thiếu Tuần 5, Tuần 12".
-async function toolGetMyDocumentProgress(uid) {
+async function toolGetMyDocumentProgress(ctx) {
   const [{ categories }, documentsSnap] = await Promise.all([
-    getAllowedUploadCategories(uid),
-    adminDb.collection('documents').where('uploadedBy', '==', uid).get(),
+    getAllowedUploadCategories(ctx),
+    adminDb.collection('documents').where('uploadedBy', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const submittedByCategory = new Map(); // categoryId -> Set(subCategoryId hoặc 'x')
@@ -1926,8 +2023,8 @@ async function toolGetMyDocumentProgress(uid) {
   return { progress };
 }
 
-async function toolConfirmUploadTarget(uid, categoryId, subCategoryId) {
-  const { schoolYearId, categories } = await getAllowedUploadCategories(uid);
+async function toolConfirmUploadTarget(ctx, categoryId, subCategoryId) {
+  const { schoolYearId, categories } = await getAllowedUploadCategories(ctx);
   const category = categories.find(c => c.categoryId === categoryId);
   if (!category) return { error: 'category_not_allowed' };
 
@@ -1942,6 +2039,7 @@ async function toolConfirmUploadTarget(uid, categoryId, subCategoryId) {
 
   return {
     confirmed: true,
+    schoolId: ctx.schoolId,
     schoolYearId,
     categoryId: category.categoryId,
     categoryName: category.categoryName,
@@ -1950,9 +2048,9 @@ async function toolConfirmUploadTarget(uid, categoryId, subCategoryId) {
   };
 }
 
-async function toolGetRecentNotifications(uid) {
+async function toolGetRecentNotifications(ctx) {
   // Chỉ lọc theo userId (equality đơn) để tránh cần composite index; lọc/sắp xếp còn lại làm ở JS.
-  const snap = await adminDb.collection('notifications').where('userId', '==', uid).get();
+  const snap = await adminDb.collection('notifications').where('userId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get();
   const unreadDocs = snap.docs
     .filter(d => d.data().read !== true)
     .sort((a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0))
@@ -1968,11 +2066,12 @@ async function toolGetRecentNotifications(uid) {
   return { notifications: unreadDocs.map(d => ({ title: d.data().title, message: d.data().message })) };
 }
 
-async function toolGetProfile(uid) {
-  const snap = await adminDb.collection('users').doc(uid).get();
+async function toolGetProfile(ctx) {
+  const snap = await adminDb.collection('users').doc(ctx.uid).get();
   if (!snap.exists) return { error: 'user_not_found' };
   const u = snap.data();
-  const deptSnap = await adminDb.collection('departments').where('memberIds', 'array-contains', uid).limit(1).get();
+  // NOTE: may need a new composite index (schoolId + memberIds array-contains) — Firestore will surface a console link on first query if missing
+  const deptSnap = await adminDb.collection('departments').where('memberIds', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId).limit(1).get();
   return {
     displayName: u.displayName || null,
     email: u.email || null,
@@ -1983,10 +2082,10 @@ async function toolGetProfile(uid) {
 
 // Chỉ chuẩn bị bản nháp đổi tên hiển thị — KHÔNG ghi Firestore, việc ghi thật sự chỉ
 // xảy ra khi người dùng bấm xác nhận ở UI, gọi /api/chat/update-profile.
-async function toolConfirmUpdateProfile(uid, args) {
+async function toolConfirmUpdateProfile(ctx, args) {
   const newName = String(args?.displayName || '').trim();
   if (!newName) return { error: 'missing_display_name' };
-  const snap = await adminDb.collection('users').doc(uid).get();
+  const snap = await adminDb.collection('users').doc(ctx.uid).get();
   if (!snap.exists) return { error: 'user_not_found' };
   return { confirmed: true, currentName: snap.data().displayName || '', newName };
 }
@@ -1996,14 +2095,14 @@ const SCHOOL_INFO_EDITOR_ROLES = ['admin', 'principal', 'vice_principal', 'van_t
 // Đọc dữ kiện nội bộ nhà trường — dùng ở MỌI kênh, mọi vai trò (chỉ đọc, không rủi ro).
 // So khớp theo TỪNG TỪ (không chỉ nguyên cụm) vì AI có thể diễn đạt câu hỏi khác chữ với
 // lúc lưu (vd hỏi "phòng tin học có bao nhiêu máy tính" nhưng dữ liệu lưu chỉ ghi "phòng tin học").
-async function toolSearchSchoolInfo(keyword) {
+async function toolSearchSchoolInfo(ctx, keyword) {
   const kw = String(keyword || '').trim().toLowerCase();
   if (!kw) return { results: [] };
   const tokens = kw.split(/\s+/).filter(t => t.length >= 2);
 
   const [infoSnap, yearsSnap] = await Promise.all([
-    adminDb.collection('schoolInfo').get(),
-    adminDb.collection('schoolYears').get(),
+    adminDb.collection('schoolInfo').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('schoolYears').where('schoolId', '==', ctx.schoolId).get(),
   ]);
   const yearNameById = new Map(yearsSnap.docs.map(d => [d.id, d.data().name]));
 
@@ -2027,14 +2126,12 @@ async function toolSearchSchoolInfo(keyword) {
 
 // Liệt kê toàn bộ dữ kiện để rà soát — CHỈ dành cho nhóm được sửa (xem executeChatTool
 // và CHAT_TOOLS_WITH_SCHOOL_WRITE: tool này chỉ được gửi cho Gemini ở kênh "Thông tin trường").
-async function toolListSchoolInfo(uid) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!SCHOOL_INFO_EDITOR_ROLES.includes(role)) return { error: 'not_authorized' };
+async function toolListSchoolInfo(ctx) {
+  if (!SCHOOL_INFO_EDITOR_ROLES.includes(ctx.role)) return { error: 'not_authorized' };
 
   const [infoSnap, yearsSnap] = await Promise.all([
-    adminDb.collection('schoolInfo').get(),
-    adminDb.collection('schoolYears').get(),
+    adminDb.collection('schoolInfo').where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('schoolYears').where('schoolId', '==', ctx.schoolId).get(),
   ]);
   const yearNameById = new Map(yearsSnap.docs.map(d => [d.id, d.data().name]));
 
@@ -2050,10 +2147,8 @@ async function toolListSchoolInfo(uid) {
 
 // Chuẩn bị bản nháp thêm/ghi đè 1 dữ kiện — KHÔNG ghi Firestore, việc ghi thật sự chỉ
 // xảy ra khi người dùng bấm xác nhận ở UI, gọi /api/chat/add-school-info.
-async function toolConfirmAddSchoolInfo(uid, args) {
-  const callerSnap = await adminDb.collection('users').doc(uid).get();
-  const role = callerSnap.exists ? callerSnap.data().role : null;
-  if (!SCHOOL_INFO_EDITOR_ROLES.includes(role)) return { error: 'not_authorized' };
+async function toolConfirmAddSchoolInfo(ctx, args) {
+  if (!SCHOOL_INFO_EDITOR_ROLES.includes(ctx.role)) return { error: 'not_authorized' };
 
   const topic = String(args?.topic || '').trim();
   const content = String(args?.content || '').trim();
@@ -2062,7 +2157,7 @@ async function toolConfirmAddSchoolInfo(uid, args) {
   let schoolYearId = null;
   let yearLabel = 'Cố định (áp dụng mọi lúc)';
   if (args?.isYearSpecific) {
-    const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).limit(1).get();
+    const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).where('schoolId', '==', ctx.schoolId).limit(1).get();
     if (yearsSnap.empty) return { error: 'no_active_school_year' };
     schoolYearId = yearsSnap.docs[0].id;
     yearLabel = yearsSnap.docs[0].data().name;
@@ -2070,51 +2165,52 @@ async function toolConfirmAddSchoolInfo(uid, args) {
 
   // Tìm bản ghi trùng chủ đề trong cùng phạm vi (cùng năm học, hoặc cùng "cố định") để hỏi ghi đè.
   const topicLower = topic.toLowerCase();
-  const sameScopeSnap = await adminDb.collection('schoolInfo').where('schoolYearId', '==', schoolYearId).get();
+  const sameScopeSnap = await adminDb.collection('schoolInfo').where('schoolYearId', '==', schoolYearId).where('schoolId', '==', ctx.schoolId).get();
   const existing = sameScopeSnap.docs.find(d => (d.data().topic || '').trim().toLowerCase() === topicLower);
 
   return {
     confirmed: true,
+    schoolId: ctx.schoolId,
     topic, content, schoolYearId, yearLabel,
     existingId: existing ? existing.id : null,
     existingContent: existing ? existing.data().content : null,
   };
 }
 
-async function executeChatTool(name, uid, args) {
+async function executeChatTool(name, ctx, args) {
   switch (name) {
-    case 'list_my_tasks': return toolListMyTasks(uid);
-    case 'get_my_scores': return toolGetMyScores(uid);
-    case 'get_recent_notifications': return toolGetRecentNotifications(uid);
-    case 'search_public_documents': return toolSearchPublicDocuments(args?.keyword);
-    case 'list_upload_categories': return toolListUploadCategories(uid);
-    case 'confirm_upload_target': return toolConfirmUploadTarget(uid, args?.categoryId, args?.subCategoryId);
-    case 'list_my_documents': return toolListMyDocuments(uid);
-    case 'confirm_edit_target': return toolConfirmEditTarget(uid, args?.documentId);
-    case 'get_submission_summary': return toolGetSubmissionSummary(uid);
-    case 'get_task_completion_summary': return toolGetTaskCompletionSummary(uid, args?.keyword);
-    case 'confirm_report_progress': return toolConfirmReportUpdate(uid, args, 'progress');
-    case 'confirm_report_blocker': return toolConfirmReportUpdate(uid, args, 'blocker');
-    case 'confirm_request_extension': return toolConfirmReportUpdate(uid, args, 'extension');
-    case 'confirm_request_add_person': return toolConfirmReportUpdate(uid, args, 'help_request');
-    case 'list_assignable_people': return toolListAssignablePeople();
-    case 'confirm_create_task': return toolConfirmCreateTask(uid, args);
-    case 'list_created_tasks': return toolListCreatedTasks(uid, args);
-    case 'find_tasks_to_edit': return toolFindTasksToEdit(uid, args?.keyword);
-    case 'confirm_edit_task_assignees': return toolConfirmEditTaskAssignees(uid, args);
-    case 'find_submissions_for_grading': return toolFindSubmissionsForGrading(uid, args?.taskKeyword, args?.teacherName);
-    case 'confirm_grade_submission': return toolConfirmGradeSubmission(uid, args);
-    case 'get_score_overview': return toolGetScoreOverview(uid, args?.keyword);
-    case 'get_my_submission': return toolGetMySubmission(uid, args?.taskId);
-    case 'get_my_task_stats': return toolGetMyTaskStats(uid);
-    case 'get_my_document_progress': return toolGetMyDocumentProgress(uid);
-    case 'search_everything': return toolSearchEverything(uid, args?.keyword);
-    case 'confirm_forward_task_to_bgh': return toolConfirmForwardTaskToBgh(uid, args);
-    case 'get_profile': return toolGetProfile(uid);
-    case 'confirm_update_profile': return toolConfirmUpdateProfile(uid, args);
-    case 'search_school_info': return toolSearchSchoolInfo(args?.keyword);
-    case 'list_school_info': return toolListSchoolInfo(uid);
-    case 'confirm_add_school_info': return toolConfirmAddSchoolInfo(uid, args);
+    case 'list_my_tasks': return toolListMyTasks(ctx);
+    case 'get_my_scores': return toolGetMyScores(ctx);
+    case 'get_recent_notifications': return toolGetRecentNotifications(ctx);
+    case 'search_public_documents': return toolSearchPublicDocuments(ctx, args?.keyword);
+    case 'list_upload_categories': return toolListUploadCategories(ctx);
+    case 'confirm_upload_target': return toolConfirmUploadTarget(ctx, args?.categoryId, args?.subCategoryId);
+    case 'list_my_documents': return toolListMyDocuments(ctx);
+    case 'confirm_edit_target': return toolConfirmEditTarget(ctx, args?.documentId);
+    case 'get_submission_summary': return toolGetSubmissionSummary(ctx);
+    case 'get_task_completion_summary': return toolGetTaskCompletionSummary(ctx, args?.keyword);
+    case 'confirm_report_progress': return toolConfirmReportUpdate(ctx, args, 'progress');
+    case 'confirm_report_blocker': return toolConfirmReportUpdate(ctx, args, 'blocker');
+    case 'confirm_request_extension': return toolConfirmReportUpdate(ctx, args, 'extension');
+    case 'confirm_request_add_person': return toolConfirmReportUpdate(ctx, args, 'help_request');
+    case 'list_assignable_people': return toolListAssignablePeople(ctx);
+    case 'confirm_create_task': return toolConfirmCreateTask(ctx, args);
+    case 'list_created_tasks': return toolListCreatedTasks(ctx, args);
+    case 'find_tasks_to_edit': return toolFindTasksToEdit(ctx, args?.keyword);
+    case 'confirm_edit_task_assignees': return toolConfirmEditTaskAssignees(ctx, args);
+    case 'find_submissions_for_grading': return toolFindSubmissionsForGrading(ctx, args?.taskKeyword, args?.teacherName);
+    case 'confirm_grade_submission': return toolConfirmGradeSubmission(ctx, args);
+    case 'get_score_overview': return toolGetScoreOverview(ctx, args?.keyword);
+    case 'get_my_submission': return toolGetMySubmission(ctx, args?.taskId);
+    case 'get_my_task_stats': return toolGetMyTaskStats(ctx);
+    case 'get_my_document_progress': return toolGetMyDocumentProgress(ctx);
+    case 'search_everything': return toolSearchEverything(ctx, args?.keyword);
+    case 'confirm_forward_task_to_bgh': return toolConfirmForwardTaskToBgh(ctx, args);
+    case 'get_profile': return toolGetProfile(ctx);
+    case 'confirm_update_profile': return toolConfirmUpdateProfile(ctx, args);
+    case 'search_school_info': return toolSearchSchoolInfo(ctx, args?.keyword);
+    case 'list_school_info': return toolListSchoolInfo(ctx);
+    case 'confirm_add_school_info': return toolConfirmAddSchoolInfo(ctx, args);
     default: return { error: 'unknown_tool' };
   }
 }
@@ -2132,7 +2228,7 @@ const APP_GUIDE = `HƯỚNG DẪN SỬ DỤNG APP (dùng để trả lời khi g
 
 app.post('/api/chat', verifyAuth, express.json(), async (req, res) => {
   try {
-    const uid = req.uid;
+    const ctx = { uid: req.uid, schoolId: req.schoolId, role: req.role };
     const { displayName, messages, channelId } = req.body || {};
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'no_message' });
@@ -2272,7 +2368,7 @@ Khi giáo viên hỏi CÁCH DÙNG app (không phải hỏi dữ liệu cụ th�
 
       const responseParts = [];
       for (const fc of functionCalls) {
-        const result = await executeChatTool(fc.name, uid, fc.args);
+        const result = await executeChatTool(fc.name, ctx, fc.args);
         if (fc.name === 'list_my_tasks' && Array.isArray(result.tasks)) {
           taskListForUI = result.tasks.filter(t => t.status === 'assigned' || t.status === 'overdue');
         }
@@ -2372,6 +2468,10 @@ app.post('/api/chat/complete-task', verifyAuth, express.json(), async (req, res)
     }
     const task = taskSnap.data();
 
+    if (task.schoolId !== req.schoolId) {
+      return res.status(403).json({ error: 'not_authorized' });
+    }
+
     if (!Array.isArray(task.assignedTo) || !task.assignedTo.includes(uid)) {
       return res.status(403).json({ error: 'not_assigned' });
     }
@@ -2408,6 +2508,7 @@ app.post('/api/chat/complete-task', verifyAuth, express.json(), async (req, res)
 
     const submissionData = {
       taskId,
+      schoolId: req.schoolId,
       schoolYearId: task.schoolYearId,
       semester: task.semester || null,
       teacherId: uid,
@@ -2479,11 +2580,11 @@ app.post('/api/chat/forward-task', verifyAuth, express.json(), async (req, res) 
     }
 
     const callerSnap = await adminDb.collection('users').doc(uid).get();
-    const role = callerSnap.exists ? callerSnap.data().role : null;
-    if (role !== 'van_thu') return res.status(403).json({ error: 'not_authorized' });
+    if (req.role !== 'van_thu') return res.status(403).json({ error: 'not_authorized' });
 
     const createdByName = displayName || callerSnap.data()?.displayName || 'Văn thư';
     const taskData = {
+      schoolId: req.schoolId,
       schoolYearId,
       title: String(title).trim(),
       description: String(description).trim(),
@@ -2508,6 +2609,7 @@ app.post('/api/chat/forward-task', verifyAuth, express.json(), async (req, res) 
       const notifRef = adminDb.collection('notifications').doc();
       notifyBatch.set(notifRef, {
         userId: targetUid,
+        schoolId: req.schoolId,
         type: 'task_assigned',
         title: 'Công việc mới',
         message: `${createdByName} đã giao cho bạn: "${taskData.title}"`,
@@ -2560,10 +2662,10 @@ app.post('/api/chat/add-school-info', verifyAuth, express.json(), async (req, re
     if (!topic || !content) return res.status(400).json({ error: 'missing_fields' });
 
     const callerSnap = await adminDb.collection('users').doc(uid).get();
-    const role = callerSnap.exists ? callerSnap.data().role : null;
-    if (!SCHOOL_INFO_EDITOR_ROLES.includes(role)) return res.status(403).json({ error: 'not_authorized' });
+    if (!SCHOOL_INFO_EDITOR_ROLES.includes(req.role)) return res.status(403).json({ error: 'not_authorized' });
 
     const data = {
+      schoolId: req.schoolId,
       topic: String(topic).trim(),
       content: String(content).trim(),
       schoolYearId: schoolYearId || null,
@@ -2573,6 +2675,10 @@ app.post('/api/chat/add-school-info', verifyAuth, express.json(), async (req, re
     };
 
     if (existingId) {
+      const existingSnap = await adminDb.collection('schoolInfo').doc(existingId).get();
+      if (!existingSnap.exists || existingSnap.data().schoolId !== req.schoolId) {
+        return res.status(403).json({ error: 'not_authorized' });
+      }
       await adminDb.collection('schoolInfo').doc(existingId).update(data);
       return res.json({ success: true, id: existingId, overwritten: true });
     }
@@ -2600,11 +2706,10 @@ app.post('/api/chat/submit-document', verifyAuth, express.json(), async (req, re
       return res.status(400).json({ error: 'missing_fields' });
     }
 
-    const userSnap = await adminDb.collection('users').doc(uid).get();
-    const role = userSnap.exists ? userSnap.data().role : 'teacher';
-    const status = (role === 'admin' || role === 'vice_principal' || role === 'principal') ? 'approved' : 'pending';
+    const status = (req.role === 'admin' || req.role === 'vice_principal' || req.role === 'principal') ? 'approved' : 'pending';
 
     const documentData = {
+      schoolId: req.schoolId,
       schoolYearId,
       categoryId,
       title: String(title).trim(),
@@ -2649,6 +2754,7 @@ app.post('/api/chat/add-document-files', verifyAuth, express.json(), async (req,
     const docSnap = await docRef.get();
     if (!docSnap.exists) return res.status(404).json({ error: 'document_not_found' });
     const doc = docSnap.data();
+    if (doc.schoolId !== req.schoolId) return res.status(403).json({ error: 'not_authorized' });
     if (doc.uploadedBy !== uid) return res.status(403).json({ error: 'not_owner' });
 
     const existingFiles = Array.isArray(doc.files) ? doc.files : [];
@@ -2691,6 +2797,7 @@ app.post('/api/chat/remove-document-file', verifyAuth, express.json(), async (re
     const docSnap = await docRef.get();
     if (!docSnap.exists) return res.status(404).json({ error: 'document_not_found' });
     const doc = docSnap.data();
+    if (doc.schoolId !== req.schoolId) return res.status(403).json({ error: 'not_authorized' });
     if (doc.uploadedBy !== uid) return res.status(403).json({ error: 'not_owner' });
 
     const existingFiles = Array.isArray(doc.files) ? doc.files : [];
@@ -2721,10 +2828,10 @@ app.post('/api/chat/remove-document-file', verifyAuth, express.json(), async (re
  */
 app.post('/api/chat/document-details', verifyAuth, express.json(), async (req, res) => {
   try {
-    const uid = req.uid;
+    const ctx = { uid: req.uid, schoolId: req.schoolId, role: req.role };
     const { documentId } = req.body || {};
     if (!documentId) return res.status(400).json({ error: 'missing_fields' });
-    const result = await toolConfirmEditTarget(uid, documentId);
+    const result = await toolConfirmEditTarget(ctx, documentId);
     if (result.error) return res.status(400).json(result);
     res.json({ success: true, ...result });
   } catch (error) {

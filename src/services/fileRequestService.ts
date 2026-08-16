@@ -12,18 +12,19 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { tenantCollection } from '@/lib/tenantQuery';
 import { FileRequest, FileRequestType, FileRequestStatus, DocumentFile } from '@/types';
 import { googleDriveServiceBackend } from './googleDriveServiceBackend';
 
 export const fileRequestService = {
   // Get all requests (with filters)
-  async getRequests(filters?: {
+  async getRequests(schoolId: string, filters?: {
     requestedBy?: string;
     departmentId?: string;
     status?: FileRequestStatus;
   }): Promise<FileRequest[]> {
     try {
-      const requestsRef = collection(db, 'fileRequests');
+      const requestsRef = tenantCollection('fileRequests', schoolId);
       const constraints: any[] = [orderBy('requestedAt', 'desc')];
 
       if (filters?.requestedBy) {
@@ -40,6 +41,7 @@ export const fileRequestService = {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           documentId: data.documentId,
           documentName: data.documentName,
           requestType: data.requestType,
@@ -64,12 +66,11 @@ export const fileRequestService = {
   },
 
   // Get pending requests by department
-  async getPendingRequestsByDepartment(departmentId: string): Promise<FileRequest[]> {
+  async getPendingRequestsByDepartment(schoolId: string, departmentId: string): Promise<FileRequest[]> {
     try {
       // First get all pending requests
-      const requestsRef = collection(db, 'fileRequests');
       const q = query(
-        requestsRef,
+        tenantCollection('fileRequests', schoolId),
         where('status', '==', 'pending'),
         orderBy('requestedAt', 'desc')
       );
@@ -87,6 +88,7 @@ export const fileRequestService = {
         if (docSnap.exists() && docSnap.data().departmentId === departmentId) {
           requests.push({
             id: requestDoc.id,
+            schoolId: data.schoolId,
             documentId: data.documentId,
             documentName: data.documentName,
             requestType: data.requestType,
@@ -122,6 +124,7 @@ export const fileRequestService = {
       const data = requestDoc.data();
       return {
         id: requestDoc.id,
+        schoolId: data.schoolId,
         documentId: data.documentId,
         documentName: data.documentName,
         requestType: data.requestType,
@@ -145,7 +148,7 @@ export const fileRequestService = {
   },
 
   // Create delete request
-  async createDeleteRequest(data: {
+  async createDeleteRequest(schoolId: string, data: {
     documentId: string;
     documentName: string;
     requestedBy: string;
@@ -154,6 +157,7 @@ export const fileRequestService = {
   }): Promise<string> {
     try {
       const requestDoc = await addDoc(collection(db, 'fileRequests'), {
+        schoolId,
         documentId: data.documentId,
         documentName: data.documentName,
         requestType: 'delete' as FileRequestType,
@@ -172,7 +176,7 @@ export const fileRequestService = {
   },
 
   // Create edit request
-  async createEditRequest(data: {
+  async createEditRequest(schoolId: string, data: {
     documentId: string;
     documentName: string;
     requestedBy: string;
@@ -184,6 +188,7 @@ export const fileRequestService = {
   }): Promise<string> {
     try {
       const requestDoc = await addDoc(collection(db, 'fileRequests'), {
+        schoolId,
         documentId: data.documentId,
         documentName: data.documentName,
         requestType: 'edit' as FileRequestType,

@@ -1,12 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { getNavigationForRole } from '../../lib/navigation';
+import { getNavigationForUser } from '../../lib/navigation';
 import { cn } from '@/lib/utils';
 import { GraduationCap } from 'lucide-react';
 
 export const Sidebar = () => {
   const { user } = useAuth();
-  const navItems = user ? getNavigationForRole(user.role) : [];
+  const navItems = user ? getNavigationForUser(user) : [];
 
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-64 bg-white border-r border-gray-200 fixed left-0 top-0 bottom-0">

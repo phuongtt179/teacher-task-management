@@ -89,20 +89,22 @@ export const CreateTaskScreen = () => {
 
   // Load teachers, suggestions, and school years
   useEffect(() => {
+    if (!user?.schoolId) return;
+    const schoolId = user.schoolId;
     const loadData = async () => {
       try {
         const [teachersData, suggestionsData, schoolYearsData, activeYear] = await Promise.all([
-          taskService.getAllTeachers(),
+          taskService.getAllTeachers(schoolId),
           (async () => {
             setIsLoadingSuggestions(true);
             try {
-              return await suggestionService.getRecommendedTeachers(10);
+              return await suggestionService.getRecommendedTeachers(schoolId, 10);
             } finally {
               setIsLoadingSuggestions(false);
             }
           })(),
-          schoolYearService.getAllSchoolYears(),
-          schoolYearService.getActiveSchoolYear(),
+          schoolYearService.getAllSchoolYears(schoolId),
+          schoolYearService.getActiveSchoolYear(schoolId),
         ]);
 
         setTeachers(teachersData);
@@ -129,7 +131,7 @@ export const CreateTaskScreen = () => {
       }
     };
     loadData();
-  }, []);
+  }, [user?.schoolId]);
 
   // Handle PDF upload
   const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -200,7 +202,7 @@ export const CreateTaskScreen = () => {
 
   // Submit form
   const onSubmit = async (data: TaskFormData) => {
-    if (!user) return;
+    if (!user || !user.schoolId) return;
 
     setIsSubmitting(true);
     try {
@@ -263,6 +265,7 @@ export const CreateTaskScreen = () => {
 
       // Build task data, only include descriptionPdfUrl if it exists
       const taskData: any = {
+        schoolId: user.schoolId,
         schoolYearId: data.schoolYearId,
         semester: data.semester,
         title: data.title,

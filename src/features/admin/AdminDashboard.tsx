@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { getDocs } from 'firebase/firestore';
+import { tenantCollection } from '../../lib/tenantQuery';
+import { useAuth } from '../../hooks/useAuth';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { QuickAction } from '../../components/dashboard/QuickAction';
-import { Users, Mail, ClipboardList, Award, FolderTree } from 'lucide-react';
+import { Users, Mail, ClipboardList, Award, FolderTree, Building2 } from 'lucide-react';
 
 export const AdminDashboard = () => {
+  const { user } = useAuth();
   const [stats, setStats] = useState({
     totalUsers: 0,
     whitelistCount: 0,
@@ -14,12 +16,15 @@ export const AdminDashboard = () => {
   });
 
   useEffect(() => {
+    if (!user?.schoolId) return;
+    const schoolId = user.schoolId;
+
     const loadStats = async () => {
       try {
         const [usersSnap, whitelistSnap, tasksSnap] = await Promise.all([
-          getDocs(collection(db, 'users')),
-          getDocs(collection(db, 'whitelist')),
-          getDocs(collection(db, 'tasks')),
+          getDocs(tenantCollection('users', schoolId)),
+          getDocs(tenantCollection('whitelist', schoolId)),
+          getDocs(tenantCollection('tasks', schoolId)),
         ]);
 
         setStats({
@@ -39,7 +44,7 @@ export const AdminDashboard = () => {
     };
 
     loadStats();
-  }, []);
+  }, [user?.schoolId]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -103,6 +108,14 @@ export const AdminDashboard = () => {
           icon={FolderTree}
           path="/documents/config"
         />
+
+        {user?.isSuperAdmin && (
+          <QuickAction
+            label="Quản lý trường"
+            icon={Building2}
+            path="/super-admin/schools"
+          />
+        )}
       </div>
 
       {/* System Info */}

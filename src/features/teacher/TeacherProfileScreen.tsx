@@ -34,7 +34,7 @@ export function TeacherProfileScreen() {
   const [passwordLoading, setPasswordLoading] = useState(false);
 
   useEffect(() => {
-    if (user) {
+    if (user && user.schoolId) {
       setDisplayName(user.displayName);
       setEmail(user.email);
       setPhoneNumber(user.phoneNumber || '');
@@ -44,8 +44,9 @@ export function TeacherProfileScreen() {
   }, [user]);
 
   const loadDepartments = async () => {
+    if (!user?.schoolId) return;
     try {
-      const depts = await departmentService.getAllDepartments();
+      const depts = await departmentService.getAllDepartments(user.schoolId);
       setDepartments(depts);
     } catch (error) {
       console.error('Error loading departments:', error);
@@ -53,10 +54,10 @@ export function TeacherProfileScreen() {
   };
 
   const loadDepartment = async () => {
-    if (!user) return;
+    if (!user || !user.schoolId) return;
 
     try {
-      const dept = await departmentService.getDepartmentByUserId(user.uid);
+      const dept = await departmentService.getDepartmentByUserId(user.schoolId, user.uid);
       setDepartment(dept);
       setSelectedDepartmentId(dept?.id || '');
     } catch (error) {

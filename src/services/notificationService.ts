@@ -99,6 +99,7 @@ export const notificationService = {
 
   // Create notification in Firestore
   async createNotification(
+    schoolId: string,
     userId: string,
     type: NotificationType,
     title: string,
@@ -107,6 +108,7 @@ export const notificationService = {
   ): Promise<string> {
     try {
       const docRef = await addDoc(collection(db, 'notifications'), {
+        schoolId,
         userId,
         type,
         title,
@@ -209,10 +211,11 @@ export const notificationService = {
   },
 
   // Helper: Send notification when task is assigned
-  async notifyTaskAssigned(teacherIds: string[], taskId: string, taskTitle: string, createdByName: string): Promise<void> {
+  async notifyTaskAssigned(schoolId: string, teacherIds: string[], taskId: string, taskTitle: string, createdByName: string): Promise<void> {
     try {
       const promises = teacherIds.map((teacherId) =>
         this.createNotification(
+          schoolId,
           teacherId,
           'task_assigned',
           'Công việc mới',
@@ -227,9 +230,10 @@ export const notificationService = {
   },
 
   // Helper: Send notification for upcoming deadline
-  async notifyDeadline(teacherId: string, taskId: string, taskTitle: string, hoursLeft: number): Promise<void> {
+  async notifyDeadline(schoolId: string, teacherId: string, taskId: string, taskTitle: string, hoursLeft: number): Promise<void> {
     try {
       await this.createNotification(
+        schoolId,
         teacherId,
         'task_deadline',
         'Deadline sắp đến',
@@ -243,6 +247,7 @@ export const notificationService = {
 
   // Helper: Send notification when task is scored
   async notifyTaskScored(
+    schoolId: string,
     teacherId: string,
     taskId: string,
     taskTitle: string,
@@ -252,6 +257,7 @@ export const notificationService = {
   ): Promise<void> {
     try {
       await this.createNotification(
+        schoolId,
         teacherId,
         'task_scored',
         'Bài làm đã được chấm',
@@ -265,6 +271,7 @@ export const notificationService = {
 
   // Helper: Send notification when task is submitted
   async notifyTaskSubmitted(
+    schoolId: string,
     vpId: string,
     taskId: string,
     taskTitle: string,
@@ -272,6 +279,7 @@ export const notificationService = {
   ): Promise<void> {
     try {
       await this.createNotification(
+        schoolId,
         vpId,
         'task_submitted',
         'Có bài nộp mới',

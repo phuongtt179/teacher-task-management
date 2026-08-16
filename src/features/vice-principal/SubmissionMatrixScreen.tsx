@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../../hooks/useAuth';
 import { schoolYearService } from '../../services/schoolYearService';
 import { documentCategoryService } from '../../services/documentCategoryService';
 import { documentService } from '../../services/documentService';
@@ -24,6 +25,8 @@ const toState = (s: DocumentStatus): CellState =>
   s === 'approved' ? 'approved' : s === 'pending' ? 'pending' : 'none'; // rejected coi như chưa nộp
 
 export const SubmissionMatrixScreen = () => {
+  const { user } = useAuth();
+  const schoolId = user?.schoolId;
   const [schoolYearId, setSchoolYearId] = useState<string>('');
   const [categories, setCategories] = useState<DocumentCategory[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
@@ -38,10 +41,14 @@ export const SubmissionMatrixScreen = () => {
 
   // Tải dữ liệu nền: năm học active, danh mục (có mục con), tổ, giáo viên
   useEffect(() => {
+    if (!schoolId) {
+      setLoading(false);
+      return;
+    }
     const load = async () => {
       try {
         setLoading(true);
-        const activeYear = await schoolYearService.getActiveSchoolYear();
+        const activeYear = await schoolYearService.getActiveSchoolYear(schoolId);
         if (!activeYear) {
           setLoading(false);
           return;
@@ -49,9 +56,9 @@ export const SubmissionMatrixScreen = () => {
         setSchoolYearId(activeYear.id);
 
         const [cats, depts, users] = await Promise.all([
-          documentCategoryService.getCategoriesBySchoolYear(activeYear.id),
-          departmentService.getAllDepartments(),
-          userService.getAllUsers(),
+          documentCategoryService.getCategoriesBySchoolYear(schoolId, activeYear.id),
+          departmentService.getAllDepartments(schoolId),
+          userService.getAllUsers(schoolId),
         ]);
 
         const withSubs = cats.filter(c => c.hasSubCategories);
@@ -75,10 +82,11 @@ export const SubmissionMatrixScreen = () => {
       }
     };
     load();
-  }, []);
+  }, [schoolId]);
 
   // Tải ma trận khi đổi danh mục
   useEffect(() => {
+    if (!schoolId) return;
     const loadMatrix = async () => {
       if (!selectedCategoryId) {
         setSubCategories([]);
@@ -88,8 +96,8 @@ export const SubmissionMatrixScreen = () => {
       try {
         setLoadingMatrix(true);
         const [subs, cells] = await Promise.all([
-          documentCategoryService.getSubCategories(selectedCategoryId),
-          documentService.getSubmissionCells(selectedCategoryId),
+          documentCategoryService.getSubCategories(schoolId, selectedCategoryId),
+          documentService.getSubmissionCells(schoolId, selectedCategoryId),
         ]);
         setSubCategories(subs);
 
@@ -107,7 +115,7 @@ export const SubmissionMatrixScreen = () => {
       }
     };
     loadMatrix();
-  }, [selectedCategoryId]);
+  }, [schoolId, selectedCategoryId]);
 
   // Danh sách giáo viên theo bộ lọc tổ
   const visibleTeachers = useMemo(() => {

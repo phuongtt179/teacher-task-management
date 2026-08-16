@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 import { User } from '../../types';
 import { userService } from '../../services/userService';
 import { analyticsService, TeacherStats } from '../../services/analyticsService';
@@ -8,17 +9,21 @@ import { ChevronRight, User as UserIcon } from 'lucide-react';
 
 export const TeacherStatisticsTab = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const schoolId = user?.schoolId;
   const [teachersStats, setTeachersStats] = useState<TeacherStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (!schoolId) return;
     loadTeachersStats();
-  }, []);
+  }, [schoolId]);
 
   const loadTeachersStats = async () => {
+    if (!schoolId) return;
     try {
       setIsLoading(true);
-      const stats = await analyticsService.getAllTeachersStats();
+      const stats = await analyticsService.getAllTeachersStats(schoolId);
       // Sort by display name
       stats.sort((a, b) => a.displayName.localeCompare(b.displayName));
       setTeachersStats(stats);

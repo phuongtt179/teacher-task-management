@@ -29,14 +29,15 @@ export const TaskListScreen = () => {
   // Load tasks and school years
   useEffect(() => {
     const loadData = async () => {
-      if (!user) return;
+      if (!user || !user.schoolId) return;
+      const schoolId = user.schoolId;
 
       try {
         setIsLoading(true);
         const [tasksData, schoolYearsData, activeYear] = await Promise.all([
-          taskService.getTasksByCreator(user.uid),
-          schoolYearService.getAllSchoolYears(),
-          schoolYearService.getActiveSchoolYear(),
+          taskService.getTasksByCreator(schoolId, user.uid),
+          schoolYearService.getAllSchoolYears(schoolId),
+          schoolYearService.getActiveSchoolYear(schoolId),
         ]);
 
         setTasks(tasksData);

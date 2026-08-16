@@ -12,20 +12,21 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { tenantCollection } from '@/lib/tenantQuery';
 import { DocumentType, UserRole } from '@/types';
 
 export const documentTypeService = {
   // Get all document types
-  async getAllDocumentTypes(): Promise<DocumentType[]> {
+  async getAllDocumentTypes(schoolId: string): Promise<DocumentType[]> {
     try {
-      const typesRef = collection(db, 'documentTypes');
-      const q = query(typesRef, orderBy('order', 'asc'));
+      const q = query(tenantCollection('documentTypes', schoolId), orderBy('order', 'asc'));
       const snapshot = await getDocs(q);
 
       return snapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           name: data.name,
           description: data.description,
           icon: data.icon,
@@ -47,11 +48,10 @@ export const documentTypeService = {
   },
 
   // Get active document types only
-  async getActiveDocumentTypes(): Promise<DocumentType[]> {
+  async getActiveDocumentTypes(schoolId: string): Promise<DocumentType[]> {
     try {
-      const typesRef = collection(db, 'documentTypes');
       const q = query(
-        typesRef,
+        tenantCollection('documentTypes', schoolId),
         where('isActive', '==', true),
         orderBy('order', 'asc')
       );
@@ -61,6 +61,7 @@ export const documentTypeService = {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           name: data.name,
           description: data.description,
           icon: data.icon,
@@ -94,6 +95,7 @@ export const documentTypeService = {
       const data = docSnap.data();
       return {
         id: docSnap.id,
+        schoolId: data.schoolId,
         name: data.name,
         description: data.description,
         icon: data.icon,
@@ -114,7 +116,7 @@ export const documentTypeService = {
   },
 
   // Create document type
-  async createDocumentType(data: {
+  async createDocumentType(schoolId: string, data: {
     name: string;
     description?: string;
     icon?: string;
@@ -142,6 +144,7 @@ export const documentTypeService = {
       }
 
       const typeDoc = await addDoc(collection(db, 'documentTypes'), {
+        schoolId,
         name: data.name,
         description: data.description || '',
         icon: data.icon || '',
@@ -236,10 +239,10 @@ export const documentTypeService = {
   },
 
   // Initialize default document types if none exist
-  async initializeDefaultTypes(createdBy: string): Promise<void> {
+  async initializeDefaultTypes(schoolId: string, createdBy: string): Promise<void> {
     try {
       // Check if any types already exist
-      const existing = await this.getAllDocumentTypes();
+      const existing = await this.getAllDocumentTypes(schoolId);
       if (existing.length > 0) {
         console.log('Document types already exist, skipping initialization');
         return;
@@ -299,7 +302,7 @@ export const documentTypeService = {
 
       // Create all default types
       for (const type of defaultTypes) {
-        await this.createDocumentType(type);
+        await this.createDocumentType(schoolId, type);
       }
 
       console.log('Default document types initialized successfully');

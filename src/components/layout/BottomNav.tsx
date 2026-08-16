@@ -1,11 +1,11 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { getNavigationForRole } from '../../lib/navigation';
+import { getNavigationForUser } from '../../lib/navigation';
 import { cn } from '@/lib/utils';
 
 export const BottomNav = () => {
   const { user } = useAuth();
-  const navItems = user ? getNavigationForRole(user.role).slice(0, 4) : []; // Show max 4 items
+  const navItems = user ? getNavigationForUser(user).slice(0, 4) : []; // Show max 4 items
 
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">

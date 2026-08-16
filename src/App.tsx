@@ -7,6 +7,7 @@ import { WhitelistScreen } from './features/admin/WhitelistScreen';
 import { AdminDashboard } from './features/admin/AdminDashboard';
 import UserManagementScreen from './features/admin/UserManagementScreen';
 import { DocumentTypesScreen } from './features/admin/DocumentTypesScreen';
+import { SchoolsScreen } from './features/admin/SchoolsScreen';
 import { VPDashboard } from './features/vice-principal/VPDashboard';
 import { CreateTaskScreen } from './features/vice-principal/CreateTaskScreen';
 import { ImportTasksScreen } from './features/vice-principal/ImportTasksScreen';
@@ -86,7 +87,7 @@ const PlaceholderScreen = ({ title }: { title: string }) => (
 );
 
 function App() {
-  const { firebaseUser, isLoading, isWhitelisted } = useAuth();
+  const { firebaseUser, user, isLoading, isWhitelisted } = useAuth();
 
   // Initialize FCM
   useFCM();
@@ -96,8 +97,8 @@ function App() {
 
   // Start/stop deadline checker based on authentication
   useEffect(() => {
-    if (firebaseUser && isWhitelisted) {
-      deadlineCheckerService.startChecking();
+    if (firebaseUser && isWhitelisted && user?.schoolId) {
+      deadlineCheckerService.startChecking(user.schoolId);
     } else {
       deadlineCheckerService.stopChecking();
     }
@@ -105,7 +106,7 @@ function App() {
     return () => {
       deadlineCheckerService.stopChecking();
     };
-  }, [firebaseUser, isWhitelisted]);
+  }, [firebaseUser, isWhitelisted, user?.schoolId]);
 
   if (isLoading) {
     return (
@@ -194,6 +195,18 @@ function App() {
             <ProtectedRoute allowedRoles={['admin']}>
               <AppLayout>
                 <DocumentTypesScreen />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Super Admin Routes (platform-level, orthogonal to role) */}
+        <Route
+          path="/super-admin/schools"
+          element={
+            <ProtectedRoute requireSuperAdmin>
+              <AppLayout>
+                <SchoolsScreen />
               </AppLayout>
             </ProtectedRoute>
           }

@@ -21,9 +21,9 @@ export const SEMESTER_FILTER_LABELS: Record<SemesterFilter, string> = {
  * Get active semester from active school year (set by admin)
  * @returns Active semester or null if no active school year or no active semester set
  */
-export async function getActiveSemester(): Promise<Semester | null> {
+export async function getActiveSemester(schoolId: string): Promise<Semester | null> {
   try {
-    const activeYear = await schoolYearService.getActiveSchoolYear();
+    const activeYear = await schoolYearService.getActiveSchoolYear(schoolId);
     return activeYear?.activeSemester || null;
   } catch (error) {
     console.error('Error getting active semester:', error);
@@ -65,8 +65,8 @@ export function getCurrentSemester(): Semester | null {
  * @param includeAll - If true, defaults to 'all' when no active semester. If false, defaults to 'HK1'
  * @returns Default semester filter value
  */
-export async function getDefaultSemesterFilter(includeAll: boolean = true): Promise<SemesterFilter> {
-  const activeSemester = await getActiveSemester();
+export async function getDefaultSemesterFilter(schoolId: string, includeAll: boolean = true): Promise<SemesterFilter> {
+  const activeSemester = await getActiveSemester(schoolId);
   if (activeSemester) {
     return activeSemester;
   }

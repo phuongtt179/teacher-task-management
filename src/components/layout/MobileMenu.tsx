@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { getNavigationForRole } from '../../lib/navigation';
+import { getNavigationForUser } from '../../lib/navigation';
 import { cn } from '@/lib/utils';
 import { Menu, X } from 'lucide-react';
 
@@ -15,7 +15,7 @@ interface MobileMenuProps {
 export const MobileMenu = ({ forceVisible }: MobileMenuProps) => {
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
-  const navItems = user ? getNavigationForRole(user.role) : [];
+  const navItems = user ? getNavigationForUser(user) : [];
   const visibilityClass = forceVisible ? '' : 'lg:hidden';
 
   return (

@@ -12,17 +12,17 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { tenantCollection } from '@/lib/tenantQuery';
 import { DocumentCategory, DocumentSubCategory } from '@/types';
 
 export const documentCategoryService = {
   // ============ CATEGORIES ============
 
   // Get all categories for a school year
-  async getCategoriesBySchoolYear(schoolYearId: string): Promise<DocumentCategory[]> {
+  async getCategoriesBySchoolYear(schoolId: string, schoolYearId: string): Promise<DocumentCategory[]> {
     try {
-      const categoriesRef = collection(db, 'documentCategories');
       const q = query(
-        categoriesRef,
+        tenantCollection('documentCategories', schoolId),
         where('schoolYearId', '==', schoolYearId),
         orderBy('order', 'asc')
       );
@@ -32,6 +32,7 @@ export const documentCategoryService = {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           schoolYearId: data.schoolYearId,
           documentTypeId: data.documentTypeId || '', // NEW: Load documentTypeId
           name: data.name,
@@ -53,7 +54,7 @@ export const documentCategoryService = {
   },
 
   // Create category
-  async createCategory(data: {
+  async createCategory(schoolId: string, data: {
     schoolYearId: string;
     name: string;
     categoryType?: 'public' | 'personal'; // Optional for backward compatibility
@@ -65,6 +66,7 @@ export const documentCategoryService = {
   }): Promise<string> {
     try {
       const categoryDocData: any = {
+        schoolId,
         schoolYearId: data.schoolYearId,
         name: data.name,
         hasSubCategories: data.hasSubCategories ?? false, // Ensure it's never undefined
@@ -144,15 +146,17 @@ export const documentCategoryService = {
 
   // Copy all categories (and their subcategories) from one school year to another
   async copyCategoriesToSchoolYear(
+    schoolId: string,
     sourceYearId: string,
     targetYearId: string,
     createdBy: string
   ): Promise<number> {
     try {
-      const sourceCategories = await this.getCategoriesBySchoolYear(sourceYearId);
+      const sourceCategories = await this.getCategoriesBySchoolYear(schoolId, sourceYearId);
 
       for (const category of sourceCategories) {
         const newCategoryData: any = {
+          schoolId,
           schoolYearId: targetYearId,
           name: category.name,
           hasSubCategories: category.hasSubCategories,
@@ -178,9 +182,10 @@ export const documentCategoryService = {
         const newCategoryDoc = await addDoc(collection(db, 'documentCategories'), newCategoryData);
 
         if (category.hasSubCategories) {
-          const subCategories = await this.getSubCategories(category.id);
+          const subCategories = await this.getSubCategories(schoolId, category.id);
           for (const sub of subCategories) {
             await addDoc(collection(db, 'documentSubCategories'), {
+              schoolId,
               categoryId: newCategoryDoc.id,
               name: sub.name,
               order: sub.order,
@@ -212,11 +217,10 @@ export const documentCategoryService = {
   // ============ SUB-CATEGORIES ============
 
   // Get subcategories for a category
-  async getSubCategories(categoryId: string): Promise<DocumentSubCategory[]> {
+  async getSubCategories(schoolId: string, categoryId: string): Promise<DocumentSubCategory[]> {
     try {
-      const subCategoriesRef = collection(db, 'documentSubCategories');
       const q = query(
-        subCategoriesRef,
+        tenantCollection('documentSubCategories', schoolId),
         where('categoryId', '==', categoryId),
         orderBy('order', 'asc')
       );
@@ -226,6 +230,7 @@ export const documentCategoryService = {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           categoryId: data.categoryId,
           name: data.name,
           order: data.order || 0,
@@ -241,13 +246,14 @@ export const documentCategoryService = {
   },
 
   // Create subcategory
-  async createSubCategory(data: {
+  async createSubCategory(schoolId: string, data: {
     categoryId: string;
     name: string;
     order: number;
   }): Promise<string> {
     try {
       const subCategoryDoc = await addDoc(collection(db, 'documentSubCategories'), {
+        schoolId,
         categoryId: data.categoryId,
         name: data.name,
         order: data.order,

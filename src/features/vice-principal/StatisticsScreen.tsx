@@ -28,10 +28,10 @@ export const StatisticsScreen = () => {
   // Load school years once on mount
   useEffect(() => {
     const initFilters = async () => {
-      if (!user) return;
+      if (!user || !user.schoolId) return;
       const [years, activeYear] = await Promise.all([
-        schoolYearService.getAllSchoolYears(),
-        schoolYearService.getActiveSchoolYear(),
+        schoolYearService.getAllSchoolYears(user.schoolId),
+        schoolYearService.getActiveSchoolYear(user.schoolId),
       ]);
       setSchoolYears(years);
       setSelectedSchoolYearId(activeYear?.id ?? 'all');
@@ -44,7 +44,8 @@ export const StatisticsScreen = () => {
 
   // Reload stats whenever filters change (skip until filters are initialized)
   useEffect(() => {
-    if (!user || selectedSchoolYearId === '') return;
+    if (!user || !user.schoolId || selectedSchoolYearId === '') return;
+    const schoolId = user.schoolId;
 
     const loadStats = async () => {
       try {
@@ -53,9 +54,9 @@ export const StatisticsScreen = () => {
         const yearParam = selectedSchoolYearId === 'all' ? undefined : selectedSchoolYearId;
 
         const [school, teachers, vp] = await Promise.all([
-          analyticsService.getSchoolStats(semParam, yearParam, user.uid),
-          analyticsService.getAllTeachersStats(semParam, yearParam),
-          analyticsService.getVPStats(user.uid, semParam, yearParam),
+          analyticsService.getSchoolStats(schoolId, semParam, yearParam, user.uid),
+          analyticsService.getAllTeachersStats(schoolId, semParam, yearParam),
+          analyticsService.getVPStats(schoolId, user.uid, semParam, yearParam),
         ]);
 
         setSchoolStats(school);

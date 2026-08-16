@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 import { User, Task, Submission } from '../../types';
 import { userService } from '../../services/userService';
 import { taskService } from '../../services/taskService';
@@ -23,6 +24,8 @@ type FilterType = 'all' | 'completed' | 'not_completed';
 export const TeacherDetailStatisticsScreen = () => {
   const { teacherId } = useParams<{ teacherId: string }>();
   const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
+  const schoolId = currentUser?.schoolId;
   const [teacher, setTeacher] = useState<User | null>(null);
   const [taskSubmissions, setTaskSubmissions] = useState<TaskWithSubmission[]>([]);
   const [filteredTasks, setFilteredTasks] = useState<TaskWithSubmission[]>([]);
@@ -31,17 +34,17 @@ export const TeacherDetailStatisticsScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (teacherId) {
+    if (teacherId && schoolId) {
       loadTeacherDetails();
     }
-  }, [teacherId]);
+  }, [teacherId, schoolId]);
 
   useEffect(() => {
     applyFilters();
   }, [taskSubmissions, selectedMonth, filter]);
 
   const loadTeacherDetails = async () => {
-    if (!teacherId) return;
+    if (!teacherId || !schoolId) return;
 
     try {
       setIsLoading(true);
@@ -55,12 +58,12 @@ export const TeacherDetailStatisticsScreen = () => {
       setTeacher(teacherData);
 
       // Load all tasks assigned to this teacher
-      const tasks = await taskService.getTasksForTeacher(teacherId);
+      const tasks = await taskService.getTasksForTeacher(schoolId, teacherId);
 
       // Load submissions for all these tasks
       const tasksWithSubmissions = await Promise.all(
         tasks.map(async (task) => {
-          const submissions = await submissionService.getSubmissionsByTask(task.id);
+          const submissions = await submissionService.getSubmissionsByTask(schoolId, task.id);
           const submission = submissions.find((s) => s.teacherId === teacherId);
 
           const isCompleted = submission?.score !== undefined;

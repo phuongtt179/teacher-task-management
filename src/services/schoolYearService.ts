@@ -10,23 +10,23 @@ import {
   where,
   orderBy,
   Timestamp,
-  setDoc
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { tenantCollection } from '@/lib/tenantQuery';
 import { SchoolYear } from '@/types';
 
 export const schoolYearService = {
   // Get all school years
-  async getAllSchoolYears(): Promise<SchoolYear[]> {
+  async getAllSchoolYears(schoolId: string): Promise<SchoolYear[]> {
     try {
-      const yearsRef = collection(db, 'schoolYears');
-      const q = query(yearsRef, orderBy('startDate', 'desc'));
+      const q = query(tenantCollection('schoolYears', schoolId), orderBy('startDate', 'desc'));
       const snapshot = await getDocs(q);
 
       return snapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           name: data.name,
           startDate: data.startDate?.toDate() || new Date(),
           endDate: data.endDate?.toDate() || new Date(),
@@ -43,10 +43,9 @@ export const schoolYearService = {
   },
 
   // Get active school year
-  async getActiveSchoolYear(): Promise<SchoolYear | null> {
+  async getActiveSchoolYear(schoolId: string): Promise<SchoolYear | null> {
     try {
-      const yearsRef = collection(db, 'schoolYears');
-      const q = query(yearsRef, where('isActive', '==', true));
+      const q = query(tenantCollection('schoolYears', schoolId), where('isActive', '==', true));
       const snapshot = await getDocs(q);
 
       if (snapshot.empty) return null;
@@ -55,6 +54,7 @@ export const schoolYearService = {
       const data = doc.data();
       return {
         id: doc.id,
+        schoolId: data.schoolId,
         name: data.name,
         startDate: data.startDate?.toDate() || new Date(),
         endDate: data.endDate?.toDate() || new Date(),
@@ -78,6 +78,7 @@ export const schoolYearService = {
       const data = yearDoc.data();
       return {
         id: yearDoc.id,
+        schoolId: data.schoolId,
         name: data.name,
         startDate: data.startDate?.toDate() || new Date(),
         endDate: data.endDate?.toDate() || new Date(),
@@ -93,7 +94,7 @@ export const schoolYearService = {
   },
 
   // Create school year
-  async createSchoolYear(data: {
+  async createSchoolYear(schoolId: string, data: {
     name: string;
     startDate: Date;
     endDate: Date;
@@ -104,10 +105,11 @@ export const schoolYearService = {
     try {
       // If this is set to active, deactivate others first
       if (data.isActive) {
-        await this.deactivateAllSchoolYears();
+        await this.deactivateAllSchoolYears(schoolId);
       }
 
       const yearData: any = {
+        schoolId,
         name: data.name,
         startDate: Timestamp.fromDate(data.startDate),
         endDate: Timestamp.fromDate(data.endDate),
@@ -131,7 +133,7 @@ export const schoolYearService = {
   },
 
   // Update school year
-  async updateSchoolYear(id: string, data: {
+  async updateSchoolYear(schoolId: string, id: string, data: {
     name?: string;
     startDate?: Date;
     endDate?: Date;
@@ -141,7 +143,7 @@ export const schoolYearService = {
     try {
       // If setting to active, deactivate others first
       if (data.isActive === true) {
-        await this.deactivateAllSchoolYears();
+        await this.deactivateAllSchoolYears(schoolId);
       }
 
       const updateData: any = {
@@ -173,10 +175,9 @@ export const schoolYearService = {
   },
 
   // Deactivate all school years (helper)
-  async deactivateAllSchoolYears(): Promise<void> {
+  async deactivateAllSchoolYears(schoolId: string): Promise<void> {
     try {
-      const yearsRef = collection(db, 'schoolYears');
-      const q = query(yearsRef, where('isActive', '==', true));
+      const q = query(tenantCollection('schoolYears', schoolId), where('isActive', '==', true));
       const snapshot = await getDocs(q);
 
       const updates = snapshot.docs.map(doc =>

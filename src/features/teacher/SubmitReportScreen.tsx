@@ -48,9 +48,9 @@ export const SubmitReportScreen = () => {
   const [requestedDate, setRequestedDate] = useState('');
   const [savingUpdate, setSavingUpdate] = useState(false);
 
-  const loadUpdates = async (tId: string, uid: string) => {
+  const loadUpdates = async (schoolId: string, tId: string, uid: string) => {
     try {
-      const data = await taskUpdateService.getUpdatesForTeacherTask(uid, tId);
+      const data = await taskUpdateService.getUpdatesForTeacherTask(schoolId, uid, tId);
       setUpdates(data);
     } catch (error) {
       console.error('Error loading task updates:', error);
@@ -59,13 +59,14 @@ export const SubmitReportScreen = () => {
 
   useEffect(() => {
     const loadData = async () => {
-      if (!taskId || !user) return;
+      if (!taskId || !user || !user.schoolId) return;
+      const schoolId = user.schoolId;
 
       try {
         setIsLoading(true);
         const [taskData, submissionData] = await Promise.all([
           taskService.getTaskById(taskId),
-          taskService.getSubmission(taskId, user.uid),
+          taskService.getSubmission(schoolId, taskId, user.uid),
         ]);
 
         setTask(taskData);
@@ -73,7 +74,7 @@ export const SubmitReportScreen = () => {
         if (submissionData) {
           setContent(submissionData.content);
         }
-        await loadUpdates(taskId, user.uid);
+        await loadUpdates(schoolId, taskId, user.uid);
       } catch (error) {
         console.error('Error loading data:', error);
         toast({
@@ -96,7 +97,7 @@ export const SubmitReportScreen = () => {
   };
 
   const handleSubmit = async () => {
-    if (!task || !user || !content.trim()) {
+    if (!task || !user || !user.schoolId || !content.trim()) {
       toast({
         variant: 'destructive',
         title: 'Lỗi',
@@ -104,10 +105,11 @@ export const SubmitReportScreen = () => {
       });
       return;
     }
-  
+
     setIsSubmitting(true);
     try {
       await taskService.submitReport(
+        user.schoolId,
         task.id,
         user.uid,
         user.displayName || 'Giáo viên',
@@ -141,7 +143,7 @@ export const SubmitReportScreen = () => {
   };
 
   const handleSendUpdate = async () => {
-    if (!task || !user) return;
+    if (!task || !user || !user.schoolId) return;
 
     if (activeAction === 'extension' && !requestedDate) {
       toast({ variant: 'destructive', title: 'Lỗi', description: 'Vui lòng chọn hạn mới mong muốn' });
@@ -163,7 +165,7 @@ export const SubmitReportScreen = () => {
 
     setSavingUpdate(true);
     try {
-      await taskUpdateService.createUpdate({
+      await taskUpdateService.createUpdate(user.schoolId, {
         taskId: task.id,
         taskTitle: task.title,
         teacherId: user.uid,
@@ -186,7 +188,7 @@ export const SubmitReportScreen = () => {
             : 'Đã gửi yêu cầu gia hạn, chờ ban giám hiệu duyệt',
       });
       resetActionForm();
-      await loadUpdates(task.id, user.uid);
+      await loadUpdates(user.schoolId, task.id, user.uid);
     } catch (error) {
       toast({
         variant: 'destructive',

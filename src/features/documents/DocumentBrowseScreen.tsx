@@ -68,11 +68,14 @@ export function DocumentBrowseScreen() {
   const [existingFiles, setExistingFiles] = useState<DocumentFile[]>([]);
   const [removedFileIds, setRemovedFileIds] = useState<string[]>([]);
 
+  const schoolId = user?.schoolId;
+
   useEffect(() => {
+    if (!schoolId) return;
     loadSchoolYears();
     loadUserDepartment();
     loadAllUsers();
-  }, [user]);
+  }, [user, schoolId]);
 
   useEffect(() => {
     if (selectedYearId) {
@@ -111,8 +114,9 @@ export function DocumentBrowseScreen() {
   }, [selectedSubCategoryId, selectedUserId]);
 
   const loadSchoolYears = async () => {
+    if (!schoolId) return;
     try {
-      const years = await schoolYearService.getAllSchoolYears();
+      const years = await schoolYearService.getAllSchoolYears(schoolId);
       setSchoolYears(years);
       const activeYear = years.find(y => y.isActive);
       if (activeYear) {
@@ -124,8 +128,9 @@ export function DocumentBrowseScreen() {
   };
 
   const loadCategories = async (yearId: string) => {
+    if (!schoolId) return;
     try {
-      const allCats = await documentCategoryService.getCategoriesBySchoolYear(yearId);
+      const allCats = await documentCategoryService.getCategoriesBySchoolYear(schoolId, yearId);
 
       // Filter categories based on view permissions
       const filteredCats = allCats.filter(cat => {
@@ -159,8 +164,9 @@ export function DocumentBrowseScreen() {
   };
 
   const loadSubCategories = async (categoryId: string) => {
+    if (!schoolId) return;
     try {
-      const subs = await documentCategoryService.getSubCategories(categoryId);
+      const subs = await documentCategoryService.getSubCategories(schoolId, categoryId);
       setSubCategories(subs);
     } catch (error) {
       console.error('Error loading subcategories:', error);
@@ -168,9 +174,9 @@ export function DocumentBrowseScreen() {
   };
 
   const loadUserDepartment = async () => {
-    if (!user) return;
+    if (!user || !schoolId) return;
     try {
-      const dept = await departmentService.getDepartmentByUserId(user.uid);
+      const dept = await departmentService.getDepartmentByUserId(schoolId, user.uid);
       setUserDepartment(dept);
     } catch (error) {
       console.error('Error loading user department:', error);
@@ -178,8 +184,9 @@ export function DocumentBrowseScreen() {
   };
 
   const loadAllUsers = async () => {
+    if (!schoolId) return;
     try {
-      const users = await userService.getAllUsers();
+      const users = await userService.getAllUsers(schoolId);
       setAllUsers(users);
     } catch (error) {
       console.error('Error loading users:', error);
@@ -198,6 +205,7 @@ export function DocumentBrowseScreen() {
   };
 
   const loadDocuments = async () => {
+    if (!schoolId) return;
     try {
       setLoading(true);
       const filters: any = {
@@ -209,7 +217,7 @@ export function DocumentBrowseScreen() {
         filters.subCategoryId = selectedSubCategoryId;
       }
 
-      const allDocs = await documentService.getDocuments(filters);
+      const allDocs = await documentService.getDocuments(schoolId, filters);
 
       let filteredDocs: Document[];
 
@@ -310,10 +318,10 @@ export function DocumentBrowseScreen() {
 
   const handleDeleteRequest = async (doc: Document) => {
     const reason = prompt('Lý do xóa hồ sơ:');
-    if (!reason) return;
+    if (!reason || !schoolId) return;
 
     try {
-      await fileRequestService.createDeleteRequest({
+      await fileRequestService.createDeleteRequest(schoolId, {
         documentId: doc.id,
         documentName: doc.title, // Use document title instead of fileName
         requestedBy: user!.uid,
@@ -341,6 +349,7 @@ export function DocumentBrowseScreen() {
   };
 
   const handleUpload = async () => {
+    if (!schoolId) return;
     console.log('🚀 handleUpload called');
     console.log('📝 documentTitle:', documentTitle);
     console.log('📁 selectedFiles:', selectedFiles);
@@ -550,7 +559,7 @@ export function DocumentBrowseScreen() {
       console.log('📄 Files array in docData:', docData.files);
       console.log('📦 Uploaded files from backend:', uploadedFiles);
 
-      await documentService.createDocument(docData as any);
+      await documentService.createDocument(schoolId, docData as any);
 
       // Close dialog and reset form
       setShowUploadDialog(false);
@@ -916,12 +925,14 @@ export function DocumentBrowseScreen() {
   const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
 
   useEffect(() => {
+    if (!schoolId) return;
     loadDocumentTypes();
-  }, []);
+  }, [schoolId]);
 
   const loadDocumentTypes = async () => {
+    if (!schoolId) return;
     try {
-      const types = await documentTypeService.getActiveDocumentTypes();
+      const types = await documentTypeService.getActiveDocumentTypes(schoolId);
       setDocumentTypes(types);
     } catch (error) {
       console.error('Error loading document types:', error);

@@ -10,15 +10,14 @@ import {
   where,
   orderBy,
   Timestamp,
-  and,
-  or,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { tenantCollection } from '@/lib/tenantQuery';
 import { Document, DocumentStatus } from '@/types';
 
 export const documentService = {
   // Get all documents (with filters)
-  async getDocuments(filters?: {
+  async getDocuments(schoolId: string, filters?: {
     schoolYearId?: string;
     categoryId?: string;
     subCategoryId?: string;
@@ -27,7 +26,7 @@ export const documentService = {
     uploadedBy?: string;
   }): Promise<Document[]> {
     try {
-      const documentsRef = collection(db, 'documents');
+      const documentsRef = tenantCollection('documents', schoolId);
       const constraints: any[] = [];
 
       if (filters?.schoolYearId) {
@@ -63,6 +62,7 @@ export const documentService = {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           schoolYearId: data.schoolYearId,
           categoryId: data.categoryId,
           subCategoryId: data.subCategoryId,
@@ -100,9 +100,9 @@ export const documentService = {
 
   // Lấy gọn dữ liệu để dựng bảng ma trận nộp hồ sơ (ai đã nộp mục con nào, trạng thái gì).
   // Chỉ where theo categoryId (không orderBy) để KHÔNG cần composite index.
-  async getSubmissionCells(categoryId: string): Promise<Array<{ uploadedBy: string; subCategoryId?: string; status: DocumentStatus }>> {
+  async getSubmissionCells(schoolId: string, categoryId: string): Promise<Array<{ uploadedBy: string; subCategoryId?: string; status: DocumentStatus }>> {
     try {
-      const q = query(collection(db, 'documents'), where('categoryId', '==', categoryId));
+      const q = query(tenantCollection('documents', schoolId), where('categoryId', '==', categoryId));
       const snapshot = await getDocs(q);
       return snapshot.docs.map(d => {
         const data = d.data();
@@ -119,11 +119,10 @@ export const documentService = {
   },
 
   // Get pending documents for approval (by department)
-  async getPendingDocumentsByDepartment(departmentId: string): Promise<Document[]> {
+  async getPendingDocumentsByDepartment(schoolId: string, departmentId: string): Promise<Document[]> {
     try {
-      const documentsRef = collection(db, 'documents');
       const q = query(
-        documentsRef,
+        tenantCollection('documents', schoolId),
         where('departmentId', '==', departmentId),
         where('status', '==', 'pending'),
         orderBy('uploadedAt', 'desc')
@@ -134,6 +133,7 @@ export const documentService = {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           schoolYearId: data.schoolYearId,
           categoryId: data.categoryId,
           subCategoryId: data.subCategoryId,
@@ -167,6 +167,7 @@ export const documentService = {
       const data = docRef.data();
       return {
         id: docRef.id,
+        schoolId: data.schoolId,
         schoolYearId: data.schoolYearId,
         categoryId: data.categoryId,
         subCategoryId: data.subCategoryId,
@@ -191,7 +192,7 @@ export const documentService = {
   },
 
   // Create document (upload)
-  async createDocument(data: {
+  async createDocument(schoolId: string, data: {
     schoolYearId: string;
     categoryId: string;
     subCategoryId?: string;
@@ -220,6 +221,7 @@ export const documentService = {
     try {
       // Build document data, excluding undefined fields (Firestore doesn't accept undefined)
       const documentData: Record<string, any> = {
+        schoolId,
         schoolYearId: data.schoolYearId,
         categoryId: data.categoryId,
         title: data.title,
@@ -439,15 +441,14 @@ export const documentService = {
   },
 
   // Get document count by status
-  async getDocumentStats(departmentId?: string) {
+  async getDocumentStats(schoolId: string, departmentId?: string) {
     try {
-      const documentsRef = collection(db, 'documents');
       let q;
 
       if (departmentId) {
-        q = query(documentsRef, where('departmentId', '==', departmentId));
+        q = query(tenantCollection('documents', schoolId), where('departmentId', '==', departmentId));
       } else {
-        q = query(documentsRef);
+        q = query(tenantCollection('documents', schoolId));
       }
 
       const snapshot = await getDocs(q);

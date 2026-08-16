@@ -41,9 +41,9 @@ export const TaskDetailScreen = () => {
   const [approvedDate, setApprovedDate] = useState('');
   const [processingUpdateId, setProcessingUpdateId] = useState<string | null>(null);
 
-  const loadUpdates = async (tId: string) => {
+  const loadUpdates = async (schoolId: string, tId: string) => {
     try {
-      const data = await taskUpdateService.getUpdatesForTask(tId);
+      const data = await taskUpdateService.getUpdatesForTask(schoolId, tId);
       setUpdates(data);
     } catch (error) {
       console.error('Error loading task updates:', error);
@@ -52,18 +52,19 @@ export const TaskDetailScreen = () => {
 
   useEffect(() => {
     const loadData = async () => {
-      if (!taskId) return;
+      if (!taskId || !user?.schoolId) return;
+      const schoolId = user.schoolId;
 
       try {
         setIsLoading(true);
         const [taskData, submissionsData] = await Promise.all([
           taskService.getTaskById(taskId),
-          taskService.getSubmissionsForTask(taskId),
+          taskService.getSubmissionsForTask(schoolId, taskId),
         ]);
 
         setTask(taskData);
         setSubmissions(submissionsData);
-        await loadUpdates(taskId);
+        await loadUpdates(schoolId, taskId);
       } catch (error) {
         console.error('Error loading data:', error);
         toast({
@@ -77,10 +78,10 @@ export const TaskDetailScreen = () => {
     };
 
     loadData();
-  }, [taskId]);
+  }, [taskId, user?.schoolId]);
 
   const handleScoreSubmission = async (submissionId: string) => {
-    if (!user || !task) return;
+    if (!user || !user.schoolId || !task) return;
 
     const scoreNum = parseFloat(score);
     if (isNaN(scoreNum) || scoreNum < 0 || scoreNum > task.maxScore) {
@@ -103,6 +104,7 @@ export const TaskDetailScreen = () => {
 
     try {
       await taskService.scoreSubmission(
+        user.schoolId,
         submissionId,
         scoreNum,
         feedback,
@@ -117,7 +119,7 @@ export const TaskDetailScreen = () => {
       });
 
       // Reload data
-      const submissionsData = await taskService.getSubmissionsForTask(task.id);
+      const submissionsData = await taskService.getSubmissionsForTask(user.schoolId, task.id);
       setSubmissions(submissionsData);
       setScoringSubmission(null);
       setScore('');
@@ -140,14 +142,14 @@ export const TaskDetailScreen = () => {
   };
 
   const handleResolveBlocker = async (update: TaskUpdate) => {
-    if (!user || !task) return;
+    if (!user || !user.schoolId || !task) return;
     setProcessingUpdateId(update.id);
     try {
-      await taskUpdateService.resolveBlocker(update, user.uid, user.displayName, reviewNote.trim());
+      await taskUpdateService.resolveBlocker(user.schoolId, update, user.uid, user.displayName, reviewNote.trim());
       toast({ title: 'Đã xử lý', description: 'Đã phản hồi vướng mắc cho giáo viên' });
       setReviewingId(null);
       setReviewNote('');
-      await loadUpdates(task.id);
+      await loadUpdates(user.schoolId, task.id);
     } catch (error) {
       toast({ variant: 'destructive', title: 'Lỗi', description: 'Không thể cập nhật' });
     } finally {
@@ -156,7 +158,7 @@ export const TaskDetailScreen = () => {
   };
 
   const handleReviewExtension = async (update: TaskUpdate, approve: boolean) => {
-    if (!user || !task) return;
+    if (!user || !user.schoolId || !task) return;
     if (approve && !approvedDate) {
       toast({ variant: 'destructive', title: 'Lỗi', description: 'Vui lòng chọn hạn duyệt' });
       return;
@@ -164,6 +166,7 @@ export const TaskDetailScreen = () => {
     setProcessingUpdateId(update.id);
     try {
       await taskUpdateService.reviewExtension(
+        user.schoolId,
         update,
         approve,
         user.uid,
@@ -178,7 +181,7 @@ export const TaskDetailScreen = () => {
       setReviewingId(null);
       setReviewNote('');
       // Duyệt gia hạn đổi hạn công việc → tải lại cả task
-      const [taskData] = await Promise.all([taskService.getTaskById(task.id), loadUpdates(task.id)]);
+      const [taskData] = await Promise.all([taskService.getTaskById(task.id), loadUpdates(user.schoolId, task.id)]);
       if (taskData) setTask(taskData);
     } catch (error) {
       toast({ variant: 'destructive', title: 'Lỗi', description: 'Không thể xử lý yêu cầu' });

@@ -33,21 +33,22 @@ export const MyTasksScreen = () => {
 
   useEffect(() => {
     const loadData = async () => {
-      if (!user) return;
+      if (!user || !user.schoolId) return;
+      const schoolId = user.schoolId;
 
       try {
         setIsLoading(true);
         const [tasksData, schoolYearsData, activeYear] = await Promise.all([
-          taskService.getTasksForTeacher(user.uid),
-          schoolYearService.getAllSchoolYears(),
-          schoolYearService.getActiveSchoolYear(),
+          taskService.getTasksForTeacher(schoolId, user.uid),
+          schoolYearService.getAllSchoolYears(schoolId),
+          schoolYearService.getActiveSchoolYear(schoolId),
         ]);
 
         // Load submissions for each task and determine teacher-specific status
         const tasksWithStatus: TaskWithStatus[] = await Promise.all(
           tasksData.map(async (task) => {
             // Get submission for this teacher
-            const submission = await taskService.getSubmission(task.id, user.uid);
+            const submission = await taskService.getSubmission(schoolId, task.id, user.uid);
 
             // Determine teacher-specific status
             let teacherStatus: TaskStatus;

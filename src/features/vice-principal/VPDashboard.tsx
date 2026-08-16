@@ -30,15 +30,16 @@ export const VPDashboard = () => {
   // Load school years and set initial filters
   useEffect(() => {
     const loadData = async () => {
-      if (!user) return;
+      if (!user || !user.schoolId) return;
+      const schoolId = user.schoolId;
 
       try {
         setIsLoading(true);
 
         // Load school years and active year
         const [years, activeYear] = await Promise.all([
-          schoolYearService.getAllSchoolYears(),
-          schoolYearService.getActiveSchoolYear(),
+          schoolYearService.getAllSchoolYears(schoolId),
+          schoolYearService.getActiveSchoolYear(schoolId),
         ]);
 
         setSchoolYears(years);
@@ -59,7 +60,7 @@ export const VPDashboard = () => {
 
         // Load stats with initial filters
         const semesterParam = (initialSemester === 'all' || initialSemester === 'unassigned') ? 'all' : initialSemester;
-        const data = await analyticsService.getVPStats(user.uid, semesterParam, initialSchoolYearId);
+        const data = await analyticsService.getVPStats(schoolId, user.uid, semesterParam, initialSchoolYearId);
         setStats(data);
       } catch (error) {
         console.error('Error loading data:', error);
@@ -74,13 +75,14 @@ export const VPDashboard = () => {
   // Reload stats when filters change (but not on initial load)
   useEffect(() => {
     // Skip if initial load hasn't completed (selectedSchoolYearId is still empty)
-    if (!user || selectedSchoolYearId === '') return;
+    if (!user || !user.schoolId || selectedSchoolYearId === '') return;
+    const schoolId = user.schoolId;
 
     const loadStats = async () => {
       try {
         setIsLoading(true);
         const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
-        const data = await analyticsService.getVPStats(user.uid, semesterParam, selectedSchoolYearId);
+        const data = await analyticsService.getVPStats(schoolId, user.uid, semesterParam, selectedSchoolYearId);
         setStats(data);
       } catch (error) {
         console.error('Error loading stats:', error);

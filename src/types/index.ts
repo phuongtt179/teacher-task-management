@@ -1,5 +1,20 @@
 // User roles
-export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'staff' | 'van_thu';
+// 'super_admin' is reserved for a purely platform-level account with no school (schoolId: null).
+// It is NOT used for a school's own admin who additionally manages the platform — that case is
+// modeled via the orthogonal `isSuperAdmin` flag below instead (see WhitelistEmail/User).
+export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'staff' | 'van_thu' | 'super_admin';
+
+// School (tenant) model
+export interface School {
+  id: string;
+  name: string;
+  shortName?: string;
+  isActive: boolean;
+  driveRootFolderId: string; // Root Google Drive folder for this school's files
+  createdBy: string; // super_admin uid
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 // User model
 export interface User {
@@ -8,6 +23,8 @@ export interface User {
   displayName: string;
   photoURL?: string;
   role: UserRole;
+  schoolId: string | null; // null only for a pure role:'super_admin' account
+  isSuperAdmin?: boolean; // orthogonal platform-admin capability, independent of `role`
   phoneNumber?: string; // Số điện thoại liên hệ (tùy chọn)
   createdAt: Date;
   updatedAt: Date;
@@ -17,8 +34,10 @@ export interface User {
 
 // Whitelist model
 export interface WhitelistEmail {
-  id: string;
+  id: string; // MUST equal `email` (doc ID convention enforced by firestore.rules)
   email: string;
+  schoolId: string; // Which school this whitelist entry grants access to
+  role: UserRole; // Role assigned to the user when their account is first created
   addedBy: string;
   addedAt: Date;
 }
@@ -32,6 +51,7 @@ export type TaskPriority = 'low' | 'medium' | 'high';
 // Task model
 export interface Task {
   id: string;
+  schoolId: string;
   schoolYearId: string; // Năm học
   semester?: 'HK1' | 'HK2'; // Học kì - optional for backward compatibility
   title: string;
@@ -55,6 +75,7 @@ export interface Task {
 // Submission model
 export interface Submission {
   id: string;
+  schoolId: string;
   taskId: string;
   schoolYearId?: string; // Năm học - denormalized for analytics performance
   semester?: 'HK1' | 'HK2'; // Học kì - denormalized for analytics performance
@@ -91,6 +112,7 @@ export type TaskUpdateStatus = 'open' | 'resolved' | 'approved' | 'rejected';
 // Một cập nhật giữa chừng gắn với 1 công việc + 1 giáo viên
 export interface TaskUpdate {
   id: string;
+  schoolId: string;
   taskId: string;
   taskTitle: string;
   teacherId: string;
@@ -131,6 +153,7 @@ export type NotificationType =
 // Notification model
 export interface Notification {
   id: string;
+  schoolId: string;
   userId: string; // Recipient
   type: NotificationType;
   title: string;
@@ -153,6 +176,7 @@ export interface Notification {
 // School Year model
 export interface SchoolYear {
   id: string;
+  schoolId: string;
   name: string; // "Năm học 2024-2025"
   startDate: Date;
   endDate: Date;
@@ -166,6 +190,7 @@ export interface SchoolYear {
 // Document Type (Admin can create custom types)
 export interface DocumentType {
   id: string;
+  schoolId: string;
   name: string; // "Hồ sơ Ban giám hiệu", "Hồ sơ Giáo viên", "Hồ sơ Nhân viên", "Hồ sơ Tổ chức"
   description?: string;
   icon?: string; // Icon name for UI (optional)
@@ -202,6 +227,7 @@ export interface ViewPermissions {
 // Document Category model
 export interface DocumentCategory {
   id: string;
+  schoolId: string;
   schoolYearId: string;
   documentTypeId: string; // Reference to DocumentType (NEW: replaces categoryType)
   name: string; // "Hồ sơ sáng kiến"
@@ -219,6 +245,7 @@ export interface DocumentCategory {
 // Document Sub-Category model
 export interface DocumentSubCategory {
   id: string;
+  schoolId: string;
   categoryId: string;
   name: string; // "Tổ 1 - Toán Lý"
   order: number;
@@ -230,6 +257,7 @@ export interface DocumentSubCategory {
 // Department (Tổ chuyên môn) model
 export interface Department {
   id: string;
+  schoolId: string;
   name: string; // "Tổ 1 - Toán Lý"
   headTeacherId?: string; // Tổ trưởng
   headTeacherName?: string;
@@ -254,6 +282,7 @@ export interface DocumentFile {
 // Document model (file metadata)
 export interface Document {
   id: string;
+  schoolId: string;
   schoolYearId: string;
   categoryId: string;
   subCategoryId?: string;
@@ -327,6 +356,7 @@ export type FileRequestStatus = 'pending' | 'approved' | 'rejected';
 // File Request model (for delete/edit requests)
 export interface FileRequest {
   id: string;
+  schoolId: string;
   documentId: string;
   documentName: string;
   requestType: FileRequestType;
@@ -351,6 +381,7 @@ export interface FileRequest {
 // Permission model
 export interface DocumentPermission {
   id: string;
+  schoolId: string;
   departmentId: string;
   categoryId: string;
   subCategoryId?: string;

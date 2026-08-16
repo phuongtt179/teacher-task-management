@@ -1,5 +1,5 @@
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { getDocs, query, where } from 'firebase/firestore';
+import { tenantCollection } from '../lib/tenantQuery';
 import { Task, Submission } from '../types';
 
 // ✅ Helper function to safely convert Timestamp/Date to Date
@@ -31,6 +31,7 @@ export type RankingType = 'total_score' | 'average_score' | 'completion_rate';
 export const rankingService = {
   // Get rankings with anonymization
   async getRankings(
+    schoolId: string,
     period: RankingPeriod = 'all_time',
     rankBy: RankingType = 'total_score',
     semesterFilter?: 'HK1' | 'HK2' | 'all',
@@ -40,7 +41,7 @@ export const rankingService = {
     try {
       // Get all teachers
       const teachersQuery = query(
-        collection(db, 'users'),
+        tenantCollection('users', schoolId),
         where('role', '==', 'teacher')
       );
       const teachersSnap = await getDocs(teachersQuery);
@@ -68,7 +69,7 @@ export const rankingService = {
         teachers.map(async (teacher) => {
           // ✅ Get tasks with proper type casting
           const tasksQuery = query(
-            collection(db, 'tasks'),
+            tenantCollection('tasks', schoolId),
             where('assignedTo', 'array-contains', teacher.uid)
           );
           const tasksSnap = await getDocs(tasksQuery);
@@ -93,7 +94,7 @@ export const rankingService = {
 
           // ✅ Get submissions with proper type casting
           const submissionsQuery = query(
-            collection(db, 'submissions'),
+            tenantCollection('submissions', schoolId),
             where('teacherId', '==', teacher.uid)
           );
           const submissionsSnap = await getDocs(submissionsQuery);
@@ -216,9 +217,9 @@ export const rankingService = {
   },
 
   // Get user's rank
-  async getUserRank(userId: string, period: RankingPeriod = 'all_time', rankBy: RankingType = 'total_score', semesterFilter?: 'HK1' | 'HK2' | 'all', userRole?: string): Promise<number | null> {
+  async getUserRank(schoolId: string, userId: string, period: RankingPeriod = 'all_time', rankBy: RankingType = 'total_score', semesterFilter?: 'HK1' | 'HK2' | 'all', userRole?: string): Promise<number | null> {
     try {
-      const rankings = await this.getRankings(period, rankBy, semesterFilter, userId, userRole);
+      const rankings = await this.getRankings(schoolId, period, rankBy, semesterFilter, userId, userRole);
       const userRanking = rankings.find(r => r.actualUid === userId);
       return userRanking ? userRanking.rank : null;
     } catch (error) {
@@ -228,9 +229,9 @@ export const rankingService = {
   },
 
   // Get top performers
-  async getTopPerformers(count: number = 10, period: RankingPeriod = 'all_time', semesterFilter?: 'HK1' | 'HK2' | 'all', currentUserId?: string, currentUserRole?: string): Promise<AnonymousRanking[]> {
+  async getTopPerformers(schoolId: string, count: number = 10, period: RankingPeriod = 'all_time', semesterFilter?: 'HK1' | 'HK2' | 'all', currentUserId?: string, currentUserRole?: string): Promise<AnonymousRanking[]> {
     try {
-      const rankings = await this.getRankings(period, 'total_score', semesterFilter, currentUserId, currentUserRole);
+      const rankings = await this.getRankings(schoolId, period, 'total_score', semesterFilter, currentUserId, currentUserRole);
       return rankings.slice(0, count);
     } catch (error) {
       console.error('Error getting top performers:', error);

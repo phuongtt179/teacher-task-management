@@ -48,10 +48,11 @@ export function DepartmentDocumentsTreeView({
   const [expandedTeachers, setExpandedTeachers] = useState<Set<string>>(new Set());
 
   const [loading, setLoading] = useState(true);
+  const schoolId = user?.schoolId;
 
   useEffect(() => {
     loadDepartments();
-  }, [user]);
+  }, [user, schoolId]);
 
   // Reload current user's documents when refreshTrigger changes
   useEffect(() => {
@@ -61,7 +62,7 @@ export function DepartmentDocumentsTreeView({
   }, [refreshTrigger]);
 
   const loadDepartments = async () => {
-    if (!user) return;
+    if (!user || !schoolId) return;
 
     try {
       setLoading(true);
@@ -75,18 +76,18 @@ export function DepartmentDocumentsTreeView({
       // Admin/VP: Load all departments
       // Department Head: Load only their department
       if (user.role === 'admin' || user.role === 'vice_principal') {
-        const allDepts = await departmentService.getAllDepartments();
+        const allDepts = await departmentService.getAllDepartments(schoolId);
         console.log('👥 All departments loaded:', allDepts);
         setDepartments(allDepts);
       } else if (user.role === 'department_head') {
-        const userDept = await departmentService.getDepartmentByUserId(user.uid);
+        const userDept = await departmentService.getDepartmentByUserId(schoolId, user.uid);
         console.log('📋 Department for dept head:', userDept);
 
         if (userDept) {
           setDepartments([userDept]);
         } else {
           // Try finding by headTeacherId
-          const allDepts = await departmentService.getAllDepartments();
+          const allDepts = await departmentService.getAllDepartments(schoolId);
           const deptAsHead = allDepts.find(d => d.headTeacherId === user.uid);
           console.log('📋 Department where user is head:', deptAsHead);
 
@@ -108,11 +109,12 @@ export function DepartmentDocumentsTreeView({
   };
 
   const loadTeachersForDepartment = async (deptId: string) => {
+    if (!schoolId) return;
     try {
       const dept = departments.find(d => d.id === deptId);
       if (!dept || teachersByDept.has(deptId)) return;
 
-      const allUsers = await userService.getAllUsers();
+      const allUsers = await userService.getAllUsers(schoolId);
       const deptTeachers = allUsers.filter(u => dept.memberIds.includes(u.uid));
 
       setTeachersByDept(prev => new Map(prev).set(deptId, deptTeachers));
@@ -127,6 +129,7 @@ export function DepartmentDocumentsTreeView({
   };
 
   const loadDocumentsForTeacher = async (teacherId: string, forceReload = false) => {
+    if (!schoolId) return;
     try {
       // Skip cache check if forceReload is true
       if (!forceReload && documentsByTeacher.has(teacherId)) return;
@@ -139,7 +142,7 @@ export function DepartmentDocumentsTreeView({
         forceReload,
       });
 
-      const docs = await documentService.getDocuments({
+      const docs = await documentService.getDocuments(schoolId, {
         schoolYearId,
         categoryId,
         subCategoryId,
@@ -176,10 +179,10 @@ export function DepartmentDocumentsTreeView({
 
   const handleDeleteRequest = async (doc: Document) => {
     const reason = prompt('Lý do xóa hồ sơ:');
-    if (!reason) return;
+    if (!reason || !schoolId) return;
 
     try {
-      await fileRequestService.createDeleteRequest({
+      await fileRequestService.createDeleteRequest(schoolId, {
         documentId: doc.id,
         documentName: doc.title,
         requestedBy: user!.uid,

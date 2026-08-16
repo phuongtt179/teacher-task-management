@@ -1,10 +1,9 @@
 import {
-  collection,
   getDocs,
   query,
   where,
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { tenantCollection } from '../lib/tenantQuery';
 import { Task, Submission } from '../types';
 
 // ✅ Helper function to safely convert Timestamp/Date to Date
@@ -43,11 +42,11 @@ export interface SchoolStats {
 
 export const analyticsService = {
   // Get stats for a specific teacher
-  async getTeacherStats(teacherId: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<TeacherStats | null> {
+  async getTeacherStats(schoolId: string, teacherId: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<TeacherStats | null> {
     try {
       // Get user info
       const usersSnap = await getDocs(
-        query(collection(db, 'users'), where('__name__', '==', teacherId))
+        query(tenantCollection('users', schoolId), where('__name__', '==', teacherId))
       );
 
       if (usersSnap.empty) return null;
@@ -56,7 +55,7 @@ export const analyticsService = {
 
       // Get tasks assigned to teacher
       const tasksQuery = query(
-        collection(db, 'tasks'),
+        tenantCollection('tasks', schoolId),
         where('assignedTo', 'array-contains', teacherId)
       );
       const tasksSnap = await getDocs(tasksQuery);
@@ -77,7 +76,7 @@ export const analyticsService = {
 
       // Get submissions and scores
       const submissionsQuery = query(
-        collection(db, 'submissions'),
+        tenantCollection('submissions', schoolId),
         where('teacherId', '==', teacherId)
       );
       const submissionsSnap = await getDocs(submissionsQuery);
@@ -110,12 +109,12 @@ export const analyticsService = {
 
       const scoredSubmissions = submissions.filter(s => s.score !== undefined);
       const totalScore = scoredSubmissions.reduce((sum, s) => sum + (s.score || 0), 0);
-      const averageScore = scoredSubmissions.length > 0 
-        ? Math.round((totalScore / scoredSubmissions.length) * 10) / 10 
+      const averageScore = scoredSubmissions.length > 0
+        ? Math.round((totalScore / scoredSubmissions.length) * 10) / 10
         : 0;
 
-      const completionRate = tasks.length > 0 
-        ? Math.round((completedTasks / tasks.length) * 100) 
+      const completionRate = tasks.length > 0
+        ? Math.round((completedTasks / tasks.length) * 100)
         : 0;
 
       // ✅ Calculate on-time rate using helper function
@@ -130,8 +129,8 @@ export const analyticsService = {
           }
         }
       });
-      const onTimeRate = submissions.length > 0 
-        ? Math.round((onTimeCount / submissions.length) * 100) 
+      const onTimeRate = submissions.length > 0
+        ? Math.round((onTimeCount / submissions.length) * 100)
         : 0;
 
       return {
@@ -154,16 +153,16 @@ export const analyticsService = {
   },
 
   // Get stats for all teachers and department heads
-  async getAllTeachersStats(semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<TeacherStats[]> {
+  async getAllTeachersStats(schoolId: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<TeacherStats[]> {
     try {
       const teachersQuery = query(
-        collection(db, 'users'),
+        tenantCollection('users', schoolId),
         where('role', 'in', ['teacher', 'department_head'])
       );
       const teachersSnap = await getDocs(teachersQuery);
 
       const statsPromises = teachersSnap.docs.map(doc =>
-        this.getTeacherStats(doc.id, semesterFilter, schoolYearId)
+        this.getTeacherStats(schoolId, doc.id, semesterFilter, schoolYearId)
       );
 
       const stats = await Promise.all(statsPromises);
@@ -175,17 +174,17 @@ export const analyticsService = {
   },
 
   // Get school-wide statistics (filtered by VP creator when vpUid provided)
-  async getSchoolStats(semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string, vpUid?: string): Promise<SchoolStats> {
+  async getSchoolStats(schoolId: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string, vpUid?: string): Promise<SchoolStats> {
     try {
-      const teachersStats = await this.getAllTeachersStats(semesterFilter, schoolYearId);
+      const teachersStats = await this.getAllTeachersStats(schoolId, semesterFilter, schoolYearId);
 
       const totalTeachers = teachersStats.length;
 
       // Đếm tasks trực tiếp từ collection để tránh đếm trùng (1 task giao nhiều GV chỉ tính 1 lần)
       // Nếu có vpUid thì chỉ lấy tasks do VP đó tạo
       const tasksQuery = vpUid
-        ? query(collection(db, 'tasks'), where('createdBy', '==', vpUid))
-        : query(collection(db, 'tasks'));
+        ? query(tenantCollection('tasks', schoolId), where('createdBy', '==', vpUid))
+        : query(tenantCollection('tasks', schoolId));
       const allTasksSnap = await getDocs(tasksQuery);
       let allTasks = allTasksSnap.docs.map(d => ({ id: d.id, ...d.data() } as Task));
 
@@ -248,11 +247,11 @@ export const analyticsService = {
   },
 
   // Get VP statistics
-  async getVPStats(vpUid: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string) {
+  async getVPStats(schoolId: string, vpUid: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string) {
     try {
       // Get tasks created by VP
       const tasksQuery = query(
-        collection(db, 'tasks'),
+        tenantCollection('tasks', schoolId),
         where('createdBy', '==', vpUid)
       );
       const tasksSnap = await getDocs(tasksQuery);
@@ -277,7 +276,7 @@ export const analyticsService = {
 
       for (const taskId of taskIds) {
         const submissionsQuery = query(
-          collection(db, 'submissions'),
+          tenantCollection('submissions', schoolId),
           where('taskId', '==', taskId)
         );
         const submissionsSnap = await getDocs(submissionsQuery);

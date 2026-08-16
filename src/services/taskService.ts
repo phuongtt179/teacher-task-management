@@ -13,6 +13,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { tenantCollection } from '../lib/tenantQuery';
 import { notificationService } from './notificationService';
 import { googleDriveServiceBackend } from './googleDriveServiceBackend';
 import { schoolYearService } from './schoolYearService';
@@ -57,6 +58,7 @@ export const taskService = {
       const docRef = await addDoc(collection(db, 'tasks'), payload);
       // Notify assigned teachers
       await notificationService.notifyTaskAssigned(
+        taskData.schoolId,
         taskData.assignedTo,
         docRef.id,
         taskData.title,
@@ -68,7 +70,7 @@ export const taskService = {
       throw error;
     }
   },
-  
+
   // Get task by ID
   async getTaskById(taskId: string): Promise<Task | null> {
     try {
@@ -94,10 +96,10 @@ export const taskService = {
   },
 
   // Get all tasks created by VP
-  async getTasksByCreator(creatorUid: string): Promise<Task[]> {
+  async getTasksByCreator(schoolId: string, creatorUid: string): Promise<Task[]> {
     try {
       const q = query(
-        collection(db, 'tasks'),
+        tenantCollection('tasks', schoolId),
         where('createdBy', '==', creatorUid),
         orderBy('createdAt', 'desc')
       );
@@ -121,10 +123,10 @@ export const taskService = {
   },
 
   // Get tasks assigned to teacher
-  async getTasksForTeacher(teacherUid: string): Promise<Task[]> {
+  async getTasksForTeacher(schoolId: string, teacherUid: string): Promise<Task[]> {
     try {
       const q = query(
-        collection(db, 'tasks'),
+        tenantCollection('tasks', schoolId),
         where('assignedTo', 'array-contains', teacherUid),
         orderBy('deadline', 'asc')
       );
@@ -170,17 +172,17 @@ export const taskService = {
   },
 
   // Delete task
-  async deleteTask(taskId: string): Promise<void> {
+  async deleteTask(schoolId: string, taskId: string): Promise<void> {
     try {
       await deleteDoc(doc(db, 'tasks', taskId));
-      
+
       // Also delete related submissions
       const submissionsQuery = query(
-        collection(db, 'submissions'),
+        tenantCollection('submissions', schoolId),
         where('taskId', '==', taskId)
       );
       const submissionsSnap = await getDocs(submissionsQuery);
-      
+
       const deletePromises = submissionsSnap.docs.map((doc) =>
         deleteDoc(doc.ref)
       );
@@ -193,6 +195,7 @@ export const taskService = {
 
   // Submit task report - Upload to Google Drive
   async submitReport(
+    schoolId: string,
     taskId: string,
     teacherId: string,
     teacherName: string,
@@ -279,7 +282,7 @@ export const taskService = {
       // else: Quá cả 2 deadline - điểm = 0, metDeadline = undefined
 
       // Check for existing submissions to handle version tracking
-      const existingSubmissions = await this.getSubmissionsForTask(taskId);
+      const existingSubmissions = await this.getSubmissionsForTask(schoolId, taskId);
       const userExistingSubmission = existingSubmissions.find(s => s.teacherId === teacherId);
 
       let version = 1;
@@ -298,6 +301,7 @@ export const taskService = {
 
       // Create submission document
       const submissionData: any = {
+        schoolId,
         taskId,
         schoolYearId: task.schoolYearId, // Denormalize for analytics performance
         semester: task.semester, // Denormalize for analytics performance
@@ -326,10 +330,11 @@ export const taskService = {
       await this.updateTask(taskId, { status: 'submitted' });
 
       // Update task status based on all submissions
-      await this.updateTaskStatus(taskId);
+      await this.updateTaskStatus(schoolId, taskId);
 
       // Notify VP
       await notificationService.notifyTaskSubmitted(
+        schoolId,
         task.createdBy,
         taskId,
         task.title,
@@ -371,10 +376,10 @@ export const taskService = {
   },
 
   // Get submission for task and teacher (returns latest submission only)
-  async getSubmission(taskId: string, teacherId: string): Promise<Submission | null> {
+  async getSubmission(schoolId: string, taskId: string, teacherId: string): Promise<Submission | null> {
     try {
       const q = query(
-        collection(db, 'submissions'),
+        tenantCollection('submissions', schoolId),
         where('taskId', '==', taskId),
         where('teacherId', '==', teacherId),
         where('isLatest', '==', true),
@@ -402,10 +407,10 @@ export const taskService = {
   },
 
   // Get all submissions for a task (returns only latest version for each teacher)
-  async getSubmissionsForTask(taskId: string): Promise<Submission[]> {
+  async getSubmissionsForTask(schoolId: string, taskId: string): Promise<Submission[]> {
     try {
       const q = query(
-        collection(db, 'submissions'),
+        tenantCollection('submissions', schoolId),
         where('taskId', '==', taskId),
         where('isLatest', '==', true)
       );
@@ -432,10 +437,10 @@ export const taskService = {
   /**
    * Get all submission versions for a teacher on a task
    */
-  async getSubmissionHistory(taskId: string, teacherId: string): Promise<Submission[]> {
+  async getSubmissionHistory(schoolId: string, taskId: string, teacherId: string): Promise<Submission[]> {
     try {
       const q = query(
-        collection(db, 'submissions'),
+        tenantCollection('submissions', schoolId),
         where('taskId', '==', taskId),
         where('teacherId', '==', teacherId),
         orderBy('version', 'desc')
@@ -462,6 +467,7 @@ export const taskService = {
 
   // Score submission
   async scoreSubmission(
+    schoolId: string,
     submissionId: string,
     score: number,
     feedback: string,
@@ -491,6 +497,7 @@ export const taskService = {
 
       // Notify teacher that their submission was scored
       await notificationService.notifyTaskScored(
+        schoolId,
         submission!.teacherId,
         taskId,
         task.title,
@@ -503,7 +510,7 @@ export const taskService = {
       await this.updateTask(taskId, { status: 'completed' });
 
       // Update task status based on all submissions
-      await this.updateTaskStatus(taskId);
+      await this.updateTaskStatus(schoolId, taskId);
     } catch (error) {
       console.error('Error scoring submission:', error);
 
@@ -528,7 +535,7 @@ export const taskService = {
    * Update task status based on submissions and deadline
    * Call this after any submission/scoring action
    */
-  async updateTaskStatus(taskId: string): Promise<void> {
+  async updateTaskStatus(schoolId: string, taskId: string): Promise<void> {
     try {
       const task = await this.getTaskById(taskId);
       if (!task) {
@@ -536,7 +543,7 @@ export const taskService = {
         return;
       }
 
-      const submissions = await this.getSubmissionsForTask(taskId);
+      const submissions = await this.getSubmissionsForTask(schoolId, taskId);
       const now = new Date();
 
       let newStatus: TaskStatus = task.status;
@@ -567,10 +574,10 @@ export const taskService = {
   },
 
   // Get all teachers and department heads for assignment
-  async getAllTeachers(): Promise<Array<{ uid: string; displayName: string; email: string }>> {
+  async getAllTeachers(schoolId: string): Promise<Array<{ uid: string; displayName: string; email: string }>> {
     try {
       const q = query(
-        collection(db, 'users'),
+        tenantCollection('users', schoolId),
         where('role', 'in', ['teacher', 'department_head'])
       );
       const snapshot = await getDocs(q);

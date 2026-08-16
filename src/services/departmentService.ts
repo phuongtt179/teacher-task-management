@@ -13,20 +13,21 @@ import {
   deleteField,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { tenantCollection } from '@/lib/tenantQuery';
 import { Department } from '@/types';
 
 export const departmentService = {
   // Get all departments
-  async getAllDepartments(): Promise<Department[]> {
+  async getAllDepartments(schoolId: string): Promise<Department[]> {
     try {
-      const departmentsRef = collection(db, 'departments');
-      const q = query(departmentsRef, orderBy('name', 'asc'));
+      const q = query(tenantCollection('departments', schoolId), orderBy('name', 'asc'));
       const snapshot = await getDocs(q);
 
       return snapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
           name: data.name,
           headTeacherId: data.headTeacherId,
           headTeacherName: data.headTeacherName,
@@ -51,6 +52,7 @@ export const departmentService = {
       const data = deptDoc.data();
       return {
         id: deptDoc.id,
+        schoolId: data.schoolId,
         name: data.name,
         headTeacherId: data.headTeacherId,
         headTeacherName: data.headTeacherName,
@@ -66,11 +68,10 @@ export const departmentService = {
   },
 
   // Get department by user ID (find which department a teacher belongs to)
-  async getDepartmentByUserId(userId: string): Promise<Department | null> {
+  async getDepartmentByUserId(schoolId: string, userId: string): Promise<Department | null> {
     try {
-      const departmentsRef = collection(db, 'departments');
       const q = query(
-        departmentsRef,
+        tenantCollection('departments', schoolId),
         where('memberIds', 'array-contains', userId)
       );
       const snapshot = await getDocs(q);
@@ -81,6 +82,7 @@ export const departmentService = {
       const data = doc.data();
       return {
         id: doc.id,
+        schoolId: data.schoolId,
         name: data.name,
         headTeacherId: data.headTeacherId,
         headTeacherName: data.headTeacherName,
@@ -96,7 +98,7 @@ export const departmentService = {
   },
 
   // Create department
-  async createDepartment(data: {
+  async createDepartment(schoolId: string, data: {
     name: string;
     headTeacherId?: string;
     headTeacherName?: string;
@@ -105,6 +107,7 @@ export const departmentService = {
   }): Promise<string> {
     try {
       const deptData: any = {
+        schoolId,
         name: data.name,
         memberIds: data.memberIds || [],
         createdAt: Timestamp.now(),
@@ -199,11 +202,10 @@ export const departmentService = {
   },
 
   // Check if user is department head
-  async isUserDepartmentHead(userId: string): Promise<boolean> {
+  async isUserDepartmentHead(schoolId: string, userId: string): Promise<boolean> {
     try {
-      const departmentsRef = collection(db, 'departments');
       const q = query(
-        departmentsRef,
+        tenantCollection('departments', schoolId),
         where('headTeacherId', '==', userId)
       );
       const snapshot = await getDocs(q);
