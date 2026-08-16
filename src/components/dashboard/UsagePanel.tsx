@@ -17,7 +17,8 @@ interface UsageData {
   aiUsed: number;
   aiLimit: number; // -1 = unlimited
   storageUsed: number;
-  storageLimit: number; // -1 = unlimited
+  storageLimit: number; // -1 = unlimited; đã cộng extraStorage
+  extraStorage: number;
 }
 
 // Mức dùng gói hiện tại của trường — cho admin/BGH xem, KHÔNG chặn thao tác gì
@@ -44,12 +45,19 @@ export const UsagePanel = ({ schoolId }: { schoolId: string }) => {
         const monthKey = new Date().toISOString().slice(0, 7);
         const usageSnap = await getDoc(doc(db, 'usageStats', `${schoolId}_${monthKey}`));
 
+        // Hạn mức lưu trữ = hạn mức gói + dung lượng mua thêm (nếu gói không phải
+        // "không giới hạn" — mua thêm khi đã không giới hạn thì không có ý nghĩa).
+        const planStorageLimit = plan?.storageLimitBytes ?? -1;
+        const extraStorage = school.extraStorageBytes || 0;
+        const effectiveStorageLimit = planStorageLimit === -1 ? -1 : planStorageLimit + extraStorage;
+
         setData({
           planName: plan?.name || 'Chưa gán gói',
           aiUsed: usageSnap.exists() ? (usageSnap.data().aiMessageCount || 0) : 0,
           aiLimit: plan?.aiMessageLimit ?? -1,
           storageUsed: school.storageUsedBytes || 0,
-          storageLimit: plan?.storageLimitBytes ?? -1,
+          storageLimit: effectiveStorageLimit,
+          extraStorage,
         });
       } catch (error) {
         console.error('Error loading usage panel:', error);
@@ -106,6 +114,9 @@ export const UsagePanel = ({ schoolId }: { schoolId: string }) => {
             <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
               <div className={`h-full rounded-full ${storageOver ? 'bg-red-500' : 'bg-indigo-500'}`} style={{ width: `${storagePct}%` }} />
             </div>
+          )}
+          {data.extraStorage > 0 && (
+            <p className="text-xs text-gray-400 mt-1">Đã bao gồm {formatBytes(data.extraStorage)} mua thêm</p>
           )}
         </div>
 

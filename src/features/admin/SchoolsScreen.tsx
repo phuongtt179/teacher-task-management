@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Building2, Plus, Power, UserPlus, Tag } from 'lucide-react';
+import { Building2, Plus, Power, UserPlus, Tag, HardDrive } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
@@ -40,6 +40,9 @@ export const SchoolsScreen = () => {
   const [addAdminForSchoolId, setAddAdminForSchoolId] = useState<string | null>(null);
   const [addAdminEmail, setAddAdminEmail] = useState('');
   const [isAddingAdmin, setIsAddingAdmin] = useState(false);
+  const [addStorageForSchoolId, setAddStorageForSchoolId] = useState<string | null>(null);
+  const [addStorageGb, setAddStorageGb] = useState('');
+  const [isAddingStorage, setIsAddingStorage] = useState(false);
 
   const planById = new Map(plans.map(p => [p.id, p]));
   const monthKey = new Date().toISOString().slice(0, 7);
@@ -62,6 +65,7 @@ export const SchoolsScreen = () => {
           driveRootFolderId: raw.driveRootFolderId,
           planId: raw.planId || null,
           storageUsedBytes: raw.storageUsedBytes || 0,
+          extraStorageBytes: raw.extraStorageBytes || 0,
           createdBy: raw.createdBy,
           createdAt: raw.createdAt?.toDate() || new Date(),
           updatedAt: raw.updatedAt?.toDate() || new Date(),
@@ -201,6 +205,35 @@ export const SchoolsScreen = () => {
     }
   };
 
+  // "Mua thêm dung lượng" — CỘNG DỒN vào extraStorageBytes hiện có (không ghi
+  // đè), khớp đúng nghiệp vụ thật: mỗi lần trường thanh toán thêm 1 gói dung
+  // lượng thì hạn mức tăng thêm, không phải đặt lại từ đầu.
+  const handleAddStorage = async (school: School) => {
+    const gb = Number(addStorageGb);
+    if (!gb || gb <= 0) {
+      toast({ variant: 'destructive', title: 'Số không hợp lệ', description: 'Nhập số GB muốn cộng thêm' });
+      return;
+    }
+
+    setIsAddingStorage(true);
+    try {
+      const addBytes = Math.round(gb * GB);
+      await updateDoc(doc(db, 'schools', school.id), {
+        extraStorageBytes: (school.extraStorageBytes || 0) + addBytes,
+        updatedAt: serverTimestamp(),
+      });
+      toast({ title: 'Thành công', description: `Đã cộng thêm ${gb}GB cho "${school.name}"` });
+      setAddStorageGb('');
+      setAddStorageForSchoolId(null);
+      loadAll();
+    } catch (error) {
+      console.error('Error adding storage:', error);
+      toast({ variant: 'destructive', title: 'Lỗi', description: 'Không thể cộng thêm dung lượng' });
+    } finally {
+      setIsAddingStorage(false);
+    }
+  };
+
   return (
     <div className="container max-w-5xl mx-auto p-4 space-y-6">
       <Card>
@@ -267,7 +300,8 @@ export const SchoolsScreen = () => {
                   const aiUsed = usageByMonth[school.id] ?? 0;
                   const aiLimit = plan?.aiMessageLimit ?? -1;
                   const aiOver = aiLimit !== -1 && aiUsed > aiLimit;
-                  const storageLimit = plan?.storageLimitBytes ?? -1;
+                  const planStorageLimit = plan?.storageLimitBytes ?? -1;
+                  const storageLimit = planStorageLimit === -1 ? -1 : planStorageLimit + school.extraStorageBytes;
                   const storageOver = storageLimit !== -1 && school.storageUsedBytes > storageLimit;
 
                   return (
@@ -291,6 +325,7 @@ export const SchoolsScreen = () => {
                             <span>·</span>
                             <span>
                               Lưu trữ: <span className={storageOver ? 'text-red-600 font-medium' : ''}>{formatBytes(school.storageUsedBytes)}{storageLimit !== -1 ? `/${formatBytes(storageLimit)}` : ''}</span>
+                              {school.extraStorageBytes > 0 && <span className="text-gray-400"> (+{formatBytes(school.extraStorageBytes)} mua thêm)</span>}
                             </span>
                           </p>
                         </div>
@@ -306,6 +341,17 @@ export const SchoolsScreen = () => {
                               ))}
                             </SelectContent>
                           </Select>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setAddStorageForSchoolId(addStorageForSchoolId === school.id ? null : school.id);
+                              setAddStorageGb('');
+                            }}
+                            title="Cộng thêm dung lượng cho trường này"
+                          >
+                            <HardDrive className="w-4 h-4 text-indigo-600" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -327,6 +373,22 @@ export const SchoolsScreen = () => {
                           </Button>
                         </div>
                       </div>
+
+                      {addStorageForSchoolId === school.id && (
+                        <div className="flex flex-col sm:flex-row gap-2 px-3 pb-3">
+                          <Input
+                            type="number"
+                            placeholder={`Số GB muốn cộng thêm cho "${school.name}"...`}
+                            value={addStorageGb}
+                            onChange={(e) => setAddStorageGb(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddStorage(school)}
+                            autoFocus
+                          />
+                          <Button onClick={() => handleAddStorage(school)} disabled={isAddingStorage || !addStorageGb}>
+                            Cộng thêm
+                          </Button>
+                        </div>
+                      )}
 
                       {addAdminForSchoolId === school.id && (
                         <div className="flex flex-col sm:flex-row gap-2 px-3 pb-3">

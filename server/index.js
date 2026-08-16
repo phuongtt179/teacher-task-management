@@ -645,6 +645,7 @@ app.post('/api/schools', verifyAuth, requireSuperAdmin, express.json(), async (r
       driveRootFolderId,
       planId: planId || null,
       storageUsedBytes: 0,
+      extraStorageBytes: 0,
       createdBy: req.uid,
       createdAt: now,
       updatedAt: now,

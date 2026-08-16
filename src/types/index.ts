@@ -28,6 +28,7 @@ export interface School {
   driveRootFolderId: string; // Root Google Drive folder for this school's files
   planId: string | null; // references plans/{id}; null = chưa gán gói (chưa tính hạn mức)
   storageUsedBytes: number; // running total, updated on every upload/delete
+  extraStorageBytes: number; // dung lượng mua thêm ngoài gói (không phải đổi gói) — cộng dồn vào storageLimitBytes của plan
   createdBy: string; // super_admin uid
   createdAt: Date;
   updatedAt: Date;
