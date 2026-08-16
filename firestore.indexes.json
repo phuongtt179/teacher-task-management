@@ -1,0 +1,171 @@
+{
+  "indexes": [
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "assignedTo", "arrayConfig": "CONTAINS" }
+    ]},
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "assignedTo", "arrayConfig": "CONTAINS" },
+      { "fieldPath": "deadline", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "createdBy", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "status", "order": "ASCENDING" },
+      { "fieldPath": "deadline", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "teacherId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "taskId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "taskId", "order": "ASCENDING" },
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "isLatest", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "taskId", "order": "ASCENDING" },
+      { "fieldPath": "isLatest", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "taskId", "order": "ASCENDING" },
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "version", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "role", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "departments", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "memberIds", "arrayConfig": "CONTAINS" }
+    ]},
+    { "collectionGroup": "departments", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "headTeacherId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "departments", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "name", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "categoryId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "departmentId", "order": "ASCENDING" },
+      { "fieldPath": "status", "order": "ASCENDING" },
+      { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "departmentId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "status", "order": "ASCENDING" },
+      { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+      { "fieldPath": "categoryId", "order": "ASCENDING" },
+      { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+      { "fieldPath": "categoryId", "order": "ASCENDING" },
+      { "fieldPath": "subCategoryId", "order": "ASCENDING" },
+      { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+      { "fieldPath": "categoryId", "order": "ASCENDING" },
+      { "fieldPath": "subCategoryId", "order": "ASCENDING" },
+      { "fieldPath": "uploadedBy", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documentCategories", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+      { "fieldPath": "order", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documentSubCategories", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "categoryId", "order": "ASCENDING" },
+      { "fieldPath": "order", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documentSubCategories", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "categoryId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documentTypes", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "order", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documentTypes", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "isActive", "order": "ASCENDING" },
+      { "fieldPath": "order", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "schoolYears", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "startDate", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "schoolYears", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "isActive", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "taskUpdates", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "teacherId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "taskUpdates", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "taskId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "taskUpdates", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "taskId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "taskUpdates", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "status", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "fileRequests", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "requestedAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "fileRequests", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "requestedBy", "order": "ASCENDING" },
+      { "fieldPath": "requestedAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "fileRequests", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "status", "order": "ASCENDING" },
+      { "fieldPath": "requestedAt", "order": "DESCENDING" }
+    ]}
+  ],
+  "fieldOverrides": []
+}
