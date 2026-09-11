@@ -13,7 +13,7 @@ interface MobileMenuProps {
 }
 
 export const MobileMenu = ({ forceVisible }: MobileMenuProps) => {
-  const { user } = useAuth();
+  const { user, schoolName } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const navItems = user ? getNavigationForUser(user) : [];
   const visibilityClass = forceVisible ? '' : 'lg:hidden';
@@ -39,9 +39,12 @@ export const MobileMenu = ({ forceVisible }: MobileMenuProps) => {
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
-              <div>
+              <div className="min-w-0">
                 <h2 className="font-bold text-gray-900">Menu</h2>
-                <p className="text-xs text-gray-500">{user?.displayName}</p>
+                <p className="text-xs text-gray-500 truncate">{user?.displayName}</p>
+                {schoolName && (
+                  <p className="text-xs text-indigo-600 font-medium truncate" title={schoolName}>{schoolName}</p>
+                )}
               </div>
               <button
                 onClick={() => setIsOpen(false)}

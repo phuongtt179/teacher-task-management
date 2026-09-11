@@ -5,19 +5,24 @@ import { cn } from '@/lib/utils';
 import { GraduationCap } from 'lucide-react';
 
 export const Sidebar = () => {
-  const { user } = useAuth();
+  const { user, schoolName } = useAuth();
   const navItems = user ? getNavigationForUser(user) : [];
 
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-64 bg-white border-r border-gray-200 fixed left-0 top-0 bottom-0">
       {/* Logo */}
       <div className="flex items-center gap-2 p-6 border-b border-gray-200">
-        <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
+        <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
           <GraduationCap className="w-6 h-6 text-white" />
         </div>
-        <div>
+        <div className="min-w-0">
           <h2 className="font-bold text-gray-900">Teacher Task</h2>
-          <p className="text-xs text-gray-500">Management</p>
+          {/* Hệ thống dùng chung nhiều trường — luôn hiện rõ đang ở trường nào */}
+          {schoolName ? (
+            <p className="text-xs text-indigo-600 font-medium truncate" title={schoolName}>{schoolName}</p>
+          ) : (
+            <p className="text-xs text-gray-500">Management</p>
+          )}
         </div>
       </div>
 

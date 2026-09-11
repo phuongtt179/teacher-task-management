@@ -12,11 +12,13 @@ export const useAuth = () => {
     isLoading,
     isWhitelisted,
     suspendedSchoolName,
+    schoolName,
     setFirebaseUser,
     setUser,
     setIsLoading,
     setIsWhitelisted,
     setSuspendedSchoolName,
+    setSchoolName,
     logout: clearAuth
   } = useAuthStore();
 
@@ -127,6 +129,7 @@ export const useAuth = () => {
       const userData = await getUserDocument(result.user.uid, email, whitelistEntry);
 
       const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
+      setSchoolName(name || null);
       if (!active) {
         setSuspendedSchoolName(name);
         setUser(null);
@@ -175,6 +178,7 @@ export const useAuth = () => {
             // khóa — đọc schools/{id} cần users/{uid} đã tồn tại (xem giải thích trong login()).
             const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
             const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
+            setSchoolName(name || null);
             if (!active) {
               setSuspendedSchoolName(name);
               setUser(null);
@@ -184,10 +188,12 @@ export const useAuth = () => {
             }
           } else {
             setUser(null);
+            setSchoolName(null);
           }
         } else {
           setUser(null);
           setIsWhitelisted(false);
+          setSchoolName(null);
         }
       } catch (error) {
         console.error('Auth state observer error:', error);
@@ -206,6 +212,7 @@ export const useAuth = () => {
     isLoading,
     isWhitelisted,
     suspendedSchoolName,
+    schoolName,
     login,
     logout,
   };
