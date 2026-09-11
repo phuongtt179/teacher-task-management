@@ -119,6 +119,13 @@ export const useAuth = () => {
         throw new Error('Email không có trong danh sách cho phép');
       }
 
+      // Get/create user document TRƯỚC khi check trường có bị khóa không — vì
+      // firestore.rules đọc schools/{id} cần userSchoolId() (đọc qua users/{uid}).
+      // Với người đăng nhập lần đầu (users/{uid} chưa tồn tại), đọc schools trước
+      // sẽ luôn bị "Missing or insufficient permissions" (get() trên doc chưa có
+      // khiến userSchoolId()/isSuperAdmin() lỗi → rule deny).
+      const userData = await getUserDocument(result.user.uid, email, whitelistEntry);
+
       const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
       if (!active) {
         setSuspendedSchoolName(name);
@@ -127,8 +134,6 @@ export const useAuth = () => {
       }
       setSuspendedSchoolName(null);
 
-      // Get user document
-      const userData = await getUserDocument(result.user.uid, email, whitelistEntry);
       if (userData) {
         setUser(userData);
       }
@@ -162,13 +167,15 @@ export const useAuth = () => {
         setIsWhitelisted(whitelistEntry !== null);
 
         if (whitelistEntry) {
+          // Thứ tự giống login(): tạo/lấy users/{uid} TRƯỚC khi check trường bị
+          // khóa — đọc schools/{id} cần users/{uid} đã tồn tại (xem giải thích trong login()).
+          const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
           const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
           if (!active) {
             setSuspendedSchoolName(name);
             setUser(null);
           } else {
             setSuspendedSchoolName(null);
-            const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
             setUser(userData);
           }
         } else {
