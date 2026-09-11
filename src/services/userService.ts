@@ -33,6 +33,7 @@ export const userService = {
           isSuperAdmin: data.isSuperAdmin === true,
           primaryCampusId: data.primaryCampusId ?? null,
           campusIds: data.campusIds || [],
+          subject: data.subject,
           phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -68,6 +69,7 @@ export const userService = {
           isSuperAdmin: data.isSuperAdmin === true,
           primaryCampusId: data.primaryCampusId ?? null,
           campusIds: data.campusIds || [],
+          subject: data.subject,
           phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -102,6 +104,7 @@ export const userService = {
         isSuperAdmin: data.isSuperAdmin === true,
         primaryCampusId: data.primaryCampusId ?? null,
         campusIds: data.campusIds || [],
+        subject: data.subject,
         phoneNumber: data.phoneNumber,
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -168,6 +171,7 @@ export const userService = {
       phoneNumber: string;
       primaryCampusId: string | null;
       campusIds: string[];
+      subject: string;
     }>
   ): Promise<void> {
     try {

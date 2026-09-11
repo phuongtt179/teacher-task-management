@@ -54,8 +54,10 @@ export const StatisticsScreen = () => {
         const yearParam = selectedSchoolYearId === 'all' ? undefined : selectedSchoolYearId;
 
         const [school, teachers, vp] = await Promise.all([
-          analyticsService.getSchoolStats(schoolId, semParam, yearParam, user.uid),
+          // Tab "Tổng quan" luôn là toàn trường — không lọc theo người tạo việc.
+          analyticsService.getSchoolStats(schoolId, semParam, yearParam),
           analyticsService.getAllTeachersStats(schoolId, semParam, yearParam),
+          // Tab "Công việc của tôi" — đúng nghĩa việc do chính người xem tạo.
           analyticsService.getVPStats(schoolId, user.uid, semParam, yearParam),
         ]);
 

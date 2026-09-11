@@ -70,6 +70,7 @@ export interface User {
   // Toàn bộ cơ sở người này có mặt — thường 1 phần tử, GV dạy chéo 2 cơ sở có 2.
   // Dùng để lọc "ai thuộc cơ sở X" (array-contains) khi giao việc/xem dữ liệu.
   campusIds?: string[];
+  subject?: string; // Môn dạy (tự do, VD "Toán", "Chủ nhiệm lớp 1A") — hiển thị ở bảng tổng hợp giáo viên
   phoneNumber?: string; // Số điện thoại liên hệ (tùy chọn)
   createdAt: Date;
   updatedAt: Date;

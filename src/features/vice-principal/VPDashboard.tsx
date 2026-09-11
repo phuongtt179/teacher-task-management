@@ -61,7 +61,10 @@ export const VPDashboard = () => {
 
         // Load stats with initial filters
         const semesterParam = (initialSemester === 'all' || initialSemester === 'unassigned') ? 'all' : initialSemester;
-        const data = await analyticsService.getVPStats(schoolId, user.uid, semesterParam, initialSchoolYearId);
+        // Hiệu trưởng: xem toàn trường (mọi việc, không chỉ việc tự mình tạo).
+        // Hiệu phó/Tổng phụ trách Đội: vẫn xem việc do chính mình tạo/quản lý.
+        const scopeUid = user.role === 'principal' ? undefined : user.uid;
+        const data = await analyticsService.getVPStats(schoolId, scopeUid, semesterParam, initialSchoolYearId);
         setStats(data);
       } catch (error) {
         console.error('Error loading data:', error);
@@ -83,7 +86,8 @@ export const VPDashboard = () => {
       try {
         setIsLoading(true);
         const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
-        const data = await analyticsService.getVPStats(schoolId, user.uid, semesterParam, selectedSchoolYearId);
+        const scopeUid = user.role === 'principal' ? undefined : user.uid;
+        const data = await analyticsService.getVPStats(schoolId, scopeUid, semesterParam, selectedSchoolYearId);
         setStats(data);
       } catch (error) {
         console.error('Error loading stats:', error);
@@ -108,7 +112,9 @@ export const VPDashboard = () => {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Dashboard Hiệu trưởng</h2>
-          <p className="text-gray-600">Quản lý và theo dõi công việc</p>
+          <p className="text-gray-600">
+            {user?.role === 'principal' ? 'Tổng quan toàn trường' : 'Quản lý và theo dõi công việc của bạn'}
+          </p>
         </div>
 
         {/* Year and Semester Filters */}

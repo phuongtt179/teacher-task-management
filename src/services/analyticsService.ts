@@ -247,13 +247,13 @@ export const analyticsService = {
   },
 
   // Get VP statistics
-  async getVPStats(schoolId: string, vpUid: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string) {
+  // vpUid bỏ trống = toàn trường (dùng cho hiệu trưởng xem tổng quan); truyền vào =
+  // chỉ tính việc do đúng người đó tạo (dùng cho "Công việc của tôi" của hiệu phó/...).
+  async getVPStats(schoolId: string, vpUid?: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string) {
     try {
-      // Get tasks created by VP
-      const tasksQuery = query(
-        tenantCollection('tasks', schoolId),
-        where('createdBy', '==', vpUid)
-      );
+      const tasksQuery = vpUid
+        ? query(tenantCollection('tasks', schoolId), where('createdBy', '==', vpUid))
+        : query(tenantCollection('tasks', schoolId));
       const tasksSnap = await getDocs(tasksQuery);
       let tasks = tasksSnap.docs.map(doc => ({
         id: doc.id,

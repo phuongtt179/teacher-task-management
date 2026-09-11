@@ -56,6 +56,7 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
   const [role, setRole] = useState(user?.role || 'teacher');
   const [isActive, setIsActive] = useState(user?.isActive !== false);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
+  const [subject, setSubject] = useState(user?.subject || '');
   const [password, setPassword] = useState('');
   const [departments, setDepartments] = useState<Department[]>([]);
   const [currentDepartment, setCurrentDepartment] = useState<Department | null>(null);
@@ -79,6 +80,7 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
       setRole(user.role);
       setIsActive(user.isActive !== false);
       setPassword('');
+      setSubject(user.subject || '');
       setSelectedCampusIds(user.campusIds || []);
       loadDepartments(); // Reload departments to get fresh data including headTeacherId
       loadUserDepartment();
@@ -187,6 +189,7 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
         isActive,
         primaryCampusId: selectedCampusIds[0] || null,
         campusIds: selectedCampusIds,
+        subject: subject.trim(),
       });
 
       // Update department if changed
@@ -287,6 +290,17 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
                   <SelectItem value="van_thu">Văn thư</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Subject taught */}
+            <div className="space-y-2">
+              <Label htmlFor="subject">Môn dạy</Label>
+              <Input
+                id="subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="VD: Toán, Chủ nhiệm lớp 1A..."
+              />
             </div>
 
             {/* Department */}

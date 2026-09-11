@@ -102,6 +102,13 @@ import {
       icon: Table,
       roles: ['admin', 'vice_principal', 'youth_leader', 'principal'],
     },
+    {
+      label: 'Bảng tổng hợp giáo viên',
+      shortLabel: 'GV toàn trường',
+      path: '/vp/teacher-directory',
+      icon: Users,
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal'],
+    },
 
     // Teacher
     {
