@@ -37,7 +37,7 @@ export function DocumentApprovalsScreen() {
       setSelectedReqIds(new Set());
 
       let departmentId: string | undefined;
-      if (user.role === 'teacher' || user.role === 'department_head') {
+      if (user.role === 'teacher' || user.role === 'department_head' || user.role === 'deputy_department_head') {
         const dept = await departmentService.getDepartmentByUserId(schoolId, user.uid);
         departmentId = dept?.id;
       }

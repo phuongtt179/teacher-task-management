@@ -57,7 +57,7 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
   const getRoleName = (role: string) => {
     const roleMap: Record<string, string> = {
       admin: 'Quản trị viên',
-      vice_principal: 'Hiệu trưởng',
+      vice_principal: 'Hiệu phó',
       teacher: 'Giáo viên',
       van_thu: 'Văn thư',
     };

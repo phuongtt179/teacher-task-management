@@ -53,8 +53,10 @@ service cloud.firestore {
       return isSignedIn() && userData().role == 'vice_principal';
     }
 
+    // Tổ phó (deputy_department_head) có quyền giống hệt tổ trưởng — gộp chung 1
+    // hàm thay vì thêm điều kiện ở từng chỗ dùng isDepartmentHead() bên dưới.
     function isDepartmentHead() {
-      return isSignedIn() && userData().role == 'department_head';
+      return isSignedIn() && (userData().role == 'department_head' || userData().role == 'deputy_department_head');
     }
 
     function isTeacher() {

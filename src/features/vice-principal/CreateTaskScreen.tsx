@@ -6,6 +6,7 @@ import * as z from 'zod';
 import { taskService } from '../../services/taskService';
 import { suggestionService, TeacherSuggestion } from '../../services/suggestionService';
 import { schoolYearService } from '../../services/schoolYearService';
+import { campusService } from '../../services/campusService';
 import { googleDriveServiceBackend } from '../../services/googleDriveServiceBackend';
 import { useAuth } from '../../hooks/useAuth';
 import { authFetch } from '@/lib/authFetch';
@@ -20,10 +21,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Sparkles, TrendingUp, AlertCircle, Upload, FileText, X } from 'lucide-react';
 import { format } from 'date-fns';
-import { TaskPriority, SchoolYear } from '../../types';
+import { TaskPriority, SchoolYear, Campus } from '../../types';
 import { Semester, SEMESTER_LABELS, getActiveSemester } from '../../utils/semesterUtils';
 
 const taskSchema = z.object({
+  campusId: z.string().min(1, 'Vui lòng chọn cơ sở áp dụng'),
   schoolYearId: z.string().min(1, 'Vui lòng chọn năm học'),
   semester: z.enum(['HK1', 'HK2']),
   title: z.string().min(5, 'Tiêu đề phải có ít nhất 5 ký tự'),
@@ -51,6 +53,8 @@ export const CreateTaskScreen = () => {
   const [selectedTeachers, setSelectedTeachers] = useState<string[]>([]);
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [selectedCampusId, setSelectedCampusId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<Semester>('HK1');
   const [descriptionPdf, setDescriptionPdf] = useState<File | null>(null);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
@@ -87,14 +91,13 @@ export const CreateTaskScreen = () => {
     }
   }, [deadline, setValue]);
 
-  // Load teachers, suggestions, and school years
+  // Load suggestions, school years, and campuses (danh sách GV tải riêng theo cơ sở đã chọn — xem effect bên dưới)
   useEffect(() => {
     if (!user?.schoolId) return;
     const schoolId = user.schoolId;
     const loadData = async () => {
       try {
-        const [teachersData, suggestionsData, schoolYearsData, activeYear] = await Promise.all([
-          taskService.getAllTeachers(schoolId),
+        const [suggestionsData, schoolYearsData, activeYear, campusesData] = await Promise.all([
           (async () => {
             setIsLoadingSuggestions(true);
             try {
@@ -105,11 +108,12 @@ export const CreateTaskScreen = () => {
           })(),
           schoolYearService.getAllSchoolYears(schoolId),
           schoolYearService.getActiveSchoolYear(schoolId),
+          campusService.getAllCampuses(schoolId),
         ]);
 
-        setTeachers(teachersData);
         setSuggestions(suggestionsData);
         setSchoolYears(schoolYearsData);
+        setCampuses(campusesData);
 
         // Default to active school year
         if (activeYear) {
@@ -122,6 +126,15 @@ export const CreateTaskScreen = () => {
             setValue('semester', activeYear.activeSemester, { shouldValidate: true });
           }
         }
+
+        // Default cơ sở: cơ sở "nhà" của người tạo (nếu có), ngược lại cơ sở đầu tiên
+        const defaultCampusId = (user.primaryCampusId && campusesData.some(c => c.id === user.primaryCampusId))
+          ? user.primaryCampusId
+          : campusesData[0]?.id || '';
+        if (defaultCampusId) {
+          setSelectedCampusId(defaultCampusId);
+          setValue('campusId', defaultCampusId, { shouldValidate: true });
+        }
       } catch (error) {
         toast({
           variant: 'destructive',
@@ -132,6 +145,16 @@ export const CreateTaskScreen = () => {
     };
     loadData();
   }, [user?.schoolId]);
+
+  // Danh sách GV để phân công lọc theo cơ sở đang chọn (tiện hiển thị, không phải giới hạn quyền)
+  useEffect(() => {
+    if (!user?.schoolId || !selectedCampusId) return;
+    taskService.getAllTeachers(user.schoolId, selectedCampusId)
+      .then(setTeachers)
+      .catch(() => {
+        toast({ variant: 'destructive', title: 'Lỗi', description: 'Không thể tải danh sách giáo viên' });
+      });
+  }, [user?.schoolId, selectedCampusId]);
 
   // Handle PDF upload
   const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -266,6 +289,7 @@ export const CreateTaskScreen = () => {
       // Build task data, only include descriptionPdfUrl if it exists
       const taskData: any = {
         schoolId: user.schoolId,
+        campusId: data.campusId,
         schoolYearId: data.schoolYearId,
         semester: data.semester,
         title: data.title,
@@ -376,6 +400,35 @@ export const CreateTaskScreen = () => {
               </CardHeader>
 
               <CardContent className="space-y-6">
+                {/* Campus */}
+                <div className="space-y-2">
+                  <Label htmlFor="campus">Cơ sở áp dụng *</Label>
+                  <Select
+                    key={selectedCampusId || 'no-selection'}
+                    value={selectedCampusId}
+                    onValueChange={(value) => {
+                      setSelectedCampusId(value);
+                      setValue('campusId', value, { shouldValidate: true });
+                      setSelectedTeachers([]);
+                      setValue('assignedTo', []);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Chọn cơ sở" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {campuses.map((campus) => (
+                        <SelectItem key={campus.id} value={campus.id}>
+                          {campus.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.campusId && (
+                    <p className="text-sm text-red-600">{errors.campusId.message}</p>
+                  )}
+                </div>
+
                 {/* School Year */}
                 <div className="space-y-2">
                   <Label htmlFor="schoolYear">Năm học *</Label>

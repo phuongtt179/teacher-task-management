@@ -18,6 +18,7 @@ import { TaskUpdate, TaskUpdateType } from '../types';
 const mapTaskUpdate = (id: string, data: any): TaskUpdate => ({
   id,
   schoolId: data.schoolId,
+  campusId: data.campusId,
   taskId: data.taskId,
   taskTitle: data.taskTitle || '',
   teacherId: data.teacherId,
@@ -59,6 +60,7 @@ export const taskUpdateService = {
 
     const data: any = {
       schoolId,
+      campusId: task.campusId, // Denormalize từ Task lúc gửi cập nhật
       taskId: input.taskId,
       taskTitle: input.taskTitle || task.title || '',
       teacherId: input.teacherId,

@@ -5,8 +5,9 @@ import { schoolYearService } from '@/services/schoolYearService';
 import { documentCategoryService } from '@/services/documentCategoryService';
 import { documentTypeService } from '@/services/documentTypeService';
 import { departmentService } from '@/services/departmentService';
+import { campusService } from '@/services/campusService';
 import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
-import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentType } from '@/types';
+import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentType, Campus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Upload, X } from 'lucide-react';
@@ -21,6 +22,8 @@ export function DocumentUploadScreen() {
   const [subCategories, setSubCategories] = useState<DocumentSubCategory[]>([]);
   const [userDepartment, setUserDepartment] = useState<Department | null>(null);
   const [currentDocumentType, setCurrentDocumentType] = useState<DocumentType | null>(null);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [selectedCampusId, setSelectedCampusId] = useState<string>('');
 
   const [selectedYearId, setSelectedYearId] = useState<string>('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
@@ -35,7 +38,16 @@ export function DocumentUploadScreen() {
     if (!schoolId) return;
     loadSchoolYears();
     loadUserDepartment();
+    campusService.getAllCampuses(schoolId).then(setCampuses).catch(console.error);
   }, [user, schoolId]);
+
+  // Mặc định cơ sở: theo tổ chuyên môn (nếu có) hoặc cơ sở "nhà" của người tải,
+  // người dùng vẫn chọn lại được thủ công.
+  useEffect(() => {
+    if (selectedCampusId || campuses.length === 0) return;
+    const defaultId = userDepartment?.campusId || user?.primaryCampusId || campuses[0]?.id || '';
+    if (defaultId) setSelectedCampusId(defaultId);
+  }, [campuses, userDepartment, user?.primaryCampusId]);
 
   useEffect(() => {
     if (selectedYearId) {
@@ -137,7 +149,7 @@ export function DocumentUploadScreen() {
       return;
     }
 
-    if (selectedFiles.length === 0 || !selectedYearId || !selectedCategoryId) {
+    if (selectedFiles.length === 0 || !selectedYearId || !selectedCategoryId || !selectedCampusId) {
       toast({
         title: 'Lỗi',
         description: 'Vui lòng chọn đầy đủ thông tin và ít nhất 1 file',
@@ -198,8 +210,8 @@ export function DocumentUploadScreen() {
       if (user?.role === 'admin' || user?.role === 'vice_principal') {
         status = 'approved';
       }
-      // Auto-approve for department head IF uploading to their own department
-      else if (user?.role === 'department_head') {
+      // Auto-approve for department head/deputy IF uploading to their own department
+      else if (user?.role === 'department_head' || user?.role === 'deputy_department_head') {
         if (
           userDepartment &&
           selectedSubCategoryId &&
@@ -210,6 +222,7 @@ export function DocumentUploadScreen() {
       }
 
       await documentService.createDocument(schoolId, {
+        campusId: selectedCampusId,
         schoolYearId: selectedYearId,
         categoryId: selectedCategoryId,
         subCategoryId: selectedSubCategoryId || undefined,
@@ -267,6 +280,23 @@ export function DocumentUploadScreen() {
           <CardTitle>Thông tin hồ sơ</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Campus Selection */}
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Cơ sở <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={selectedCampusId}
+              onChange={(e) => setSelectedCampusId(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="">Chọn cơ sở</option>
+              {campuses.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Year Selection */}
           <div>
             <label className="block text-sm font-medium mb-2">
@@ -387,7 +417,7 @@ export function DocumentUploadScreen() {
           {/* Upload Button */}
           <Button
             onClick={handleUpload}
-            disabled={!documentTitle.trim() || selectedFiles.length === 0 || uploading}
+            disabled={!documentTitle.trim() || selectedFiles.length === 0 || !selectedCampusId || uploading}
             className="w-full"
           >
             <Upload className="h-4 w-4 mr-2" />

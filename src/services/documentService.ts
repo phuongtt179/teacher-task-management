@@ -22,6 +22,7 @@ export const documentService = {
     categoryId?: string;
     subCategoryId?: string;
     departmentId?: string;
+    campusId?: string; // lọc theo cơ sở khi xem thống kê — tiện ích, không phải phân quyền
     status?: DocumentStatus;
     uploadedBy?: string;
   }): Promise<Document[]> {
@@ -40,6 +41,9 @@ export const documentService = {
       }
       if (filters?.departmentId) {
         constraints.push(where('departmentId', '==', filters.departmentId));
+      }
+      if (filters?.campusId) {
+        constraints.push(where('campusId', '==', filters.campusId));
       }
       if (filters?.status) {
         constraints.push(where('status', '==', filters.status));
@@ -63,6 +67,7 @@ export const documentService = {
         return {
           id: doc.id,
           schoolId: data.schoolId,
+          campusId: data.campusId,
           schoolYearId: data.schoolYearId,
           categoryId: data.categoryId,
           subCategoryId: data.subCategoryId,
@@ -134,6 +139,7 @@ export const documentService = {
         return {
           id: doc.id,
           schoolId: data.schoolId,
+          campusId: data.campusId,
           schoolYearId: data.schoolYearId,
           categoryId: data.categoryId,
           subCategoryId: data.subCategoryId,
@@ -168,6 +174,7 @@ export const documentService = {
       return {
         id: docRef.id,
         schoolId: data.schoolId,
+        campusId: data.campusId,
         schoolYearId: data.schoolYearId,
         categoryId: data.categoryId,
         subCategoryId: data.subCategoryId,
@@ -193,6 +200,7 @@ export const documentService = {
 
   // Create document (upload)
   async createDocument(schoolId: string, data: {
+    campusId: string;
     schoolYearId: string;
     categoryId: string;
     subCategoryId?: string;
@@ -222,6 +230,7 @@ export const documentService = {
       // Build document data, excluding undefined fields (Firestore doesn't accept undefined)
       const documentData: Record<string, any> = {
         schoolId,
+        campusId: data.campusId,
         schoolYearId: data.schoolYearId,
         categoryId: data.categoryId,
         title: data.title,

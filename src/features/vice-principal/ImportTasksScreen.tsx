@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { taskService } from '../../services/taskService';
 import { schoolYearService } from '../../services/schoolYearService';
 import { userService } from '../../services/userService';
+import { campusService } from '../../services/campusService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Sparkles, CheckCircle2, AlertCircle, Trash2, ArrowLeft, Users, Calendar } from 'lucide-react';
-import { SchoolYear, TaskPriority } from '../../types';
+import { SchoolYear, TaskPriority, Campus } from '../../types';
 import { Semester, SEMESTER_LABELS } from '../../utils/semesterUtils';
 import { authFetch } from '@/lib/authFetch';
 
@@ -62,23 +63,31 @@ export const ImportTasksScreen = () => {
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState('');
   const [selectedSemester, setSelectedSemester] = useState<Semester>('HK1');
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [selectedCampusId, setSelectedCampusId] = useState('');
 
   useEffect(() => {
     if (!user?.schoolId) return;
     const schoolId = user.schoolId;
     const load = async () => {
-      const [years, activeYear, allUsers] = await Promise.all([
+      const [years, activeYear, allUsers, campusesData] = await Promise.all([
         schoolYearService.getAllSchoolYears(schoolId),
         schoolYearService.getActiveSchoolYear(schoolId),
         userService.getAllUsers(schoolId),
+        campusService.getAllCampuses(schoolId),
       ]);
       setSchoolYears(years);
       if (activeYear) {
         setSelectedSchoolYearId(activeYear.id);
         if (activeYear.activeSemester) setSelectedSemester(activeYear.activeSemester as Semester);
       }
+      setCampuses(campusesData);
+      const defaultCampusId = (user.primaryCampusId && campusesData.some(c => c.id === user.primaryCampusId))
+        ? user.primaryCampusId
+        : campusesData[0]?.id || '';
+      if (defaultCampusId) setSelectedCampusId(defaultCampusId);
       const teacherList = allUsers
-        .filter(u => ['teacher', 'department_head', 'vice_principal', 'principal', 'staff'].includes(u.role))
+        .filter(u => ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'principal', 'staff'].includes(u.role))
         .map(u => ({ uid: u.uid, displayName: u.displayName }));
       setTeachers(teacherList);
     };
@@ -181,6 +190,11 @@ export const ImportTasksScreen = () => {
       return;
     }
 
+    if (!selectedCampusId) {
+      toast({ title: 'Vui lòng chọn cơ sở', variant: 'destructive' });
+      return;
+    }
+
     const invalid = selected.filter(t => !t.title.trim() || !t.deadline);
     if (invalid.length > 0) {
       toast({ title: `${invalid.length} công việc thiếu tiêu đề hoặc deadline`, variant: 'destructive' });
@@ -212,6 +226,7 @@ export const ImportTasksScreen = () => {
 
         await taskService.createTask({
           schoolId: user.schoolId,
+          campusId: selectedCampusId,
           schoolYearId: selectedSchoolYearId,
           semester: selectedSemester,
           title: task.title,
@@ -264,6 +279,19 @@ export const ImportTasksScreen = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-4 flex-wrap">
+            <div className="space-y-1">
+              <Label>Cơ sở</Label>
+              <Select value={selectedCampusId} onValueChange={setSelectedCampusId}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="Chọn cơ sở" />
+                </SelectTrigger>
+                <SelectContent>
+                  {campuses.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1">
               <Label>Năm học</Label>
               <Select value={selectedSchoolYearId} onValueChange={setSelectedSchoolYearId}>

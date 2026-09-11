@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/use-toast';
 const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: 'teacher', label: 'Giáo viên' },
   { value: 'department_head', label: 'Tổ trưởng' },
+  { value: 'deputy_department_head', label: 'Tổ phó' },
   { value: 'vice_principal', label: 'Hiệu phó' },
   { value: 'principal', label: 'Hiệu trưởng' },
   { value: 'staff', label: 'Nhân viên' },

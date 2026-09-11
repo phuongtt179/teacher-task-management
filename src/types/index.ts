@@ -2,7 +2,7 @@
 // 'super_admin' is reserved for a purely platform-level account with no school (schoolId: null).
 // It is NOT used for a school's own admin who additionally manages the platform — that case is
 // modeled via the orthogonal `isSuperAdmin` flag below instead (see WhitelistEmail/User).
-export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'staff' | 'van_thu' | 'super_admin';
+export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'deputy_department_head' | 'staff' | 'van_thu' | 'super_admin';
 
 // Billing plan (tenant-independent, managed by super-admin via /super-admin/plans —
 // numbers live in Firestore, NOT hardcoded, so pricing changes don't need a deploy).
@@ -43,6 +43,18 @@ export interface UsageStat {
   aiMessageCount: number;
 }
 
+// Cơ sở / phân hiệu — tầng tổ chức PHỤ nằm bên trong 1 school (không phải tenant
+// mới). Mỗi trường có thể có nhiều cơ sở, mỗi cơ sở do 1 hiệu phó phụ trách.
+export interface Campus {
+  id: string;
+  schoolId: string;
+  name: string; // "Cơ sở chính", "Phân hiệu 1"
+  vicePrincipalUid?: string; // hiệu phó phụ trách cơ sở này (1-1)
+  order: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // User model
 export interface User {
   uid: string;
@@ -52,6 +64,12 @@ export interface User {
   role: UserRole;
   schoolId: string | null; // null only for a pure role:'super_admin' account
   isSuperAdmin?: boolean; // orthogonal platform-admin capability, independent of `role`
+  // Cơ sở "nhà" — dùng cho thống kê, mặc định khi tạo hồ sơ. Rỗng/không set với
+  // vai trò "thấy toàn trường" (admin/principal/super_admin/van_thu).
+  primaryCampusId?: string | null;
+  // Toàn bộ cơ sở người này có mặt — thường 1 phần tử, GV dạy chéo 2 cơ sở có 2.
+  // Dùng để lọc "ai thuộc cơ sở X" (array-contains) khi giao việc/xem dữ liệu.
+  campusIds?: string[];
   phoneNumber?: string; // Số điện thoại liên hệ (tùy chọn)
   createdAt: Date;
   updatedAt: Date;
@@ -79,6 +97,7 @@ export type TaskPriority = 'low' | 'medium' | 'high';
 export interface Task {
   id: string;
   schoolId: string;
+  campusId: string; // Cơ sở/phân hiệu áp dụng — mỗi việc thuộc đúng 1 cơ sở
   schoolYearId: string; // Năm học
   semester?: 'HK1' | 'HK2'; // Học kì - optional for backward compatibility
   title: string;
@@ -103,6 +122,7 @@ export interface Task {
 export interface Submission {
   id: string;
   schoolId: string;
+  campusId?: string; // Denormalized từ Task lúc nộp (đối xứng với schoolYearId/semester)
   taskId: string;
   schoolYearId?: string; // Năm học - denormalized for analytics performance
   semester?: 'HK1' | 'HK2'; // Học kì - denormalized for analytics performance
@@ -140,6 +160,7 @@ export type TaskUpdateStatus = 'open' | 'resolved' | 'approved' | 'rejected';
 export interface TaskUpdate {
   id: string;
   schoolId: string;
+  campusId: string; // Denormalized từ Task lúc gửi cập nhật
   taskId: string;
   taskTitle: string;
   teacherId: string;
@@ -285,6 +306,7 @@ export interface DocumentSubCategory {
 export interface Department {
   id: string;
   schoolId: string;
+  campusId: string; // Cơ sở/phân hiệu — mỗi tổ chuyên môn thuộc đúng 1 cơ sở
   name: string; // "Tổ 1 - Toán Lý"
   headTeacherId?: string; // Tổ trưởng
   headTeacherName?: string;
@@ -310,6 +332,7 @@ export interface DocumentFile {
 export interface Document {
   id: string;
   schoolId: string;
+  campusId: string; // Cơ sở/phân hiệu — mỗi hồ sơ thuộc đúng 1 cơ sở
   schoolYearId: string;
   categoryId: string;
   subCategoryId?: string;

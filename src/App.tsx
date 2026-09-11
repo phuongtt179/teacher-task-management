@@ -9,6 +9,7 @@ import { AdminDashboard } from './features/admin/AdminDashboard';
 import UserManagementScreen from './features/admin/UserManagementScreen';
 import { DocumentTypesScreen } from './features/admin/DocumentTypesScreen';
 import { SchoolsScreen } from './features/admin/SchoolsScreen';
+import { CampusesScreen } from './features/admin/CampusesScreen';
 import { PlansScreen } from './features/admin/PlansScreen';
 import { VPDashboard } from './features/vice-principal/VPDashboard';
 import { CreateTaskScreen } from './features/vice-principal/CreateTaskScreen';
@@ -53,6 +54,7 @@ const DashboardRouter = () => {
       return <VPDashboard />;
     case 'teacher':
     case 'department_head':
+    case 'deputy_department_head':
     case 'staff':
       return <TeacherDashboard />;
     case 'van_thu':
@@ -215,6 +217,16 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin/campuses"
+          element={
+            <ProtectedRoute allowedRoles={['admin', 'principal']}>
+              <AppLayout>
+                <CampusesScreen />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
 
         {/* Super Admin Routes (platform-level, orthogonal to role) */}
         <Route
@@ -324,7 +336,7 @@ function App() {
         <Route
           path="/teacher/my-tasks"
           element={
-            <ProtectedRoute allowedRoles={['teacher', 'department_head']}>
+            <ProtectedRoute allowedRoles={['teacher', 'department_head', 'deputy_department_head']}>
               <AppLayout>
                 <MyTasksScreen />
               </AppLayout>
@@ -334,7 +346,7 @@ function App() {
         <Route
           path="/teacher/tasks/:taskId"
           element={
-            <ProtectedRoute allowedRoles={['teacher', 'department_head']}>
+            <ProtectedRoute allowedRoles={['teacher', 'department_head', 'deputy_department_head']}>
               <AppLayout>
                 <SubmitReportScreen />
               </AppLayout>
@@ -344,7 +356,7 @@ function App() {
         <Route
           path="/teacher/my-scores"
           element={
-            <ProtectedRoute allowedRoles={['teacher', 'department_head']}>
+            <ProtectedRoute allowedRoles={['teacher', 'department_head', 'deputy_department_head']}>
               <AppLayout>
                 <MyScoresScreen />
               </AppLayout>
@@ -408,7 +420,7 @@ function App() {
         <Route
           path="/documents/approvals"
           element={
-            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'principal', 'department_head']}>
+            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'principal', 'department_head', 'deputy_department_head']}>
               <AppLayout>
                 <DocumentApprovalsScreen />
               </AppLayout>
@@ -418,7 +430,7 @@ function App() {
         <Route
           path="/documents/my-requests"
           element={
-            <ProtectedRoute allowedRoles={['teacher', 'department_head']}>
+            <ProtectedRoute allowedRoles={['teacher', 'department_head', 'deputy_department_head']}>
               <AppLayout>
                 <MyRequestsScreen />
               </AppLayout>

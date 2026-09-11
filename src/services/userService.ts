@@ -231,7 +231,7 @@ export const userService = {
         total: users.length,
         admins: users.filter(u => u.role === 'admin').length,
         vicePrincipals: users.filter(u => u.role === 'vice_principal').length,
-        departmentHeads: users.filter(u => u.role === 'department_head').length,
+        departmentHeads: users.filter(u => u.role === 'department_head' || u.role === 'deputy_department_head').length,
         teachers: users.filter(u => u.role === 'teacher').length,
         active: users.filter(u => u.isActive !== false).length,
         inactive: users.filter(u => u.isActive === false).length

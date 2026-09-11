@@ -157,7 +157,7 @@ export const analyticsService = {
     try {
       const teachersQuery = query(
         tenantCollection('users', schoolId),
-        where('role', 'in', ['teacher', 'department_head'])
+        where('role', 'in', ['teacher', 'department_head', 'deputy_department_head'])
       );
       const teachersSnap = await getDocs(teachersQuery);
 

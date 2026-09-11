@@ -66,7 +66,7 @@ export const SubmissionMatrixScreen = () => {
         setDepartments(depts);
         setTeachers(
           users
-            .filter(u => u.role === 'teacher' || u.role === 'department_head')
+            .filter(u => u.role === 'teacher' || u.role === 'department_head' || u.role === 'deputy_department_head')
             .map(u => ({ uid: u.uid, name: u.displayName || u.email }))
             .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
         );

@@ -1519,7 +1519,7 @@ async function toolGetSubmissionSummary(ctx) {
     const [departmentsSnap, usersSnap] = await Promise.all([
       adminDb.collection('departments').where('schoolId', '==', ctx.schoolId).get(),
       // NOTE: may need a new composite index (schoolId + role in) — Firestore will surface a console link on first query if missing
-      adminDb.collection('users').where('role', 'in', ['teacher', 'department_head']).where('schoolId', '==', ctx.schoolId).get(),
+      adminDb.collection('users').where('role', 'in', ['teacher', 'department_head', 'deputy_department_head']).where('schoolId', '==', ctx.schoolId).get(),
     ]);
 
     const allTeacherUids = usersSnap.docs.map(d => d.id);
@@ -1621,7 +1621,7 @@ async function toolGetTaskCompletionSummary(ctx, keyword) {
 
 const TASK_MANAGER_ROLES = ['admin', 'vice_principal', 'principal'];
 // Vai trò có thể được GIAO việc — khớp đúng phạm vi ImportTasksScreen (UI cũ) đang dùng.
-const ASSIGNABLE_ROLES = ['teacher', 'department_head', 'vice_principal', 'principal', 'staff'];
+const ASSIGNABLE_ROLES = ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'principal', 'staff'];
 
 // Danh sách người có thể giao việc — trả đủ tên + tổ để AI tự khớp ngữ nghĩa (vd "tổ Toán",
 // "cô Lan") giống hệt cách list_upload_categories để AI tự suy luận, không so khớp cứng ở server.

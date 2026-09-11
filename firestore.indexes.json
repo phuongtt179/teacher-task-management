@@ -1,5 +1,13 @@
 {
   "indexes": [
+    { "collectionGroup": "campuses", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "order", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "whitelist", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "addedAt", "order": "DESCENDING" }
+    ]},
     { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "schoolId", "order": "ASCENDING" },
       { "fieldPath": "assignedTo", "arrayConfig": "CONTAINS" }
@@ -52,6 +60,11 @@
     { "collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "schoolId", "order": "ASCENDING" },
       { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "role", "order": "ASCENDING" },
+      { "fieldPath": "campusIds", "arrayConfig": "CONTAINS" }
     ]},
     { "collectionGroup": "departments", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "schoolId", "order": "ASCENDING" },

@@ -7,6 +7,7 @@ import { taskUpdateService } from '@/services/taskUpdateService';
 import { notificationService } from '@/services/notificationService';
 import { schoolYearService } from '@/services/schoolYearService';
 import { userService } from '@/services/userService';
+import { campusService } from '@/services/campusService';
 import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
 import { authFetch } from '@/lib/authFetch';
 import { Sparkles, Send, Loader2, ListChecks, Award, Upload, FolderSearch, CheckCircle2, X, Paperclip, ExternalLink, Building2, FileUp } from 'lucide-react';
@@ -283,6 +284,19 @@ export function ChatScreen() {
   const [creatingTaskKey, setCreatingTaskKey] = useState<string | null>(null);
   const [editedAssigneesKeys, setEditedAssigneesKeys] = useState<Set<string>>(new Set());
   const [editingAssigneesKey, setEditingAssigneesKey] = useState<string | null>(null);
+
+  // Cơ sở mặc định khi tạo việc qua chat (chat không có ô chọn cơ sở riêng) —
+  // ưu tiên cơ sở "nhà" của người tạo, ngược lại cơ sở đầu tiên của trường.
+  const [defaultCampusId, setDefaultCampusId] = useState<string>('');
+  useEffect(() => {
+    if (!user?.schoolId) return;
+    campusService.getAllCampuses(user.schoolId).then(campuses => {
+      const fallback = (user.primaryCampusId && campuses.some(c => c.id === user.primaryCampusId))
+        ? user.primaryCampusId
+        : campuses[0]?.id || '';
+      setDefaultCampusId(fallback);
+    }).catch(console.error);
+  }, [user?.schoolId]);
 
   // Dán văn bản để AI phân tích ra nhiều việc cùng lúc (giống ImportTasksScreen nhưng trong chat)
   const [parseTasksModalOpen, setParseTasksModalOpen] = useState(false);
@@ -643,6 +657,10 @@ export function ChatScreen() {
   // cho phép admin/VP/hiệu trưởng tạo task, đúng cơ chế UI cũ (CreateTaskScreen) đang dùng.
   const handleCreateTask = async (candidate: ChatCreateTaskCandidate) => {
     if (!user || !user.schoolId) return;
+    if (!defaultCampusId) {
+      toast({ title: 'Chưa có cơ sở nào được cấu hình', description: 'Vào "Cơ sở / Phân hiệu" để tạo trước.', variant: 'destructive' });
+      return;
+    }
     const key = createTaskKey(candidate);
     setCreatingTaskKey(key);
     try {
@@ -651,6 +669,7 @@ export function ChatScreen() {
       deadline2.setDate(deadline2.getDate() + 5);
       await taskService.createTask({
         schoolId: user.schoolId,
+        campusId: defaultCampusId,
         schoolYearId: candidate.schoolYearId,
         semester: candidate.semester === 'HK1' || candidate.semester === 'HK2' ? candidate.semester : undefined,
         title: candidate.title,
@@ -716,7 +735,7 @@ export function ChatScreen() {
       setParseTasksSemester((activeYear.activeSemester as 'HK1' | 'HK2') || undefined);
 
       const teachers = allUsers
-        .filter(u => ['teacher', 'department_head', 'vice_principal', 'principal', 'staff'].includes(u.role))
+        .filter(u => ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'principal', 'staff'].includes(u.role))
         .map(u => ({ uid: u.uid, displayName: u.displayName }));
 
       const findCandidates = (name: string) => {
@@ -772,7 +791,7 @@ export function ChatScreen() {
   };
 
   const createOneParsedTask = async (card: ParsedTaskCard) => {
-    if (!user || !user.schoolId || !parseTasksSchoolYearId || card.assigneeUids.length === 0) return;
+    if (!user || !user.schoolId || !parseTasksSchoolYearId || card.assigneeUids.length === 0 || !defaultCampusId) return;
     setCreatingParsedTaskId(card.localId);
     try {
       const deadline = card.deadline ? new Date(`${card.deadline}T23:59:59`) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -780,6 +799,7 @@ export function ChatScreen() {
       deadline2.setDate(deadline2.getDate() + 5);
       await taskService.createTask({
         schoolId: user.schoolId,
+        campusId: defaultCampusId,
         schoolYearId: parseTasksSchoolYearId,
         semester: parseTasksSemester,
         title: card.title,

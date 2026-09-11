@@ -266,6 +266,7 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
                   <SelectItem value="principal">Hiệu trưởng</SelectItem>
                   <SelectItem value="vice_principal">Hiệu phó</SelectItem>
                   <SelectItem value="department_head">Tổ trưởng</SelectItem>
+                  <SelectItem value="deputy_department_head">Tổ phó</SelectItem>
                   <SelectItem value="teacher">Giáo viên</SelectItem>
                   <SelectItem value="staff">Nhân viên</SelectItem>
                   <SelectItem value="van_thu">Văn thư</SelectItem>
@@ -468,6 +469,7 @@ export default function UserManagementScreen() {
       case 'vice_principal':
         return <Shield className="w-4 h-4" />;
       case 'department_head':
+      case 'deputy_department_head':
         return <Users className="w-4 h-4" />;
       case 'teacher':
         return <GraduationCap className="w-4 h-4" />;
@@ -490,6 +492,8 @@ export default function UserManagementScreen() {
         return 'Hiệu phó';
       case 'department_head':
         return 'Tổ trưởng';
+      case 'deputy_department_head':
+        return 'Tổ phó';
       case 'teacher':
         return 'Giáo viên';
       case 'staff':
@@ -511,6 +515,8 @@ export default function UserManagementScreen() {
         return 'bg-blue-100 text-blue-800';
       case 'department_head':
         return 'bg-purple-100 text-purple-800';
+      case 'deputy_department_head':
+        return 'bg-violet-100 text-violet-800';
       case 'teacher':
         return 'bg-green-100 text-green-800';
       case 'staff':
@@ -601,6 +607,7 @@ export default function UserManagementScreen() {
                 <SelectItem value="principal">Hiệu trưởng</SelectItem>
                 <SelectItem value="vice_principal">Hiệu phó</SelectItem>
                 <SelectItem value="department_head">Tổ trưởng</SelectItem>
+                <SelectItem value="deputy_department_head">Tổ phó</SelectItem>
                 <SelectItem value="teacher">Giáo viên</SelectItem>
                 <SelectItem value="staff">Nhân viên</SelectItem>
                 <SelectItem value="van_thu">Văn thư</SelectItem>

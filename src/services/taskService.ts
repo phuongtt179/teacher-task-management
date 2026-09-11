@@ -573,13 +573,14 @@ export const taskService = {
     }
   },
 
-  // Get all teachers and department heads for assignment
-  async getAllTeachers(schoolId: string): Promise<Array<{ uid: string; displayName: string; email: string }>> {
+  // Get all teachers and department heads for assignment.
+  // campusId (tùy chọn): lọc theo cơ sở đang chọn khi tạo việc — chỉ là tiện ích
+  // hiển thị (ai đang làm ở cơ sở này), KHÔNG phải giới hạn quyền.
+  async getAllTeachers(schoolId: string, campusId?: string): Promise<Array<{ uid: string; displayName: string; email: string }>> {
     try {
-      const q = query(
-        tenantCollection('users', schoolId),
-        where('role', 'in', ['teacher', 'department_head'])
-      );
+      const constraints = [where('role', 'in', ['teacher', 'department_head', 'deputy_department_head'])];
+      if (campusId) constraints.push(where('campusIds', 'array-contains', campusId));
+      const q = query(tenantCollection('users', schoolId), ...constraints);
       const snapshot = await getDocs(q);
 
       const users = snapshot.docs.map((doc) => ({

@@ -79,7 +79,7 @@ export function DepartmentDocumentsTreeView({
         const allDepts = await departmentService.getAllDepartments(schoolId);
         console.log('👥 All departments loaded:', allDepts);
         setDepartments(allDepts);
-      } else if (user.role === 'department_head') {
+      } else if (user.role === 'department_head' || user.role === 'deputy_department_head') {
         const userDept = await departmentService.getDepartmentByUserId(schoolId, user.uid);
         console.log('📋 Department for dept head:', userDept);
 

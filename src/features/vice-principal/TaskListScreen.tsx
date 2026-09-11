@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { taskService } from '../../services/taskService';
 import { schoolYearService } from '../../services/schoolYearService';
+import { campusService } from '../../services/campusService';
 import { useAuth } from '../../hooks/useAuth';
-import { Task, TaskStatus, SchoolYear } from '../../types';
+import { Task, TaskStatus, SchoolYear, Campus } from '../../types';
 import { TaskCard } from '../../components/tasks/TaskCard';
 import { SemesterFilter, SEMESTER_FILTER_LABELS } from '../../utils/semesterUtils';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,8 @@ export const TaskListScreen = () => {
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('all');
   const [semesterFilter, setSemesterFilter] = useState<SemesterFilter>('all');
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [campusFilter, setCampusFilter] = useState<string>('all');
 
   // Load tasks and school years
   useEffect(() => {
@@ -34,15 +37,17 @@ export const TaskListScreen = () => {
 
       try {
         setIsLoading(true);
-        const [tasksData, schoolYearsData, activeYear] = await Promise.all([
+        const [tasksData, schoolYearsData, activeYear, campusesData] = await Promise.all([
           taskService.getTasksByCreator(schoolId, user.uid),
           schoolYearService.getAllSchoolYears(schoolId),
           schoolYearService.getActiveSchoolYear(schoolId),
+          campusService.getAllCampuses(schoolId),
         ]);
 
         setTasks(tasksData);
         setFilteredTasks(tasksData);
         setSchoolYears(schoolYearsData);
+        setCampuses(campusesData);
 
         // Default to active school year if exists
         if (activeYear) {
@@ -90,8 +95,13 @@ export const TaskListScreen = () => {
       filtered = filtered.filter((task) => task.status === statusFilter);
     }
 
+    // Campus filter (tiện xem theo cơ sở — không phải giới hạn quyền)
+    if (campusFilter !== 'all') {
+      filtered = filtered.filter((task) => task.campusId === campusFilter);
+    }
+
     setFilteredTasks(filtered);
-  }, [tasks, searchQuery, statusFilter, selectedSchoolYearId, semesterFilter]);
+  }, [tasks, searchQuery, statusFilter, selectedSchoolYearId, semesterFilter, campusFilter]);
 
   const getStatusBadge = (status: TaskStatus) => {
     switch (status) {
@@ -174,6 +184,20 @@ export const TaskListScreen = () => {
             <SelectItem value="HK1">{SEMESTER_FILTER_LABELS.HK1}</SelectItem>
             <SelectItem value="HK2">{SEMESTER_FILTER_LABELS.HK2}</SelectItem>
             <SelectItem value="unassigned">{SEMESTER_FILTER_LABELS.unassigned}</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={campusFilter} onValueChange={setCampusFilter}>
+          <SelectTrigger className="w-full md:w-48">
+            <SelectValue placeholder="Cơ sở" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tất cả cơ sở</SelectItem>
+            {campuses.map((campus) => (
+              <SelectItem key={campus.id} value={campus.id}>
+                {campus.name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

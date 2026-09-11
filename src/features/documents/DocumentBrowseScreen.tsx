@@ -237,8 +237,8 @@ export function DocumentBrowseScreen() {
             // If no user selected, show own documents only
             filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
           }
-        } else if (user?.role === 'department_head') {
-          // Department Head can select users in their department
+        } else if (user?.role === 'department_head' || user?.role === 'deputy_department_head') {
+          // Department Head/Deputy can select users in their department
           if (selectedUserId) {
             // Show documents from selected user only
             filteredDocs = allDocs.filter(doc =>
@@ -268,7 +268,7 @@ export function DocumentBrowseScreen() {
             filteredDocs = allDocs.filter(doc =>
               doc.status === 'approved' || doc.uploadedBy === user?.uid
             );
-          } else if (user?.role === 'department_head') {
+          } else if (user?.role === 'department_head' || user?.role === 'deputy_department_head') {
             const deptMemberIds = userDepartment?.memberIds || [];
             filteredDocs = allDocs.filter(doc =>
               (doc.status === 'approved' && deptMemberIds.includes(doc.uploadedBy)) ||
@@ -505,8 +505,8 @@ export function DocumentBrowseScreen() {
         selectedCategory?.allowedUploaders?.includes(user!.uid)
       ) {
         status = 'approved';
-      } else if (user?.role === 'department_head') {
-        // Auto-approve for department head IF uploading to their own department
+      } else if (user?.role === 'department_head' || user?.role === 'deputy_department_head') {
+        // Auto-approve for department head/deputy IF uploading to their own department
         if (
           userDepartment &&
           selectedSubCategoryId &&
@@ -1269,7 +1269,8 @@ export function DocumentBrowseScreen() {
                     selectedSubCategoryId &&
                     (user?.role === 'admin' ||
                      user?.role === 'vice_principal' ||
-                     user?.role === 'department_head');
+                     user?.role === 'department_head' ||
+                     user?.role === 'deputy_department_head');
 
                   // Don't show upload button in tree view mode
                   if (isTreeViewActive) {
@@ -1317,7 +1318,7 @@ export function DocumentBrowseScreen() {
 
               {/* User Selection (for personal mode with elevated roles) */}
               {currentDocumentType?.viewMode === 'personal' &&
-               (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'department_head') && (
+               (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'department_head' || user?.role === 'deputy_department_head') && (
                 <div className="mb-3">
                   <label className="block text-sm font-medium mb-1">Xem hồ sơ của:</label>
                   <select
@@ -1329,8 +1330,8 @@ export function DocumentBrowseScreen() {
                     {(() => {
                       // Filter users based on role
                       let availableUsers = allUsers;
-                      if (user?.role === 'department_head') {
-                        // Dept head can only see users in their department
+                      if (user?.role === 'department_head' || user?.role === 'deputy_department_head') {
+                        // Dept head/deputy can only see users in their department
                         const deptMemberIds = userDepartment?.memberIds || [];
                         availableUsers = allUsers.filter(u => deptMemberIds.includes(u.uid));
                       }
@@ -1338,7 +1339,7 @@ export function DocumentBrowseScreen() {
 
                       return availableUsers.map(u => (
                         <option key={u.uid} value={u.uid}>
-                          {u.displayName} ({u.role === 'admin' ? 'Admin' : u.role === 'vice_principal' ? 'Hiệu phó' : u.role === 'department_head' ? 'Tổ trưởng' : 'Giáo viên'})
+                          {u.displayName} ({u.role === 'admin' ? 'Admin' : u.role === 'vice_principal' ? 'Hiệu phó' : u.role === 'department_head' ? 'Tổ trưởng' : u.role === 'deputy_department_head' ? 'Tổ phó' : 'Giáo viên'})
                         </option>
                       ));
                     })()}
@@ -1378,7 +1379,8 @@ export function DocumentBrowseScreen() {
                   selectedSubCategoryId &&
                   (user?.role === 'admin' ||
                    user?.role === 'vice_principal' ||
-                   user?.role === 'department_head');
+                   user?.role === 'department_head' ||
+                   user?.role === 'deputy_department_head');
 
                 if (showTreeView) {
                   // Show Department → Teacher → Documents tree view (legacy)
@@ -1686,7 +1688,7 @@ export function DocumentBrowseScreen() {
                     </>
                   )}
                 </p>
-                {(user?.role === 'teacher' || user?.role === 'department_head') && (
+                {(user?.role === 'teacher' || user?.role === 'department_head' || user?.role === 'deputy_department_head') && (
                   <p className="mt-1.5 md:mt-2 leading-relaxed">
                     Hồ sơ sẽ ở trạng thái <strong>chờ duyệt</strong> cho đến khi được Admin/Hiệu trưởng phê duyệt.
                   </p>
