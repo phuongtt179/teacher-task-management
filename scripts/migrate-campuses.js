@@ -96,7 +96,8 @@ async function ensureSecondCampus() {
 
 // Bước 3: backfill campusId vào dữ liệu cũ (tất cả về Cơ sở chính — BGH tự chuyển
 // bản ghi thuộc phân hiệu khác sau, script không đoán được).
-const CAMPUS_COLLECTIONS = ['tasks', 'taskUpdates', 'departments', 'documents'];
+// KHÔNG có 'departments' — tổ chuyên môn dùng chung toàn trường, không theo cơ sở.
+const CAMPUS_COLLECTIONS = ['tasks', 'taskUpdates', 'documents'];
 
 async function backfillCollection(name) {
   const snap = await db.collection(name).where('schoolId', '==', SCHOOL_ID).get();
@@ -116,7 +117,7 @@ async function backfillCollection(name) {
 }
 
 async function backfillAllCollections() {
-  console.log('📦 Bước 3: Backfill campusId vào dữ liệu cũ (tasks/taskUpdates/departments/documents)...');
+  console.log('📦 Bước 3: Backfill campusId vào dữ liệu cũ (tasks/taskUpdates/documents)...');
   for (const name of CAMPUS_COLLECTIONS) {
     await backfillCollection(name);
   }

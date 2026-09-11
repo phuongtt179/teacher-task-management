@@ -306,7 +306,9 @@ export interface DocumentSubCategory {
 export interface Department {
   id: string;
   schoolId: string;
-  campusId: string; // Cơ sở/phân hiệu — mỗi tổ chuyên môn thuộc đúng 1 cơ sở
+  // KHÔNG có campusId: tổ chuyên môn dùng chung toàn trường (VD Tổ 1 gồm GV dạy
+  // lớp 1 ở mọi cơ sở), campusId gắn trên từng GV (User.primaryCampusId), không
+  // gắn trên tổ.
   name: string; // "Tổ 1 - Toán Lý"
   headTeacherId?: string; // Tổ trưởng
   headTeacherName?: string;

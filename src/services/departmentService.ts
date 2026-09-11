@@ -28,7 +28,6 @@ export const departmentService = {
         return {
           id: doc.id,
           schoolId: data.schoolId,
-          campusId: data.campusId,
           name: data.name,
           headTeacherId: data.headTeacherId,
           headTeacherName: data.headTeacherName,
@@ -54,7 +53,6 @@ export const departmentService = {
       return {
         id: deptDoc.id,
         schoolId: data.schoolId,
-        campusId: data.campusId,
         name: data.name,
         headTeacherId: data.headTeacherId,
         headTeacherName: data.headTeacherName,
@@ -85,7 +83,6 @@ export const departmentService = {
       return {
         id: doc.id,
         schoolId: data.schoolId,
-        campusId: data.campusId,
         name: data.name,
         headTeacherId: data.headTeacherId,
         headTeacherName: data.headTeacherName,
@@ -102,7 +99,6 @@ export const departmentService = {
 
   // Create department
   async createDepartment(schoolId: string, data: {
-    campusId: string;
     name: string;
     headTeacherId?: string;
     headTeacherName?: string;
@@ -112,7 +108,6 @@ export const departmentService = {
     try {
       const deptData: any = {
         schoolId,
-        campusId: data.campusId,
         name: data.name,
         memberIds: data.memberIds || [],
         createdAt: Timestamp.now(),
@@ -141,7 +136,6 @@ export const departmentService = {
 
   // Update department
   async updateDepartment(id: string, data: {
-    campusId?: string;
     name?: string;
     headTeacherId?: string;
     headTeacherName?: string;
@@ -153,7 +147,6 @@ export const departmentService = {
         updatedAt: Timestamp.now(),
       };
 
-      if (data.campusId !== undefined) updateData.campusId = data.campusId;
       if (data.name !== undefined) updateData.name = data.name;
       if (data.headTeacherId !== undefined) updateData.headTeacherId = data.headTeacherId;
       if (data.headTeacherName !== undefined) updateData.headTeacherName = data.headTeacherName;

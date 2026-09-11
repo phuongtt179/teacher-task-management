@@ -41,13 +41,13 @@ export function DocumentUploadScreen() {
     campusService.getAllCampuses(schoolId).then(setCampuses).catch(console.error);
   }, [user, schoolId]);
 
-  // Mặc định cơ sở: theo tổ chuyên môn (nếu có) hoặc cơ sở "nhà" của người tải,
-  // người dùng vẫn chọn lại được thủ công.
+  // Mặc định cơ sở: cơ sở "nhà" của người tải (Tổ dùng chung toàn trường, không
+  // suy ra cơ sở từ Tổ được) — người dùng vẫn chọn lại được thủ công.
   useEffect(() => {
     if (selectedCampusId || campuses.length === 0) return;
-    const defaultId = userDepartment?.campusId || user?.primaryCampusId || campuses[0]?.id || '';
+    const defaultId = user?.primaryCampusId || campuses[0]?.id || '';
     if (defaultId) setSelectedCampusId(defaultId);
-  }, [campuses, userDepartment, user?.primaryCampusId]);
+  }, [campuses, user?.primaryCampusId]);
 
   useEffect(() => {
     if (selectedYearId) {

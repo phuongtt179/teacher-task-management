@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { userService } from '@/services/userService';
 import { User } from '@/types';
 import { departmentService } from '@/services/departmentService';
+import { campusService } from '@/services/campusService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,7 +39,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { toast as globalToast } from '@/components/ui/use-toast';  // Import toast directly
 import { format } from 'date-fns';
-import type { Department } from '@/types';
+import type { Department, Campus } from '@/types';
 import { auth } from '@/lib/firebase';
 import { updatePassword as firebaseUpdatePassword } from 'firebase/auth';
 
@@ -59,6 +60,9 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
   const [departments, setDepartments] = useState<Department[]>([]);
   const [currentDepartment, setCurrentDepartment] = useState<Department | null>(null);
   const [loading, setLoading] = useState(false);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  // GV có thể thuộc nhiều cơ sở (dạy cả cơ sở chính lẫn phân hiệu) — chọn nhiều.
+  const [selectedCampusIds, setSelectedCampusIds] = useState<string[]>([]);
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
   const schoolId = currentUser?.schoolId;
@@ -66,6 +70,7 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
   useEffect(() => {
     if (!schoolId) return;
     loadDepartments();
+    campusService.getAllCampuses(schoolId).then(setCampuses).catch(console.error);
   }, [schoolId]);
 
   useEffect(() => {
@@ -74,10 +79,17 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
       setRole(user.role);
       setIsActive(user.isActive !== false);
       setPassword('');
+      setSelectedCampusIds(user.campusIds || []);
       loadDepartments(); // Reload departments to get fresh data including headTeacherId
       loadUserDepartment();
     }
   }, [user, schoolId]);
+
+  const toggleCampus = (campusId: string) => {
+    setSelectedCampusIds(prev =>
+      prev.includes(campusId) ? prev.filter(id => id !== campusId) : [...prev, campusId]
+    );
+  };
 
   const loadDepartments = async () => {
     if (!schoolId) return;
@@ -172,7 +184,9 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
       await userService.updateUser(user.uid, {
         displayName: displayName.trim(),
         role,
-        isActive
+        isActive,
+        primaryCampusId: selectedCampusIds[0] || null,
+        campusIds: selectedCampusIds,
       });
 
       // Update department if changed
@@ -291,6 +305,31 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Campus(es) — GV có thể thuộc nhiều cơ sở nếu dạy cả 2 nơi */}
+            <div className="space-y-2">
+              <Label>Cơ sở</Label>
+              {campuses.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Chưa có cơ sở nào — vào "Cơ sở / Phân hiệu" để tạo trước.</p>
+              ) : (
+                <div className="border rounded-md p-3 space-y-2">
+                  {campuses.map((campus) => (
+                    <label key={campus.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedCampusIds.includes(campus.id)}
+                        onChange={() => toggleCampus(campus.id)}
+                        className="h-4 w-4"
+                      />
+                      {campus.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Không chọn = dùng chung toàn trường (phù hợp admin/hiệu trưởng). Chọn nhiều nếu GV dạy ở nhiều cơ sở.
+              </p>
             </div>
 
             {/* Password */}

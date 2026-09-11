@@ -5,8 +5,7 @@ import { documentCategoryService } from '@/services/documentCategoryService';
 import { documentTypeService } from '@/services/documentTypeService';
 import { departmentService } from '@/services/departmentService';
 import { userService } from '@/services/userService';
-import { campusService } from '@/services/campusService';
-import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentType, User, Campus } from '@/types';
+import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentType, User } from '@/types';
 import { Semester, SEMESTER_LABELS } from '@/utils/semesterUtils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -70,17 +69,14 @@ export function DocumentConfigScreen() {
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [selectedHeadTeacherId, setSelectedHeadTeacherId] = useState<string>('');
-  const [campuses, setCampuses] = useState<Campus[]>([]);
-  const [selectedDepartmentCampusId, setSelectedDepartmentCampusId] = useState<string>('');
 
   const schoolId = user?.schoolId;
 
-  // Load school years, document types, and campuses
+  // Load school years and document types
   useEffect(() => {
     if (!schoolId) return;
     loadSchoolYears();
     loadDocumentTypes();
-    campusService.getAllCampuses(schoolId).then(setCampuses).catch(console.error);
   }, [schoolId]);
 
   // Load categories when year changes
@@ -528,14 +524,12 @@ export function DocumentConfigScreen() {
       setDepartmentName(department.name);
       setSelectedMemberIds(department.memberIds || []);
       setSelectedHeadTeacherId(department.headTeacherId || '');
-      setSelectedDepartmentCampusId(department.campusId || campuses[0]?.id || '');
     } else {
       // Create mode
       setEditingDepartmentId(null);
       setDepartmentName('');
       setSelectedMemberIds([]);
       setSelectedHeadTeacherId('');
-      setSelectedDepartmentCampusId(campuses[0]?.id || '');
     }
 
     // Show dialog first with current state
@@ -569,15 +563,6 @@ export function DocumentConfigScreen() {
       return;
     }
 
-    if (!selectedDepartmentCampusId) {
-      toast({
-        title: 'Lỗi',
-        description: 'Vui lòng chọn cơ sở',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
       // Get head teacher info if selected
       let headTeacherName: string | undefined;
@@ -589,7 +574,6 @@ export function DocumentConfigScreen() {
       if (editingDepartmentId) {
         // Update existing department
         await departmentService.updateDepartment(editingDepartmentId, {
-          campusId: selectedDepartmentCampusId,
           name: departmentName,
           memberIds: selectedMemberIds,
           headTeacherId: selectedHeadTeacherId || undefined,
@@ -599,7 +583,6 @@ export function DocumentConfigScreen() {
       } else {
         // Create new department
         await departmentService.createDepartment(schoolId, {
-          campusId: selectedDepartmentCampusId,
           name: departmentName,
           memberIds: selectedMemberIds,
           headTeacherId: selectedHeadTeacherId || undefined,
@@ -898,14 +881,7 @@ export function DocumentConfigScreen() {
                       className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
                     >
                       <div className="flex-1">
-                        <h3 className="font-semibold flex items-center gap-2">
-                          {dept.name}
-                          {dept.campusId && (
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">
-                              {campuses.find(c => c.id === dept.campusId)?.name || dept.campusId}
-                            </span>
-                          )}
-                        </h3>
+                        <h3 className="font-semibold">{dept.name}</h3>
                         <p className="text-sm text-gray-600">
                           Tổ trưởng: {dept.headTeacherName || 'Chưa có'}
                         </p>
@@ -1260,22 +1236,6 @@ export function DocumentConfigScreen() {
                   placeholder="Ví dụ: Tổ Toán - Tin"
                   className="w-full border rounded px-3 py-2"
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Cơ sở <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={selectedDepartmentCampusId}
-                  onChange={(e) => setSelectedDepartmentCampusId(e.target.value)}
-                  className="w-full border rounded px-3 py-2"
-                >
-                  <option value="">-- Chọn cơ sở --</option>
-                  {campuses.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
               </div>
 
               <div>

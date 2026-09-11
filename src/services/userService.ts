@@ -31,6 +31,8 @@ export const userService = {
           role: data.role || 'teacher',
           schoolId: data.schoolId ?? null,
           isSuperAdmin: data.isSuperAdmin === true,
+          primaryCampusId: data.primaryCampusId ?? null,
+          campusIds: data.campusIds || [],
           phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -64,6 +66,8 @@ export const userService = {
           role: data.role || 'teacher',
           schoolId: data.schoolId ?? null,
           isSuperAdmin: data.isSuperAdmin === true,
+          primaryCampusId: data.primaryCampusId ?? null,
+          campusIds: data.campusIds || [],
           phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -96,6 +100,8 @@ export const userService = {
         role: data.role || 'teacher',
         schoolId: data.schoolId ?? null,
         isSuperAdmin: data.isSuperAdmin === true,
+        primaryCampusId: data.primaryCampusId ?? null,
+        campusIds: data.campusIds || [],
         phoneNumber: data.phoneNumber,
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -160,6 +166,8 @@ export const userService = {
       role: UserRole;
       isActive: boolean;
       phoneNumber: string;
+      primaryCampusId: string | null;
+      campusIds: string[];
     }>
   ): Promise<void> {
     try {

@@ -246,12 +246,11 @@ service cloud.firestore {
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
-    // Departments
+    // Departments (tổ chuyên môn — dùng chung toàn trường, KHÔNG theo cơ sở)
     match /departments/{departmentId} {
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) &&
-                    request.resource.data.campusId is string;
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
