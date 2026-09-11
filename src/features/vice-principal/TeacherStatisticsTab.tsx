@@ -10,9 +10,10 @@ import { ChevronRight, User as UserIcon } from 'lucide-react';
 interface TeacherStatisticsTabProps {
   // 'all' = mọi năm học, ngược lại lọc đúng năm học đang chọn ở màn cha (mặc định năm hiện tại)
   schoolYearId: string;
+  semesterFilter: 'HK1' | 'HK2' | 'all';
 }
 
-export const TeacherStatisticsTab = ({ schoolYearId }: TeacherStatisticsTabProps) => {
+export const TeacherStatisticsTab = ({ schoolYearId, semesterFilter }: TeacherStatisticsTabProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const schoolId = user?.schoolId;
@@ -22,13 +23,13 @@ export const TeacherStatisticsTab = ({ schoolYearId }: TeacherStatisticsTabProps
   useEffect(() => {
     if (!schoolId) return;
     loadTeachersStats();
-  }, [schoolId, schoolYearId]);
+  }, [schoolId, schoolYearId, semesterFilter]);
 
   const loadTeachersStats = async () => {
     if (!schoolId) return;
     try {
       setIsLoading(true);
-      const stats = await analyticsService.getAllTeachersStats(schoolId, undefined, schoolYearId === 'all' ? undefined : schoolYearId);
+      const stats = await analyticsService.getAllTeachersStats(schoolId, semesterFilter, schoolYearId === 'all' ? undefined : schoolYearId);
       // Sort by display name
       stats.sort((a, b) => a.displayName.localeCompare(b.displayName));
       setTeachersStats(stats);

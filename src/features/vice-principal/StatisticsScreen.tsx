@@ -319,12 +319,12 @@ export const StatisticsScreen = () => {
 
         {/* By Task Tab */}
         <TabsContent value="by-task" className="space-y-6">
-          <TaskStatisticsTab schoolYearId={selectedSchoolYearId} />
+          <TaskStatisticsTab schoolYearId={selectedSchoolYearId} semesterFilter={selectedSemester} />
         </TabsContent>
 
         {/* By Teacher Tab */}
         <TabsContent value="by-teacher" className="space-y-6">
-          <TeacherStatisticsTab schoolYearId={selectedSchoolYearId} />
+          <TeacherStatisticsTab schoolYearId={selectedSchoolYearId} semesterFilter={selectedSemester} />
         </TabsContent>
       </Tabs>
     </div>

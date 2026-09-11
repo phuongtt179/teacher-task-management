@@ -13,9 +13,10 @@ import { vi } from 'date-fns/locale';
 interface TaskStatisticsTabProps {
   // 'all' = mọi năm học, ngược lại lọc đúng năm học đang chọn ở màn cha (mặc định năm hiện tại)
   schoolYearId: string;
+  semesterFilter: 'HK1' | 'HK2' | 'all';
 }
 
-export const TaskStatisticsTab = ({ schoolYearId }: TaskStatisticsTabProps) => {
+export const TaskStatisticsTab = ({ schoolYearId, semesterFilter }: TaskStatisticsTabProps) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -33,7 +34,7 @@ export const TaskStatisticsTab = ({ schoolYearId }: TaskStatisticsTabProps) => {
 
   useEffect(() => {
     filterTasks();
-  }, [tasks, searchQuery, selectedMonth, schoolYearId]);
+  }, [tasks, searchQuery, selectedMonth, schoolYearId, semesterFilter]);
 
   const loadTasks = async () => {
     if (!user || !user.schoolId) return;
@@ -57,6 +58,11 @@ export const TaskStatisticsTab = ({ schoolYearId }: TaskStatisticsTabProps) => {
     // Filter by school year (mặc định năm học hiện tại, chọn 'all' để xem lại năm cũ)
     if (schoolYearId !== 'all') {
       filtered = filtered.filter((task) => task.schoolYearId === schoolYearId);
+    }
+
+    // Filter by semester
+    if (semesterFilter !== 'all') {
+      filtered = filtered.filter((task) => task.semester === semesterFilter);
     }
 
     // Filter by search query
