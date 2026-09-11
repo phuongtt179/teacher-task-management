@@ -10,7 +10,12 @@ import { Search, Calendar, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 
-export const TaskStatisticsTab = () => {
+interface TaskStatisticsTabProps {
+  // 'all' = mọi năm học, ngược lại lọc đúng năm học đang chọn ở màn cha (mặc định năm hiện tại)
+  schoolYearId: string;
+}
+
+export const TaskStatisticsTab = ({ schoolYearId }: TaskStatisticsTabProps) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -28,7 +33,7 @@ export const TaskStatisticsTab = () => {
 
   useEffect(() => {
     filterTasks();
-  }, [tasks, searchQuery, selectedMonth]);
+  }, [tasks, searchQuery, selectedMonth, schoolYearId]);
 
   const loadTasks = async () => {
     if (!user || !user.schoolId) return;
@@ -48,6 +53,11 @@ export const TaskStatisticsTab = () => {
 
   const filterTasks = () => {
     let filtered = [...tasks];
+
+    // Filter by school year (mặc định năm học hiện tại, chọn 'all' để xem lại năm cũ)
+    if (schoolYearId !== 'all') {
+      filtered = filtered.filter((task) => task.schoolYearId === schoolYearId);
+    }
 
     // Filter by search query
     if (searchQuery.trim()) {

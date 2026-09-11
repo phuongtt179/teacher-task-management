@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { User, Task, Submission } from '../../types';
+import { User, Task, Submission, SchoolYear } from '../../types';
 import { userService } from '../../services/userService';
 import { taskService } from '../../services/taskService';
 import { submissionService } from '../../services/submissionService';
+import { schoolYearService } from '../../services/schoolYearService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, CheckCircle, Clock, XCircle, FileText } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ArrowLeft, CheckCircle, Clock, XCircle, FileText, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { toast } from 'react-hot-toast';
@@ -32,6 +34,9 @@ export const TeacherDetailStatisticsScreen = () => {
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [filter, setFilter] = useState<FilterType>('all');
   const [isLoading, setIsLoading] = useState(true);
+  const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
+  // Mặc định năm học đang active — chọn "Tất cả năm học" để xem lại các năm trước.
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('all');
 
   useEffect(() => {
     if (teacherId && schoolId) {
@@ -40,8 +45,21 @@ export const TeacherDetailStatisticsScreen = () => {
   }, [teacherId, schoolId]);
 
   useEffect(() => {
+    if (!schoolId) return;
+    const loadYears = async () => {
+      const [years, activeYear] = await Promise.all([
+        schoolYearService.getAllSchoolYears(schoolId),
+        schoolYearService.getActiveSchoolYear(schoolId),
+      ]);
+      setSchoolYears(years);
+      setSelectedSchoolYearId(activeYear?.id ?? 'all');
+    };
+    loadYears();
+  }, [schoolId]);
+
+  useEffect(() => {
     applyFilters();
-  }, [taskSubmissions, selectedMonth, filter]);
+  }, [taskSubmissions, selectedMonth, filter, selectedSchoolYearId]);
 
   const loadTeacherDetails = async () => {
     if (!teacherId || !schoolId) return;
@@ -87,8 +105,14 @@ export const TeacherDetailStatisticsScreen = () => {
     }
   };
 
+  // Chỉ lọc theo năm học — dùng chung cho cả bảng số liệu tổng quan lẫn danh sách bên dưới.
+  const getYearScopedTasks = () => {
+    if (selectedSchoolYearId === 'all') return taskSubmissions;
+    return taskSubmissions.filter((ts) => ts.task.schoolYearId === selectedSchoolYearId);
+  };
+
   const applyFilters = () => {
-    let filtered = [...taskSubmissions];
+    let filtered = getYearScopedTasks();
 
     // Filter by month
     if (selectedMonth !== 'all') {
@@ -120,7 +144,7 @@ export const TeacherDetailStatisticsScreen = () => {
 
   const getMonthOptions = () => {
     const months = new Set<string>();
-    taskSubmissions.forEach((ts) => {
+    getYearScopedTasks().forEach((ts) => {
       const date = new Date(ts.task.deadline);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       months.add(monthKey);
@@ -141,11 +165,12 @@ export const TeacherDetailStatisticsScreen = () => {
     return null;
   }
 
-  const completedCount = taskSubmissions.filter((ts) => ts.isCompleted).length;
-  const submittedCount = taskSubmissions.filter((ts) => ts.submission).length;
+  const yearScopedTasks = getYearScopedTasks();
+  const completedCount = yearScopedTasks.filter((ts) => ts.isCompleted).length;
+  const submittedCount = yearScopedTasks.filter((ts) => ts.submission).length;
   const averageScore =
     completedCount > 0
-      ? taskSubmissions
+      ? yearScopedTasks
           .filter((ts) => ts.submission?.score !== undefined)
           .reduce((sum, ts) => sum + (ts.submission?.score || 0), 0) / completedCount
       : 0;
@@ -170,7 +195,7 @@ export const TeacherDetailStatisticsScreen = () => {
           <CardContent className="pt-6">
             <div className="text-center">
               <p className="text-sm text-gray-600">Tổng công việc</p>
-              <p className="text-3xl font-bold text-indigo-600">{taskSubmissions.length}</p>
+              <p className="text-3xl font-bold text-indigo-600">{yearScopedTasks.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -206,6 +231,24 @@ export const TeacherDetailStatisticsScreen = () => {
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap items-center gap-3">
+            {/* School year filter */}
+            <div className="relative">
+              <Select value={selectedSchoolYearId} onValueChange={setSelectedSchoolYearId}>
+                <SelectTrigger className="w-44">
+                  <Calendar className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="Chọn năm học" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tất cả năm học</SelectItem>
+                  {schoolYears.map((year) => (
+                    <SelectItem key={year.id} value={year.id}>
+                      {year.name} {year.isActive && '(Hiện tại)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Status filter */}
             <div className="flex items-center gap-2">
               <Button
@@ -213,7 +256,7 @@ export const TeacherDetailStatisticsScreen = () => {
                 size="sm"
                 onClick={() => setFilter('all')}
               >
-                Tất cả ({taskSubmissions.length})
+                Tất cả ({yearScopedTasks.length})
               </Button>
               <Button
                 variant={filter === 'completed' ? 'default' : 'outline'}
@@ -227,7 +270,7 @@ export const TeacherDetailStatisticsScreen = () => {
                 size="sm"
                 onClick={() => setFilter('not_completed')}
               >
-                Chưa hoàn thành ({taskSubmissions.length - completedCount})
+                Chưa hoàn thành ({yearScopedTasks.length - completedCount})
               </Button>
             </div>
 

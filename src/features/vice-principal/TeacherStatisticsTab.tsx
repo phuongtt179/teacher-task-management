@@ -7,7 +7,12 @@ import { analyticsService, TeacherStats } from '../../services/analyticsService'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronRight, User as UserIcon } from 'lucide-react';
 
-export const TeacherStatisticsTab = () => {
+interface TeacherStatisticsTabProps {
+  // 'all' = mọi năm học, ngược lại lọc đúng năm học đang chọn ở màn cha (mặc định năm hiện tại)
+  schoolYearId: string;
+}
+
+export const TeacherStatisticsTab = ({ schoolYearId }: TeacherStatisticsTabProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const schoolId = user?.schoolId;
@@ -17,13 +22,13 @@ export const TeacherStatisticsTab = () => {
   useEffect(() => {
     if (!schoolId) return;
     loadTeachersStats();
-  }, [schoolId]);
+  }, [schoolId, schoolYearId]);
 
   const loadTeachersStats = async () => {
     if (!schoolId) return;
     try {
       setIsLoading(true);
-      const stats = await analyticsService.getAllTeachersStats(schoolId);
+      const stats = await analyticsService.getAllTeachersStats(schoolId, undefined, schoolYearId === 'all' ? undefined : schoolYearId);
       // Sort by display name
       stats.sort((a, b) => a.displayName.localeCompare(b.displayName));
       setTeachersStats(stats);
