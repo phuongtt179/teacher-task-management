@@ -76,6 +76,16 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin();
     }
 
+    // ==================== CAMPUSES (cơ sở/phân hiệu — nằm TRONG 1 school) ====================
+    // Chỉ hiệu trưởng/admin tạo/sửa/xóa cơ sở — hiệu phó không tự tạo cơ sở mới.
+
+    match /campuses/{campusId} {
+      allow read: if sameSchool(resource.data);
+      allow create: if (isAdmin() || isPrincipal()) &&
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
+      allow update, delete: if (isAdmin() || isPrincipal()) && sameSchool(resource.data);
+    }
+
     // ==================== WHITELIST ====================
     // Doc ID MUST equal the email it grants access to (enforced in `create` below).
 
@@ -107,7 +117,12 @@ service cloud.firestore {
     // ==================== USERS ====================
 
     match /users/{userId} {
-      allow read: if isSuperAdmin() || sameSchool(resource.data);
+      // request.auth.uid == userId ĐỨNG TRƯỚC (short-circuit) — user đọc đúng doc
+      // của chính mình luôn được phép, kể cả khi doc CHƯA TỒN TẠI (đăng nhập lần
+      // đầu). Nếu để isSuperAdmin()/sameSchool() bay lên trước, cả 2 đều gọi
+      // userData() = get(users/{uid}) trên chính doc chưa có này → .data lỗi →
+      // Firestore trả "Missing or insufficient permissions" thay vì exists:false.
+      allow read: if request.auth.uid == userId || isSuperAdmin() || sameSchool(resource.data);
 
       // A user doc can only ever be created by the person it belongs to (fixes a
       // prior bug where any signed-in user could create/overwrite any other uid's doc).
@@ -133,8 +148,11 @@ service cloud.firestore {
       allow read: if sameSchool(resource.data);
 
       // Văn thư chỉ được tạo (chuyển) công việc, không được sửa/xóa sau đó — xem update/delete bên dưới.
+      // campusId chỉ là 1 field dữ liệu (chọn cơ sở áp dụng) — KHÔNG dùng để hạn chế quyền:
+      // hiệu phó/hiệu trưởng đều xem/phân công được việc của cả 2 cơ sở.
       allow create: if (isVicePrincipal() || isAdmin() || isPrincipal() || isVanThu()) &&
-                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) &&
+                    request.resource.data.campusId is string;
 
       // VP/Admin/Principal: full update. Teachers/dept heads: only update tasks assigned to them, only status+updatedAt fields
       allow update: if (
@@ -156,6 +174,7 @@ service cloud.firestore {
       // Giáo viên chỉ tạo cập nhật ĐỨNG TÊN CHÍNH MÌNH — tránh giả mạo báo cáo đứng tên người khác.
       allow create: if isSignedIn() &&
                     request.resource.data.teacherId == request.auth.uid &&
+                    request.resource.data.campusId is string &&
                     request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
       // Chỉ BGH (admin/VP/hiệu trưởng) được xử lý (duyệt gia hạn / đánh dấu đã xử lý vướng mắc).
       allow update: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
@@ -227,7 +246,8 @@ service cloud.firestore {
     match /departments/{departmentId} {
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) &&
+                    request.resource.data.campusId is string;
       allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
@@ -262,7 +282,8 @@ service cloud.firestore {
 
       // CREATE permissions based on category type
       allow create: if isSignedIn() &&
-        request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) && (
+        request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) &&
+        request.resource.data.campusId is string && (
         // Public documents: admin/VP/Principal can upload
         (getRequestCategoryType() == 'public' && (isAdmin() || isVicePrincipal() || isPrincipal())) ||
 

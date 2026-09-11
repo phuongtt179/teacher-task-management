@@ -161,32 +161,40 @@ export const useAuth = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setFirebaseUser(firebaseUser);
-      
-      if (firebaseUser?.email) {
-        const whitelistEntry = await checkWhitelist(firebaseUser.email);
-        setIsWhitelisted(whitelistEntry !== null);
 
-        if (whitelistEntry) {
-          // Thứ tự giống login(): tạo/lấy users/{uid} TRƯỚC khi check trường bị
-          // khóa — đọc schools/{id} cần users/{uid} đã tồn tại (xem giải thích trong login()).
-          const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
-          const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
-          if (!active) {
-            setSuspendedSchoolName(name);
-            setUser(null);
+      // try/finally bao toàn bộ: một lỗi Firestore bất ngờ ở bất kỳ bước nào cũng
+      // KHÔNG được để app treo mãi ở "Đang tải..." (setIsLoading(false) phải luôn
+      // chạy — trước đây nằm cuối hàm nên 1 exception giữa chừng làm nó không bao giờ chạy).
+      try {
+        if (firebaseUser?.email) {
+          const whitelistEntry = await checkWhitelist(firebaseUser.email);
+          setIsWhitelisted(whitelistEntry !== null);
+
+          if (whitelistEntry) {
+            // Thứ tự giống login(): tạo/lấy users/{uid} TRƯỚC khi check trường bị
+            // khóa — đọc schools/{id} cần users/{uid} đã tồn tại (xem giải thích trong login()).
+            const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
+            const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
+            if (!active) {
+              setSuspendedSchoolName(name);
+              setUser(null);
+            } else {
+              setSuspendedSchoolName(null);
+              setUser(userData);
+            }
           } else {
-            setSuspendedSchoolName(null);
-            setUser(userData);
+            setUser(null);
           }
         } else {
           setUser(null);
+          setIsWhitelisted(false);
         }
-      } else {
+      } catch (error) {
+        console.error('Auth state observer error:', error);
         setUser(null);
-        setIsWhitelisted(false);
+      } finally {
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
     });
 
     return () => unsubscribe();
