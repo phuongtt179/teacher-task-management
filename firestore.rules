@@ -49,8 +49,10 @@ service cloud.firestore {
       return isSignedIn() && userData().role == 'principal';
     }
 
+    // Tổng phụ trách Đội (youth_leader) có quyền giống hệt hiệu phó — gộp chung 1
+    // hàm thay vì thêm điều kiện ở từng chỗ dùng isVicePrincipal() trong file này.
     function isVicePrincipal() {
-      return isSignedIn() && userData().role == 'vice_principal';
+      return isSignedIn() && (userData().role == 'vice_principal' || userData().role == 'youth_leader');
     }
 
     // Tổ phó (deputy_department_head) có quyền giống hệt tổ trưởng — gộp chung 1

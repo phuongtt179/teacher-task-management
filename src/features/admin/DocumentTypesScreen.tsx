@@ -433,6 +433,7 @@ export const DocumentTypesScreen = () => {
                       <Badge variant="outline" className="ml-auto text-xs">
                         {u.role === 'admin' && 'Admin'}
                         {u.role === 'vice_principal' && 'Hiệu phó'}
+                      {u.role === 'youth_leader' && 'Tổng phụ trách Đội'}
                         {u.role === 'department_head' && 'Tổ trưởng'}
                       {u.role === 'deputy_department_head' && 'Tổ phó'}
                         {u.role === 'teacher' && 'Giáo viên'}
@@ -463,6 +464,7 @@ export const DocumentTypesScreen = () => {
                     <Badge variant="outline" className="ml-auto text-xs">
                       {u.role === 'admin' && 'Admin'}
                       {u.role === 'vice_principal' && 'Hiệu phó'}
+                      {u.role === 'youth_leader' && 'Tổng phụ trách Đội'}
                       {u.role === 'department_head' && 'Tổ trưởng'}
                       {u.role === 'deputy_department_head' && 'Tổ phó'}
                       {u.role === 'teacher' && 'Giáo viên'}

@@ -1355,7 +1355,7 @@ async function toolConfirmForwardTaskToBgh(ctx, args) {
 
   const [bghSnap, yearsSnap] = await Promise.all([
     // NOTE: may need a new composite index (schoolId + role in) — Firestore will surface a console link on first query if missing
-    adminDb.collection('users').where('role', 'in', ['principal', 'vice_principal']).where('schoolId', '==', ctx.schoolId).get(),
+    adminDb.collection('users').where('role', 'in', ['principal', 'vice_principal', 'youth_leader']).where('schoolId', '==', ctx.schoolId).get(),
     adminDb.collection('schoolYears').where('isActive', '==', true).where('schoolId', '==', ctx.schoolId).limit(1).get(),
   ]);
   if (bghSnap.empty) return { error: 'no_bgh_members' };
@@ -1515,7 +1515,7 @@ async function computeSubmissionSummary(ctx, memberUids) {
 // (thay vì 1 tool riêng cho tổ trưởng + 1 tool riêng cho hiệu trưởng/hiệu phó/admin).
 // Tự tra role/headTeacherId từ Firestore, KHÔNG tin role client tự khai báo.
 async function toolGetSubmissionSummary(ctx) {
-  if (['admin', 'vice_principal', 'principal'].includes(ctx.role)) {
+  if (['admin', 'vice_principal', 'youth_leader', 'principal'].includes(ctx.role)) {
     const [departmentsSnap, usersSnap] = await Promise.all([
       adminDb.collection('departments').where('schoolId', '==', ctx.schoolId).get(),
       // NOTE: may need a new composite index (schoolId + role in) — Firestore will surface a console link on first query if missing
@@ -1557,7 +1557,7 @@ async function toolGetSubmissionSummary(ctx) {
 // - Có keyword (khớp tên việc): trả đầy đủ TỪNG người được giao việc đó, phân loại đúng hạn/trễ hạn/chưa làm
 //   (câu hỏi kiểu "báo cáo tình hình công việc A — ai đúng hạn, ai trễ, ai chưa làm").
 async function toolGetTaskCompletionSummary(ctx, keyword) {
-  if (!['principal', 'vice_principal'].includes(ctx.role)) return { error: 'not_authorized' };
+  if (!['principal', 'vice_principal', 'youth_leader'].includes(ctx.role)) return { error: 'not_authorized' };
 
   const [tasksSnap, subsSnap, usersSnap] = await Promise.all([
     adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get(),
@@ -1619,9 +1619,9 @@ async function toolGetTaskCompletionSummary(ctx, keyword) {
   return { mode: 'task_detail', tasks: tasks.slice(0, 20) };
 }
 
-const TASK_MANAGER_ROLES = ['admin', 'vice_principal', 'principal'];
+const TASK_MANAGER_ROLES = ['admin', 'vice_principal', 'youth_leader', 'principal'];
 // Vai trò có thể được GIAO việc — khớp đúng phạm vi ImportTasksScreen (UI cũ) đang dùng.
-const ASSIGNABLE_ROLES = ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'principal', 'staff'];
+const ASSIGNABLE_ROLES = ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'youth_leader', 'principal', 'staff'];
 
 // Danh sách người có thể giao việc — trả đủ tên + tổ để AI tự khớp ngữ nghĩa (vd "tổ Toán",
 // "cô Lan") giống hệt cách list_upload_categories để AI tự suy luận, không so khớp cứng ở server.
@@ -1821,7 +1821,7 @@ async function toolConfirmEditTaskAssignees(ctx, args) {
   };
 }
 
-const GRADER_ROLES = ['admin', 'vice_principal', 'principal'];
+const GRADER_ROLES = ['admin', 'vice_principal', 'youth_leader', 'principal'];
 
 // Tìm bài nộp cần chấm điểm theo tên việc (+ tên giáo viên nếu có) — CHỈ trả về (không chấm),
 // để AI/người dùng xác nhận đúng bài trước khi gọi confirm_grade_submission.
@@ -1899,7 +1899,7 @@ async function toolConfirmGradeSubmission(ctx, args) {
 //   (ưu tiên nêu người cần lưu ý trước, giống tinh thần get_task_completion_summary).
 // - Có keyword (tên việc): điểm từng người cho đúng việc đó.
 async function toolGetScoreOverview(ctx, keyword) {
-  if (!['principal', 'vice_principal'].includes(ctx.role)) return { error: 'not_authorized' };
+  if (!['principal', 'vice_principal', 'youth_leader'].includes(ctx.role)) return { error: 'not_authorized' };
 
   const kw = String(keyword || '').trim().toLowerCase();
 
@@ -2121,7 +2121,7 @@ async function toolConfirmUpdateProfile(ctx, args) {
   return { confirmed: true, currentName: snap.data().displayName || '', newName };
 }
 
-const SCHOOL_INFO_EDITOR_ROLES = ['admin', 'principal', 'vice_principal', 'van_thu'];
+const SCHOOL_INFO_EDITOR_ROLES = ['admin', 'principal', 'vice_principal', 'youth_leader', 'van_thu'];
 
 // Đọc dữ kiện nội bộ nhà trường — dùng ở MỌI kênh, mọi vai trò (chỉ đọc, không rủi ro).
 // So khớp theo TỪNG TỪ (không chỉ nguyên cụm) vì AI có thể diễn đạt câu hỏi khác chữ với
@@ -2747,7 +2747,7 @@ app.post('/api/chat/submit-document', verifyAuth, express.json(), async (req, re
       return res.status(400).json({ error: 'missing_fields' });
     }
 
-    const status = (req.role === 'admin' || req.role === 'vice_principal' || req.role === 'principal') ? 'approved' : 'pending';
+    const status = (req.role === 'admin' || req.role === 'vice_principal' || req.role === 'youth_leader' || req.role === 'principal') ? 'approved' : 'pending';
 
     const documentData = {
       schoolId: req.schoolId,

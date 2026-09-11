@@ -51,6 +51,7 @@ const DashboardRouter = () => {
       return <AdminDashboard />;
     case 'principal':
     case 'vice_principal':
+    case 'youth_leader':
       return <VPDashboard />;
     case 'teacher':
     case 'department_head':
@@ -254,7 +255,7 @@ function App() {
         <Route
           path="/vp/create-task"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <CreateTaskScreen />
               </AppLayout>
@@ -264,7 +265,7 @@ function App() {
         <Route
           path="/vp/import-tasks"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <ImportTasksScreen />
               </AppLayout>
@@ -274,7 +275,7 @@ function App() {
         <Route
           path="/vp/tasks"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <TaskListScreen />
               </AppLayout>
@@ -284,7 +285,7 @@ function App() {
         <Route
           path="/vp/tasks/:taskId"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <TaskDetailScreen />
               </AppLayout>
@@ -294,7 +295,7 @@ function App() {
         <Route
           path="/vp/statistics"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <StatisticsScreen />
               </AppLayout>
@@ -304,7 +305,7 @@ function App() {
         <Route
           path="/vp/submission-matrix"
           element={
-            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <SubmissionMatrixScreen />
               </AppLayout>
@@ -314,7 +315,7 @@ function App() {
         <Route
           path="/vice-principal/statistics/task/:taskId"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <TaskDetailStatisticsScreen />
               </AppLayout>
@@ -324,7 +325,7 @@ function App() {
         <Route
           path="/vice-principal/statistics/teacher/:teacherId"
           element={
-            <ProtectedRoute allowedRoles={['vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <TeacherDetailStatisticsScreen />
               </AppLayout>
@@ -420,7 +421,7 @@ function App() {
         <Route
           path="/documents/approvals"
           element={
-            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'principal', 'department_head', 'deputy_department_head']}>
+            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'youth_leader', 'principal', 'department_head', 'deputy_department_head']}>
               <AppLayout>
                 <DocumentApprovalsScreen />
               </AppLayout>
@@ -440,7 +441,7 @@ function App() {
         <Route
           path="/documents/config"
           element={
-            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'principal']}>
+            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'youth_leader', 'principal']}>
               <AppLayout>
                 <DocumentConfigScreen />
               </AppLayout>

@@ -117,7 +117,7 @@ export const RankingsScreen = () => {
           Bảng xếp hạng
         </h2>
         <p className="text-gray-600">
-          {user?.role === 'admin' || user?.role === 'vice_principal'
+          {user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader'
             ? 'Xếp hạng ẩn danh theo thành tích'
             : 'Xếp hạng theo thành tích (chỉ hiển thị tên bạn)'}
         </p>
@@ -398,7 +398,7 @@ export const RankingsScreen = () => {
                 <div className="text-sm text-blue-900">
                   <p className="font-semibold mb-2">📊 Thông tin về bảng xếp hạng</p>
                   <ul className="space-y-1 text-xs">
-                    {user?.role === 'admin' || user?.role === 'vice_principal' ? (
+                    {user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' ? (
                       <>
                         <li>• Bạn có thể xem tên thật của tất cả giáo viên</li>
                         <li>• Xếp hạng được cập nhật theo thời gian thực</li>

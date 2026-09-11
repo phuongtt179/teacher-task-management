@@ -16,6 +16,7 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: 'department_head', label: 'Tổ trưởng' },
   { value: 'deputy_department_head', label: 'Tổ phó' },
   { value: 'vice_principal', label: 'Hiệu phó' },
+  { value: 'youth_leader', label: 'Tổng phụ trách Đội' },
   { value: 'principal', label: 'Hiệu trưởng' },
   { value: 'staff', label: 'Nhân viên' },
   { value: 'van_thu', label: 'Văn thư' },

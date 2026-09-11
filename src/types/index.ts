@@ -2,7 +2,7 @@
 // 'super_admin' is reserved for a purely platform-level account with no school (schoolId: null).
 // It is NOT used for a school's own admin who additionally manages the platform — that case is
 // modeled via the orthogonal `isSuperAdmin` flag below instead (see WhitelistEmail/User).
-export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'teacher' | 'department_head' | 'deputy_department_head' | 'staff' | 'van_thu' | 'super_admin';
+export type UserRole = 'admin' | 'principal' | 'vice_principal' | 'youth_leader' | 'teacher' | 'department_head' | 'deputy_department_head' | 'staff' | 'van_thu' | 'super_admin';
 
 // Billing plan (tenant-independent, managed by super-admin via /super-admin/plans —
 // numbers live in Firestore, NOT hardcoded, so pricing changes don't need a deploy).

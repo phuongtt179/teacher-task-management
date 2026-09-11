@@ -207,7 +207,7 @@ export function DocumentUploadScreen() {
       let status: 'pending' | 'approved' = 'pending';
 
       // Auto-approve for admin/VP
-      if (user?.role === 'admin' || user?.role === 'vice_principal') {
+      if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader') {
         status = 'approved';
       }
       // Auto-approve for department head/deputy IF uploading to their own department

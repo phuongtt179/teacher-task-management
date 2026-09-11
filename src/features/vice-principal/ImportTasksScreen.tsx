@@ -87,7 +87,7 @@ export const ImportTasksScreen = () => {
         : campusesData[0]?.id || '';
       if (defaultCampusId) setSelectedCampusId(defaultCampusId);
       const teacherList = allUsers
-        .filter(u => ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'principal', 'staff'].includes(u.role))
+        .filter(u => ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'youth_leader', 'principal', 'staff'].includes(u.role))
         .map(u => ({ uid: u.uid, displayName: u.displayName }));
       setTeachers(teacherList);
     };

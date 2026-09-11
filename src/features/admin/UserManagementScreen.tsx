@@ -265,6 +265,7 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="principal">Hiệu trưởng</SelectItem>
                   <SelectItem value="vice_principal">Hiệu phó</SelectItem>
+                  <SelectItem value="youth_leader">Tổng phụ trách Đội</SelectItem>
                   <SelectItem value="department_head">Tổ trưởng</SelectItem>
                   <SelectItem value="deputy_department_head">Tổ phó</SelectItem>
                   <SelectItem value="teacher">Giáo viên</SelectItem>
@@ -467,6 +468,7 @@ export default function UserManagementScreen() {
       case 'principal':
         return <Crown className="w-4 h-4" />;
       case 'vice_principal':
+      case 'youth_leader':
         return <Shield className="w-4 h-4" />;
       case 'department_head':
       case 'deputy_department_head':
@@ -490,6 +492,8 @@ export default function UserManagementScreen() {
         return 'Hiệu trưởng';
       case 'vice_principal':
         return 'Hiệu phó';
+      case 'youth_leader':
+        return 'Tổng phụ trách Đội';
       case 'department_head':
         return 'Tổ trưởng';
       case 'deputy_department_head':
@@ -513,6 +517,8 @@ export default function UserManagementScreen() {
         return 'bg-indigo-100 text-indigo-800';
       case 'vice_principal':
         return 'bg-blue-100 text-blue-800';
+      case 'youth_leader':
+        return 'bg-cyan-100 text-cyan-800';
       case 'department_head':
         return 'bg-purple-100 text-purple-800';
       case 'deputy_department_head':
@@ -606,6 +612,7 @@ export default function UserManagementScreen() {
                 <SelectItem value="admin">Admin</SelectItem>
                 <SelectItem value="principal">Hiệu trưởng</SelectItem>
                 <SelectItem value="vice_principal">Hiệu phó</SelectItem>
+                <SelectItem value="youth_leader">Tổng phụ trách Đội</SelectItem>
                 <SelectItem value="department_head">Tổ trưởng</SelectItem>
                 <SelectItem value="deputy_department_head">Tổ phó</SelectItem>
                 <SelectItem value="teacher">Giáo viên</SelectItem>

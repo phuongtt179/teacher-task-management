@@ -135,7 +135,7 @@ export function DocumentBrowseScreen() {
       // Filter categories based on view permissions
       const filteredCats = allCats.filter(cat => {
         // Admin and VP can see all categories
-        if (user?.role === 'admin' || user?.role === 'vice_principal') {
+        if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader') {
           return true;
         }
 
@@ -226,7 +226,7 @@ export function DocumentBrowseScreen() {
 
       if (viewMode === 'personal') {
         // PERSONAL MODE: Each user sees only specific files
-        if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'principal') {
+        if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' || user?.role === 'principal') {
           // Admin, Vice Principal & Principal can select any user to view
           if (selectedUserId) {
             // Show documents from selected user only
@@ -264,7 +264,7 @@ export function DocumentBrowseScreen() {
         const isPersonalCategory = selectedCategory?.categoryType === 'personal';
 
         if (isPersonalCategory) {
-          if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'principal') {
+          if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' || user?.role === 'principal') {
             filteredDocs = allDocs.filter(doc =>
               doc.status === 'approved' || doc.uploadedBy === user?.uid
             );
@@ -498,7 +498,7 @@ export function DocumentBrowseScreen() {
       const selectedCategory = categories.find(c => c.id === selectedCategoryId);
 
       // Auto-approve if Admin/VP OR in allowedUploaders for public categories OR department head of own department
-      if (user?.role === 'admin' || user?.role === 'vice_principal') {
+      if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader') {
         status = 'approved';
       } else if (
         selectedCategory?.categoryType === 'public' &&
@@ -944,7 +944,7 @@ export function DocumentBrowseScreen() {
     if (!user) return false;
 
     // Admin, VP, and Principal can view all DocumentTypes
-    if (user.role === 'admin' || user.role === 'vice_principal' || user.role === 'principal') {
+    if (user.role === 'admin' || user.role === 'vice_principal' || user.role === 'youth_leader' || user.role === 'principal') {
       return true;
     }
 
@@ -1269,6 +1269,7 @@ export function DocumentBrowseScreen() {
                     selectedSubCategoryId &&
                     (user?.role === 'admin' ||
                      user?.role === 'vice_principal' ||
+                     user?.role === 'youth_leader' ||
                      user?.role === 'department_head' ||
                      user?.role === 'deputy_department_head');
 
@@ -1284,7 +1285,7 @@ export function DocumentBrowseScreen() {
                   let hasUploadPermission = false;
 
                   // Admin, VP, and Principal always have upload permission
-                  if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'principal') {
+                  if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' || user?.role === 'principal') {
                     hasUploadPermission = true;
                   } else if (currentDocumentType?.viewMode === 'personal') {
                     // Personal viewMode: mọi user đều tự upload hồ sơ của mình
@@ -1318,7 +1319,7 @@ export function DocumentBrowseScreen() {
 
               {/* User Selection (for personal mode with elevated roles) */}
               {currentDocumentType?.viewMode === 'personal' &&
-               (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'department_head' || user?.role === 'deputy_department_head') && (
+               (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' || user?.role === 'department_head' || user?.role === 'deputy_department_head') && (
                 <div className="mb-3">
                   <label className="block text-sm font-medium mb-1">Xem hồ sơ của:</label>
                   <select
@@ -1339,7 +1340,7 @@ export function DocumentBrowseScreen() {
 
                       return availableUsers.map(u => (
                         <option key={u.uid} value={u.uid}>
-                          {u.displayName} ({u.role === 'admin' ? 'Admin' : u.role === 'vice_principal' ? 'Hiệu phó' : u.role === 'department_head' ? 'Tổ trưởng' : u.role === 'deputy_department_head' ? 'Tổ phó' : 'Giáo viên'})
+                          {u.displayName} ({u.role === 'admin' ? 'Admin' : u.role === 'vice_principal' ? 'Hiệu phó' : u.role === 'youth_leader' ? 'Tổng phụ trách Đội' : u.role === 'department_head' ? 'Tổ trưởng' : u.role === 'deputy_department_head' ? 'Tổ phó' : 'Giáo viên'})
                         </option>
                       ));
                     })()}
@@ -1379,6 +1380,7 @@ export function DocumentBrowseScreen() {
                   selectedSubCategoryId &&
                   (user?.role === 'admin' ||
                    user?.role === 'vice_principal' ||
+                   user?.role === 'youth_leader' ||
                    user?.role === 'department_head' ||
                    user?.role === 'deputy_department_head');
 

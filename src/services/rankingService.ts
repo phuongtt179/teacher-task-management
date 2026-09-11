@@ -178,7 +178,7 @@ export const rankingService = {
 
       // Anonymize and add rank
       // Admin/VP see all real names, teachers see only their own name
-      const showAllNames = currentUserRole === 'admin' || currentUserRole === 'vice_principal';
+      const showAllNames = currentUserRole === 'admin' || currentUserRole === 'vice_principal' || currentUserRole === 'youth_leader';
 
       const rankings: AnonymousRanking[] = sortedStats.map((stat, index) => {
         let displayId: string;

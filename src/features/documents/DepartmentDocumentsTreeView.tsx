@@ -75,7 +75,7 @@ export function DepartmentDocumentsTreeView({
 
       // Admin/VP: Load all departments
       // Department Head: Load only their department
-      if (user.role === 'admin' || user.role === 'vice_principal') {
+      if (user.role === 'admin' || user.role === 'vice_principal' || user.role === 'youth_leader') {
         const allDepts = await departmentService.getAllDepartments(schoolId);
         console.log('👥 All departments loaded:', allDepts);
         setDepartments(allDepts);

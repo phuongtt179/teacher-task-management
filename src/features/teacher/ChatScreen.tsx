@@ -217,7 +217,7 @@ const CHANNELS: Channel[] = [
     subtitle: 'Tra cứu & cập nhật dữ kiện nội bộ',
     icon: Building2,
     color: 'bg-teal-500',
-    roles: ['admin', 'principal', 'vice_principal', 'van_thu'],
+    roles: ['admin', 'principal', 'vice_principal', 'youth_leader', 'van_thu'],
   },
 ];
 
@@ -735,7 +735,7 @@ export function ChatScreen() {
       setParseTasksSemester((activeYear.activeSemester as 'HK1' | 'HK2') || undefined);
 
       const teachers = allUsers
-        .filter(u => ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'principal', 'staff'].includes(u.role))
+        .filter(u => ['teacher', 'department_head', 'deputy_department_head', 'vice_principal', 'youth_leader', 'principal', 'staff'].includes(u.role))
         .map(u => ({ uid: u.uid, displayName: u.displayName }));
 
       const findCandidates = (name: string) => {
@@ -1425,7 +1425,7 @@ export function ChatScreen() {
         </div>
 
         <div className="border-t border-gray-200 bg-white px-3 py-3 flex gap-2 items-end">
-          {user && ['admin', 'vice_principal', 'principal'].includes(user.role) && (
+          {user && ['admin', 'vice_principal', 'youth_leader', 'principal'].includes(user.role) && (
             <button
               onClick={() => setParseTasksModalOpen(true)}
               title="Dán văn bản để giao việc hàng loạt"

@@ -37,7 +37,7 @@ import {
       label: 'Dashboard',
       path: '/',
       icon: LayoutDashboard,
-      roles: ['admin', 'vice_principal', 'principal', 'teacher', 'department_head', 'deputy_department_head', 'staff'],
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal', 'teacher', 'department_head', 'deputy_department_head', 'staff'],
     },
 
     // Admin only
@@ -81,26 +81,26 @@ import {
       label: 'Tạo công việc',
       path: '/vp/create-task',
       icon: ClipboardList,
-      roles: ['vice_principal', 'principal'],
+      roles: ['vice_principal', 'youth_leader', 'principal'],
     },
     {
       label: 'Danh sách công việc',
       path: '/vp/tasks',
       icon: CheckSquare,
-      roles: ['vice_principal', 'principal'],
+      roles: ['vice_principal', 'youth_leader', 'principal'],
     },
     {
       label: 'Thống kê',
       path: '/vp/statistics',
       icon: BarChart3,
-      roles: ['vice_principal', 'principal'],
+      roles: ['vice_principal', 'youth_leader', 'principal'],
     },
     {
       label: 'Theo dõi nộp hồ sơ',
       shortLabel: 'Nộp hồ sơ',
       path: '/vp/submission-matrix',
       icon: Table,
-      roles: ['admin', 'vice_principal', 'principal'],
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal'],
     },
 
     // Teacher
@@ -125,13 +125,13 @@ import {
       shortLabel: 'Xếp hạng',
       path: '/rankings',
       icon: Trophy,
-      roles: ['admin', 'vice_principal', 'principal', 'teacher', 'department_head', 'deputy_department_head'],
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal', 'teacher', 'department_head', 'deputy_department_head'],
     },
     {
       label: 'Thông báo',
       path: '/notifications',
       icon: Bell,
-      roles: ['admin', 'vice_principal', 'principal', 'teacher', 'department_head', 'deputy_department_head', 'staff'],
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal', 'teacher', 'department_head', 'deputy_department_head', 'staff'],
     },
 
     // Document Management - Common
@@ -139,7 +139,7 @@ import {
       label: 'Hồ sơ điện tử',
       path: '/documents',
       icon: FolderOpen,
-      roles: ['admin', 'vice_principal', 'principal', 'teacher', 'department_head', 'deputy_department_head', 'staff'],
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal', 'teacher', 'department_head', 'deputy_department_head', 'staff'],
     },
 
     // Document Management - Approval (Department Head, Admin, VP, Principal)
@@ -147,7 +147,7 @@ import {
       label: 'Phê duyệt hồ sơ',
       path: '/documents/approvals',
       icon: FileCheck,
-      roles: ['admin', 'vice_principal', 'principal', 'department_head', 'deputy_department_head'],
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal', 'department_head', 'deputy_department_head'],
     },
 
     // Document Management - My Requests (Teacher, Staff, Department Head)
@@ -163,7 +163,7 @@ import {
       label: 'Cấu hình hồ sơ',
       path: '/documents/config',
       icon: Cog,
-      roles: ['admin', 'vice_principal', 'principal'],
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal'],
     },
   ];
 
