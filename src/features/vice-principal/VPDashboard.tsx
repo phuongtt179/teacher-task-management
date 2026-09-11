@@ -20,6 +20,14 @@ import {
   FileText
 } from 'lucide-react';
 
+// VPDashboard dùng chung cho 3 vai trò (principal/vice_principal/youth_leader) —
+// tiêu đề phải đổi theo đúng vai trò người đang xem, không gắn cứng "Hiệu trưởng".
+const DASHBOARD_ROLE_LABELS = {
+  principal: 'Hiệu trưởng',
+  vice_principal: 'Hiệu phó',
+  youth_leader: 'Tổng phụ trách Đội',
+};
+
 export const VPDashboard = () => {
   const { user } = useAuth();
   const [stats, setStats] = useState<any>(null);
@@ -111,7 +119,9 @@ export const VPDashboard = () => {
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Dashboard Hiệu trưởng</h2>
+          <h2 className="text-2xl font-bold text-gray-900">
+            Dashboard {DASHBOARD_ROLE_LABELS[user?.role as keyof typeof DASHBOARD_ROLE_LABELS] || ''}
+          </h2>
           <p className="text-gray-600">
             {user?.role === 'principal' ? 'Tổng quan toàn trường' : 'Quản lý và theo dõi công việc của bạn'}
           </p>
