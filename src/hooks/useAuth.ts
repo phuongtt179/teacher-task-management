@@ -3,6 +3,7 @@ import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../lib/firebase';
 import { useAuthStore } from '../stores/authStore';
+import { departmentService } from '../services/departmentService';
 import { User, WhitelistEmail } from '../types';
 
 export const useAuth = () => {
@@ -82,21 +83,35 @@ export const useAuth = () => {
 
       // Create new user document — role/schoolId come from the whitelist entry
       // that matched this email (not hardcoded, and not chosen by the user).
+      // Họ tên/môn dạy/cơ sở: dùng giá trị điền sẵn lúc "Nhập hàng loạt" nếu có
+      // (xem WhitelistEmail.pending* trong types) — admin không biết uid trước
+      // khi người này đăng nhập lần đầu nên phải gửi kèm qua whitelist.
       const newUser: User = {
         uid,
         email,
-        displayName: email.split('@')[0],
+        displayName: whitelistEntry.pendingDisplayName || email.split('@')[0],
         role: whitelistEntry.role,
         schoolId: whitelistEntry.schoolId,
+        primaryCampusId: whitelistEntry.pendingCampusIds?.[0] ?? null,
+        campusIds: whitelistEntry.pendingCampusIds ?? [],
+        subject: whitelistEntry.pendingSubject || undefined,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
 
-      await setDoc(userRef, {
-        ...newUser,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      const userData: Record<string, any> = { ...newUser, createdAt: new Date(), updatedAt: new Date() };
+      Object.keys(userData).forEach((k) => userData[k] === undefined && delete userData[k]);
+      await setDoc(userRef, userData);
+
+      // Gắn vào Tổ chuyên môn điền sẵn (nếu có) — chỉ addMember, không tự đặt
+      // tổ trưởng (tránh xung đột "tổ đã có tổ trưởng" âm thầm lúc đăng nhập).
+      if (whitelistEntry.pendingDepartmentId) {
+        try {
+          await departmentService.addMember(whitelistEntry.pendingDepartmentId, uid);
+        } catch (deptError) {
+          console.error('Error adding new user to pending department:', deptError);
+        }
+      }
 
       return newUser;
     } catch (error) {

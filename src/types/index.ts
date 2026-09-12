@@ -86,6 +86,13 @@ export interface WhitelistEmail {
   role: UserRole; // Role assigned to the user when their account is first created
   addedBy: string;
   addedAt: Date;
+  // Điền sẵn qua "Nhập hàng loạt" (admin chưa biết uid vì người này chưa đăng
+  // nhập lần nào) — áp dụng vào users/{uid} + Department.memberIds đúng 1 lần,
+  // khi tài khoản được TẠO MỚI ở lần đăng nhập Google đầu tiên (xem useAuth.ts).
+  pendingDisplayName?: string;
+  pendingSubject?: string; // Môn dạy
+  pendingDepartmentId?: string; // Tổ chuyên môn
+  pendingCampusIds?: string[]; // Cơ sở (có thể nhiều)
 }
 
 // Task status
