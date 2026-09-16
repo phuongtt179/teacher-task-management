@@ -5,7 +5,8 @@ import { tenantCollection } from '../../lib/tenantQuery';
 import { useAuth } from '../../hooks/useAuth';
 import { departmentService } from '../../services/departmentService';
 import { campusService } from '../../services/campusService';
-import { UserRole, WhitelistEmail, Department, Campus } from '../../types';
+import { userService } from '../../services/userService';
+import { UserRole, WhitelistEmail, Department, Campus, User } from '../../types';
 import { getRoleLabel, MANAGEABLE_ROLES } from '../../lib/roleLabels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +34,7 @@ interface BulkRow {
   campusRaw: string;
   campusIds: string[];
   status: 'new' | 'update' | 'error';
+  hasAccount: boolean; // đã có users/{uid} thật (từng đăng nhập) hay chưa
   error?: string;
 }
 
@@ -45,7 +47,8 @@ function parseBulkRow(
   departments: Department[],
   campuses: Campus[],
   emailsSeenInBatch: Set<string>,
-  existingEmails: Set<string>
+  existingEmails: Set<string>,
+  existingAccountEmails: Set<string>
 ): BulkRow {
   const cols = (rawLine.includes('\t') ? rawLine.split('\t') : rawLine.split(',')).map(c => c.trim());
   const [emailRaw = '', nameRaw = '', roleRaw = '', subjectRaw = '', deptRaw = '', campusRaw = ''] = cols;
@@ -61,6 +64,7 @@ function parseBulkRow(
     departmentId: null,
     campusRaw,
     campusIds: [] as string[],
+    hasAccount: existingAccountEmails.has(email),
   };
 
   if (!email || !EMAIL_RE.test(email)) {
@@ -146,6 +150,7 @@ export const WhitelistScreen = () => {
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [existingUsers, setExistingUsers] = useState<User[]>([]);
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
 
   // Load whitelist for this school only
@@ -178,14 +183,16 @@ export const WhitelistScreen = () => {
     if (!schoolId) return;
     departmentService.getAllDepartments(schoolId).then(setDepartments).catch(console.error);
     campusService.getAllCampuses(schoolId).then(setCampuses).catch(console.error);
+    userService.getAllUsers(schoolId).then(setExistingUsers).catch(console.error);
   }, [schoolId]);
 
   const handlePreviewBulk = () => {
     const existingEmails = new Set(emails.map(e => e.email));
+    const existingAccountEmails = new Set(existingUsers.map(u => u.email.toLowerCase()));
     const emailsSeenInBatch = new Set<string>();
     const lines = bulkText.split('\n').map(l => l.trim()).filter(Boolean);
     const rows = lines.map((line, i) =>
-      parseBulkRow(line, i + 1, departments, campuses, emailsSeenInBatch, existingEmails)
+      parseBulkRow(line, i + 1, departments, campuses, emailsSeenInBatch, existingEmails, existingAccountEmails)
     );
     setBulkRows(rows);
     if (rows.length === 0) {
@@ -201,15 +208,24 @@ export const WhitelistScreen = () => {
     setIsBulkSubmitting(true);
     let successCount = 0;
     let failCount = 0;
+    let profileUpdateCount = 0;
+    const existingWhitelistByEmail = new Map(emails.map(e => [e.email, e]));
+    const existingUserByEmail = new Map(existingUsers.map(u => [u.email.toLowerCase(), u]));
 
     for (const row of validRows) {
       try {
+        const existingWhitelist = existingWhitelistByEmail.get(row.email);
+        const existingUserAccountForRole = existingUserByEmail.get(row.email);
+        // Ô Vai trò để trống + người này đã có tài khoản → giữ đúng vai trò thật
+        // hiện tại của họ trên whitelist, không ghi đè về mặc định "Giáo viên".
+        const effectiveRole = (!row.roleRaw && existingUserAccountForRole) ? existingUserAccountForRole.role : row.role;
         const data: Record<string, any> = {
           email: row.email,
           schoolId,
-          role: row.role,
+          role: effectiveRole,
           addedBy: user?.email || 'admin',
-          addedAt: Timestamp.now(),
+          // Giữ nguyên ngày thêm ban đầu nếu đây là cập nhật, không phải mới tạo.
+          addedAt: existingWhitelist?.addedAt ? Timestamp.fromDate(existingWhitelist.addedAt) : Timestamp.now(),
         };
         if (row.displayName) data.pendingDisplayName = row.displayName;
         if (row.subject) data.pendingSubject = row.subject;
@@ -217,6 +233,30 @@ export const WhitelistScreen = () => {
         if (row.campusIds.length > 0) data.pendingCampusIds = row.campusIds;
 
         await setDoc(doc(db, 'whitelist', row.email), data);
+
+        // Người này ĐÃ đăng nhập rồi (có users/{uid} thật) — pending* ở whitelist
+        // sẽ không tự áp dụng nữa (chỉ áp dụng lúc tạo tài khoản lần đầu), nên cập
+        // nhật thẳng vào hồ sơ ngay tại đây. Chỉ ghi đè field nào có dữ liệu mới,
+        // không xóa mất dữ liệu cũ nếu ô tương ứng để trống.
+        const existingUserAccount = existingUserByEmail.get(row.email);
+        if (existingUserAccount) {
+          const userUpdates: Record<string, any> = {};
+          if (row.roleRaw) userUpdates.role = row.role;
+          if (row.displayName) userUpdates.displayName = row.displayName;
+          if (row.subject) userUpdates.subject = row.subject;
+          if (row.campusIds.length > 0) {
+            userUpdates.primaryCampusId = row.campusIds[0];
+            userUpdates.campusIds = row.campusIds;
+          }
+          if (Object.keys(userUpdates).length > 0) {
+            await userService.updateUser(existingUserAccount.uid, userUpdates);
+            profileUpdateCount++;
+          }
+          if (row.departmentId) {
+            await departmentService.addMember(row.departmentId, existingUserAccount.uid);
+          }
+        }
+
         successCount++;
       } catch (error) {
         console.error(`Error importing ${row.email}:`, error);
@@ -227,7 +267,7 @@ export const WhitelistScreen = () => {
     setIsBulkSubmitting(false);
     toast({
       title: 'Nhập hàng loạt hoàn tất',
-      description: `${successCount} thành công${failCount > 0 ? `, ${failCount} lỗi` : ''}${
+      description: `${successCount} thành công (${profileUpdateCount} người đã có tài khoản được cập nhật hồ sơ ngay)${failCount > 0 ? `, ${failCount} lỗi` : ''}${
         bulkRows.length - validRows.length > 0 ? `, ${bulkRows.length - validRows.length} dòng bị bỏ qua do lỗi` : ''
       }`,
     });
@@ -235,6 +275,7 @@ export const WhitelistScreen = () => {
     setBulkRows([]);
     setShowBulkImport(false);
     loadWhitelist();
+    if (schoolId) userService.getAllUsers(schoolId).then(setExistingUsers).catch(console.error);
   };
 
   // Add email to whitelist — doc ID is the email itself (matches firestore.rules
@@ -415,8 +456,9 @@ export const WhitelistScreen = () => {
                                     <XCircle className="w-3 h-3" /> {row.error}
                                   </span>
                                 ) : row.status === 'update' ? (
-                                  <span className="inline-flex items-center gap-1 text-amber-600">
-                                    <CheckCircle2 className="w-3 h-3" /> Cập nhật (đã có)
+                                  <span className="inline-flex items-center gap-1 text-amber-600" title={row.hasAccount ? 'Đã có tài khoản — hồ sơ được cập nhật ngay' : 'Chỉ mới có trong whitelist, chưa từng đăng nhập — áp dụng khi đăng nhập lần đầu'}>
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    {row.hasAccount ? 'Cập nhật hồ sơ ngay' : 'Cập nhật whitelist (chưa đăng nhập)'}
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1 text-green-600">
