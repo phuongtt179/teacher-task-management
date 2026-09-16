@@ -2,17 +2,16 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { userService } from '@/services/userService';
 import { departmentService } from '@/services/departmentService';
+import { campusService } from '@/services/campusService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { User, Lock, Save, Building2, Phone } from 'lucide-react';
+import { User, Save, Building2, Phone, BookOpen, MapPin } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
-import type { Department } from '@/types';
+import type { Department, Campus } from '@/types';
 
 export function TeacherProfileScreen() {
   const { user } = useAuth();
@@ -24,22 +23,21 @@ export function TeacherProfileScreen() {
   const [department, setDepartment] = useState<Department | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
+  const [subject, setSubject] = useState('');
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [selectedCampusIds, setSelectedCampusIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-
-  // Password change state
-  const [showPasswordChange, setShowPasswordChange] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordLoading, setPasswordLoading] = useState(false);
 
   useEffect(() => {
     if (user && user.schoolId) {
       setDisplayName(user.displayName);
       setEmail(user.email);
       setPhoneNumber(user.phoneNumber || '');
+      setSubject(user.subject || '');
+      setSelectedCampusIds(user.campusIds || []);
       loadDepartments();
       loadDepartment();
+      loadCampuses();
     }
   }, [user]);
 
@@ -51,6 +49,22 @@ export function TeacherProfileScreen() {
     } catch (error) {
       console.error('Error loading departments:', error);
     }
+  };
+
+  const loadCampuses = async () => {
+    if (!user?.schoolId) return;
+    try {
+      const camps = await campusService.getAllCampuses(user.schoolId);
+      setCampuses(camps);
+    } catch (error) {
+      console.error('Error loading campuses:', error);
+    }
+  };
+
+  const toggleCampus = (campusId: string) => {
+    setSelectedCampusIds((prev) =>
+      prev.includes(campusId) ? prev.filter((id) => id !== campusId) : [...prev, campusId]
+    );
   };
 
   const loadDepartment = async () => {
@@ -108,6 +122,9 @@ export function TeacherProfileScreen() {
       await userService.updateUser(user.uid, {
         displayName: displayName.trim(),
         phoneNumber: phoneNumber.trim(),
+        subject: subject.trim(),
+        primaryCampusId: selectedCampusIds[0] || null,
+        campusIds: selectedCampusIds,
       });
 
       toast({
@@ -122,72 +139,6 @@ export function TeacherProfileScreen() {
       });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !auth.currentUser) return;
-
-    // Validate passwords
-    if (newPassword.length < 6) {
-      toast({
-        title: 'Lỗi',
-        description: 'Mật khẩu mới phải có ít nhất 6 ký tự',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      toast({
-        title: 'Lỗi',
-        description: 'Mật khẩu mới không khớp',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setPasswordLoading(true);
-    try {
-      // Re-authenticate user first
-      const credential = EmailAuthProvider.credential(
-        user.email,
-        currentPassword
-      );
-      await reauthenticateWithCredential(auth.currentUser, credential);
-
-      // Update password
-      await updatePassword(auth.currentUser, newPassword);
-
-      toast({
-        title: 'Thành công',
-        description: 'Đã đổi mật khẩu',
-      });
-
-      // Reset form
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      setShowPasswordChange(false);
-    } catch (error: any) {
-      console.error('Error changing password:', error);
-
-      if (error.code === 'auth/wrong-password') {
-        toast({
-          title: 'Lỗi',
-          description: 'Mật khẩu hiện tại không đúng',
-          variant: 'destructive',
-        });
-      } else {
-        toast({
-          title: 'Lỗi',
-          description: 'Không thể đổi mật khẩu',
-          variant: 'destructive',
-        });
-      }
-    } finally {
-      setPasswordLoading(false);
     }
   };
 
@@ -300,90 +251,54 @@ export function TeacherProfileScreen() {
                 </Select>
               </div>
 
+              {/* Subject */}
+              <div className="space-y-2">
+                <Label htmlFor="subject">
+                  <BookOpen className="w-4 h-4 inline mr-2" />
+                  Môn dạy
+                </Label>
+                <Input
+                  id="subject"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="VD: Toán, Tiếng Việt..."
+                />
+              </div>
+
+              {/* Campus(es) — GV có thể dạy ở nhiều cơ sở */}
+              <div className="space-y-2">
+                <Label>
+                  <MapPin className="w-4 h-4 inline mr-2" />
+                  Cơ sở
+                </Label>
+                {campuses.length === 0 ? (
+                  <p className="text-sm text-gray-500">Trường chưa có cơ sở nào được cấu hình</p>
+                ) : (
+                  <div className="border rounded-md p-3 space-y-2">
+                    {campuses.map((campus) => (
+                      <label key={campus.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedCampusIds.includes(campus.id)}
+                          onChange={() => toggleCampus(campus.id)}
+                          className="h-4 w-4"
+                        />
+                        {campus.name}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <p className="text-sm text-gray-500">
+                  Chọn nhiều nếu bạn dạy ở nhiều cơ sở
+                </p>
+              </div>
+
               {/* Submit Button */}
               <Button type="submit" disabled={loading}>
                 <Save className="w-4 h-4 mr-2" />
                 {loading ? 'Đang lưu...' : 'Lưu thay đổi'}
               </Button>
             </form>
-          </CardContent>
-        </Card>
-
-        {/* Password Change Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Đổi mật khẩu</CardTitle>
-            <CardDescription>
-              Cập nhật mật khẩu của bạn
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!showPasswordChange ? (
-              <Button
-                variant="outline"
-                onClick={() => setShowPasswordChange(true)}
-              >
-                <Lock className="w-4 h-4 mr-2" />
-                Đổi mật khẩu
-              </Button>
-            ) : (
-              <form onSubmit={handleChangePassword} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="currentPassword">Mật khẩu hiện tại</Label>
-                  <Input
-                    id="currentPassword"
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="newPassword">Mật khẩu mới</Label>
-                  <Input
-                    id="newPassword"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    required
-                    minLength={6}
-                  />
-                  <p className="text-sm text-gray-500">
-                    Tối thiểu 6 ký tự
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">Xác nhận mật khẩu mới</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={passwordLoading}>
-                    {passwordLoading ? 'Đang đổi...' : 'Đổi mật khẩu'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setShowPasswordChange(false);
-                      setCurrentPassword('');
-                      setNewPassword('');
-                      setConfirmPassword('');
-                    }}
-                  >
-                    Hủy
-                  </Button>
-                </div>
-              </form>
-            )}
           </CardContent>
         </Card>
       </div>

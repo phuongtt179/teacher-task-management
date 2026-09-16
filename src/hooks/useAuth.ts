@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../lib/firebase';
 import { useAuthStore } from '../stores/authStore';
 import { departmentService } from '../services/departmentService';
@@ -60,22 +60,31 @@ export const useAuth = () => {
   // Get or create user document. `whitelistEntry` supplies role/schoolId when the
   // user doc doesn't exist yet — the account is provisioned into whichever school
   // its matching whitelist entry grants access to, never a school the caller chooses.
-  const getUserDocument = async (uid: string, email: string, whitelistEntry: WhitelistEmail): Promise<User | null> => {
+  const getUserDocument = async (uid: string, email: string, whitelistEntry: WhitelistEmail, googlePhotoURL?: string | null): Promise<User | null> => {
     try {
       const userRef = doc(db, 'users', uid);
       const userSnap = await getDoc(userRef);
 
       if (userSnap.exists()) {
         const data = userSnap.data();
+        // Ảnh Google có thể đổi theo thời gian (hoặc chưa từng được lưu ở các tài
+        // khoản tạo trước khi có field này) — đồng bộ lại mỗi lần đăng nhập nếu khác.
+        const photoURL = googlePhotoURL ?? data.photoURL;
+        if (googlePhotoURL && googlePhotoURL !== data.photoURL) {
+          updateDoc(userRef, { photoURL: googlePhotoURL }).catch((e) => console.error('Error syncing photoURL:', e));
+        }
         return {
           uid,
           email: data.email,
           displayName: data.displayName,
-          photoURL: data.photoURL,
+          photoURL,
           role: data.role,
           schoolId: data.schoolId ?? null,
           isSuperAdmin: data.isSuperAdmin === true,
           phoneNumber: data.phoneNumber,
+          primaryCampusId: data.primaryCampusId ?? null,
+          campusIds: data.campusIds || [],
+          subject: data.subject,
           createdAt: data.createdAt?.toDate(),
           updatedAt: data.updatedAt?.toDate(),
         } as User;
@@ -90,6 +99,7 @@ export const useAuth = () => {
         uid,
         email,
         displayName: whitelistEntry.pendingDisplayName || email.split('@')[0],
+        photoURL: googlePhotoURL || undefined,
         role: whitelistEntry.role,
         schoolId: whitelistEntry.schoolId,
         primaryCampusId: whitelistEntry.pendingCampusIds?.[0] ?? null,
@@ -141,7 +151,7 @@ export const useAuth = () => {
       // Với người đăng nhập lần đầu (users/{uid} chưa tồn tại), đọc schools trước
       // sẽ luôn bị "Missing or insufficient permissions" (get() trên doc chưa có
       // khiến userSchoolId()/isSuperAdmin() lỗi → rule deny).
-      const userData = await getUserDocument(result.user.uid, email, whitelistEntry);
+      const userData = await getUserDocument(result.user.uid, email, whitelistEntry, result.user.photoURL);
 
       const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
       setSchoolName(name || null);
@@ -191,7 +201,7 @@ export const useAuth = () => {
           if (whitelistEntry) {
             // Thứ tự giống login(): tạo/lấy users/{uid} TRƯỚC khi check trường bị
             // khóa — đọc schools/{id} cần users/{uid} đã tồn tại (xem giải thích trong login()).
-            const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry);
+            const userData = await getUserDocument(firebaseUser.uid, firebaseUser.email, whitelistEntry, firebaseUser.photoURL);
             const { active, name } = await checkSchoolActive(whitelistEntry.schoolId);
             setSchoolName(name || null);
             if (!active) {
