@@ -82,9 +82,27 @@ function parseBulkRow(
 
   let role: UserRole = 'teacher';
   if (roleRaw) {
-    const matched = ROLE_VALUES.has(roleRaw as UserRole)
+    const normalized = roleRaw.toLowerCase();
+    let matched = ROLE_VALUES.has(roleRaw as UserRole)
       ? (roleRaw as UserRole)
-      : ROLE_LABEL_TO_VALUE.get(roleRaw.toLowerCase());
+      : ROLE_LABEL_TO_VALUE.get(normalized);
+
+    // Gõ tắt/thiếu chữ (vd "Tổng phụ trách" thay vì "Tổng phụ trách Đội") — chấp
+    // nhận nếu chỉ khớp DUY NHẤT 1 vai trò theo kiểu chứa cụm từ.
+    if (!matched) {
+      const candidates = ROLE_OPTIONS.filter(
+        o => o.label.toLowerCase().includes(normalized) || normalized.includes(o.label.toLowerCase())
+      );
+      if (candidates.length === 1) {
+        matched = candidates[0].value;
+      } else if (candidates.length > 1) {
+        return {
+          ...base, role: null, status: 'error',
+          error: `Vai trò "${roleRaw}" không rõ — có thể là ${candidates.map(c => `"${c.label}"`).join(' hoặc ')}, ghi đầy đủ tên`,
+        };
+      }
+    }
+
     if (!matched) {
       return { ...base, role: null, status: 'error', error: `Vai trò "${roleRaw}" không hợp lệ` };
     }
