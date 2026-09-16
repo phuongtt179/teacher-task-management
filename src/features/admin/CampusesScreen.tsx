@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Building2, Plus, Trash2 } from 'lucide-react';
+import { Building2, Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 // Quản lý danh sách cơ sở/phân hiệu của trường ("cấu hình" — chỉ admin/principal
@@ -23,6 +23,9 @@ export const CampusesScreen = () => {
   const [newVicePrincipalUid, setNewVicePrincipalUid] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
 
   const schoolId = user?.schoolId;
 
@@ -77,6 +80,36 @@ export const CampusesScreen = () => {
     } catch (error) {
       console.error('Error updating campus:', error);
       toast({ variant: 'destructive', title: 'Lỗi', description: 'Không thể cập nhật' });
+    }
+  };
+
+  const handleStartRename = (campus: Campus) => {
+    setEditingId(campus.id);
+    setEditingName(campus.name);
+  };
+
+  const handleCancelRename = () => {
+    setEditingId(null);
+    setEditingName('');
+  };
+
+  const handleSaveRename = async (campus: Campus) => {
+    const trimmed = editingName.trim();
+    if (!trimmed || trimmed === campus.name) {
+      handleCancelRename();
+      return;
+    }
+    setIsRenaming(true);
+    try {
+      await campusService.updateCampus(campus.id, { name: trimmed });
+      toast({ title: 'Đã đổi tên', description: `"${campus.name}" → "${trimmed}"` });
+      handleCancelRename();
+      loadAll();
+    } catch (error) {
+      console.error('Error renaming campus:', error);
+      toast({ variant: 'destructive', title: 'Lỗi', description: 'Không thể đổi tên cơ sở' });
+    } finally {
+      setIsRenaming(false);
     }
   };
 
@@ -139,7 +172,44 @@ export const CampusesScreen = () => {
             ) : (
               campuses.map((campus) => (
                 <div key={campus.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-2 flex-wrap">
-                  <p className="font-medium">{campus.name}</p>
+                  {editingId === campus.id ? (
+                    <div className="flex items-center gap-1 flex-1 min-w-[160px]">
+                      <Input
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveRename(campus);
+                          if (e.key === 'Escape') handleCancelRename();
+                        }}
+                        className="h-8"
+                        autoFocus
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSaveRename(campus)}
+                        disabled={isRenaming}
+                        title="Lưu"
+                      >
+                        <Check className="w-4 h-4 text-green-600" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={handleCancelRename} title="Hủy">
+                        <X className="w-4 h-4 text-gray-500" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="font-medium flex items-center gap-1">
+                      {campus.name}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleStartRename(campus)}
+                        title="Đổi tên cơ sở"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-gray-400" />
+                      </Button>
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
                     <Select value={campus.vicePrincipalUid || ''} onValueChange={(v) => handleChangeVicePrincipal(campus, v)}>
                       <SelectTrigger className="w-48 h-8 text-xs">
