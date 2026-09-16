@@ -6,6 +6,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { departmentService } from '../../services/departmentService';
 import { campusService } from '../../services/campusService';
 import { UserRole, WhitelistEmail, Department, Campus } from '../../types';
+import { getRoleLabel, MANAGEABLE_ROLES } from '../../lib/roleLabels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,20 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Trash2, Plus, Mail, Upload, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
-const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
-  { value: 'teacher', label: 'Giáo viên' },
-  { value: 'department_head', label: 'Tổ trưởng' },
-  { value: 'deputy_department_head', label: 'Tổ phó' },
-  { value: 'vice_principal', label: 'Hiệu phó' },
-  { value: 'youth_leader', label: 'Tổng phụ trách Đội' },
-  { value: 'principal', label: 'Hiệu trưởng' },
-  { value: 'staff', label: 'Nhân viên' },
-  { value: 'van_thu', label: 'Văn thư' },
-  { value: 'admin', label: 'Admin' },
-];
-
-const ROLE_LABEL_TO_VALUE = new Map(ROLE_OPTIONS.map(o => [o.label.toLowerCase(), o.value]));
-const ROLE_VALUES = new Set(ROLE_OPTIONS.map(o => o.value));
+// Nhãn lấy động qua getRoleLabel() (admin có thể đổi tên ở "Quản lý vai trò") —
+// KHÔNG cache thành mảng cố định vì tên có thể đổi sau khi load trang.
+const getRoleOptions = () => MANAGEABLE_ROLES.map(value => ({ value, label: getRoleLabel(value) }));
+const ROLE_VALUES = new Set<UserRole>(MANAGEABLE_ROLES);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface BulkRow {
@@ -83,14 +74,15 @@ function parseBulkRow(
   let role: UserRole = 'teacher';
   if (roleRaw) {
     const normalized = roleRaw.toLowerCase();
+    const roleOptions = getRoleOptions(); // nhãn động, phản ánh tên đã đổi (nếu có)
     let matched = ROLE_VALUES.has(roleRaw as UserRole)
       ? (roleRaw as UserRole)
-      : ROLE_LABEL_TO_VALUE.get(normalized);
+      : roleOptions.find(o => o.label.toLowerCase() === normalized)?.value;
 
     // Gõ tắt/thiếu chữ (vd "Tổng phụ trách" thay vì "Tổng phụ trách Đội") — chấp
     // nhận nếu chỉ khớp DUY NHẤT 1 vai trò theo kiểu chứa cụm từ.
     if (!matched) {
-      const candidates = ROLE_OPTIONS.filter(
+      const candidates = roleOptions.filter(
         o => o.label.toLowerCase().includes(normalized) || normalized.includes(o.label.toLowerCase())
       );
       if (candidates.length === 1) {
@@ -346,7 +338,7 @@ export const WhitelistScreen = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {ROLE_OPTIONS.map(opt => (
+                {getRoleOptions().map(opt => (
                   <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                 ))}
               </SelectContent>
@@ -413,7 +405,7 @@ export const WhitelistScreen = () => {
                               <td className="px-2 py-2">{row.line}</td>
                               <td className="px-2 py-2">{row.email || '—'}</td>
                               <td className="px-2 py-2">{row.displayName || '—'}</td>
-                              <td className="px-2 py-2">{row.role ? ROLE_OPTIONS.find(o => o.value === row.role)?.label : '—'}</td>
+                              <td className="px-2 py-2">{row.role ? getRoleLabel(row.role) : '—'}</td>
                               <td className="px-2 py-2">{row.subject || '—'}</td>
                               <td className="px-2 py-2">{row.deptRaw || '—'}</td>
                               <td className="px-2 py-2">{row.campusRaw || '—'}</td>
@@ -474,7 +466,7 @@ export const WhitelistScreen = () => {
                         {item.email}
                         {item.role && (
                           <span className="ml-2 text-xs text-gray-500">
-                            ({ROLE_OPTIONS.find(o => o.value === item.role)?.label || item.role})
+                            ({getRoleLabel(item.role)})
                           </span>
                         )}
                       </p>

@@ -59,6 +59,12 @@ import {
       icon: Building2,
       roles: ['admin', 'principal'],
     },
+    {
+      label: 'Quản lý vai trò',
+      path: '/admin/roles',
+      icon: Tag,
+      roles: ['admin'],
+    },
 
     // Super-admin only (platform-level, orthogonal to role)
     {

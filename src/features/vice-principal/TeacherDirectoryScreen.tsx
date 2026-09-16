@@ -8,14 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, Building2 } from 'lucide-react';
+import { getRoleLabel } from '@/lib/roleLabels';
 
 const TEACHER_ROLES: User['role'][] = ['teacher', 'department_head', 'deputy_department_head'];
-
-const ROLE_LABELS: Partial<Record<User['role'], string>> = {
-  teacher: 'Giáo viên',
-  department_head: 'Tổ trưởng',
-  deputy_department_head: 'Tổ phó',
-};
 
 export const TeacherDirectoryScreen = () => {
   const { user } = useAuth();
@@ -148,7 +143,7 @@ export const TeacherDirectoryScreen = () => {
                           <p className="font-medium text-gray-900">{t.displayName}</p>
                           <p className="text-xs text-gray-500">{t.email}</p>
                         </td>
-                        <td className="px-4 py-3 text-gray-700">{ROLE_LABELS[t.role] || t.role}</td>
+                        <td className="px-4 py-3 text-gray-700">{getRoleLabel(t.role)}</td>
                         <td className="px-4 py-3 text-gray-700">
                           {campusNames.length > 0 ? campusNames.join(', ') : <span className="text-gray-400">Chưa gán</span>}
                         </td>

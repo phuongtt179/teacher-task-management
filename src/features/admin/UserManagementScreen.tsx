@@ -3,6 +3,7 @@ import { userService } from '@/services/userService';
 import { User } from '@/types';
 import { departmentService } from '@/services/departmentService';
 import { campusService } from '@/services/campusService';
+import { getRoleLabel, MANAGEABLE_ROLES } from '@/lib/roleLabels';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -279,15 +280,9 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="principal">Hiệu trưởng</SelectItem>
-                  <SelectItem value="vice_principal">Hiệu phó</SelectItem>
-                  <SelectItem value="youth_leader">Tổng phụ trách Đội</SelectItem>
-                  <SelectItem value="department_head">Tổ trưởng</SelectItem>
-                  <SelectItem value="deputy_department_head">Tổ phó</SelectItem>
-                  <SelectItem value="teacher">Giáo viên</SelectItem>
-                  <SelectItem value="staff">Nhân viên</SelectItem>
-                  <SelectItem value="van_thu">Văn thư</SelectItem>
+                  {MANAGEABLE_ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>{getRoleLabel(r)}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -537,31 +532,6 @@ export default function UserManagementScreen() {
     }
   };
 
-  const getRoleLabel = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return 'Admin';
-      case 'principal':
-        return 'Hiệu trưởng';
-      case 'vice_principal':
-        return 'Hiệu phó';
-      case 'youth_leader':
-        return 'Tổng phụ trách Đội';
-      case 'department_head':
-        return 'Tổ trưởng';
-      case 'deputy_department_head':
-        return 'Tổ phó';
-      case 'teacher':
-        return 'Giáo viên';
-      case 'staff':
-        return 'Nhân viên';
-      case 'van_thu':
-        return 'Văn thư';
-      default:
-        return role;
-    }
-  };
-
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
       case 'admin':
@@ -662,15 +632,9 @@ export default function UserManagementScreen() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tất cả vai trò</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="principal">Hiệu trưởng</SelectItem>
-                <SelectItem value="vice_principal">Hiệu phó</SelectItem>
-                <SelectItem value="youth_leader">Tổng phụ trách Đội</SelectItem>
-                <SelectItem value="department_head">Tổ trưởng</SelectItem>
-                <SelectItem value="deputy_department_head">Tổ phó</SelectItem>
-                <SelectItem value="teacher">Giáo viên</SelectItem>
-                <SelectItem value="staff">Nhân viên</SelectItem>
-                <SelectItem value="van_thu">Văn thư</SelectItem>
+                {MANAGEABLE_ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>{getRoleLabel(r)}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

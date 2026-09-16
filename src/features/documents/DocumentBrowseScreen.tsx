@@ -9,6 +9,7 @@ import { userService } from '@/services/userService';
 import { departmentService } from '@/services/departmentService';
 import { fileRequestService } from '@/services/fileRequestService';
 import { documentHistoryService } from '@/services/documentHistoryService';
+import { getRoleLabel } from '@/lib/roleLabels';
 import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile, DocumentType, User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1340,7 +1341,7 @@ export function DocumentBrowseScreen() {
 
                       return availableUsers.map(u => (
                         <option key={u.uid} value={u.uid}>
-                          {u.displayName} ({u.role === 'admin' ? 'Admin' : u.role === 'vice_principal' ? 'Hiệu phó' : u.role === 'youth_leader' ? 'Tổng phụ trách Đội' : u.role === 'department_head' ? 'Tổ trưởng' : u.role === 'deputy_department_head' ? 'Tổ phó' : 'Giáo viên'})
+                          {u.displayName} ({getRoleLabel(u.role)})
                         </option>
                       ));
                     })()}

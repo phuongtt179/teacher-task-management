@@ -40,6 +40,9 @@ import { DocumentApprovalsScreen } from './features/documents/DocumentApprovalsS
 import { MyRequestsScreen } from './features/documents/MyRequestsScreen';
 import { TeacherProfileScreen } from './features/teacher/TeacherProfileScreen';
 import { deadlineCheckerService } from './services/deadlineCheckerService';
+import { roleLabelService } from './services/roleLabelService';
+import { setCustomRoleLabels } from './lib/roleLabels';
+import { RoleManagementScreen } from './features/admin/RoleManagementScreen';
 // Dashboard router based on role — trang chủ luôn là dashboard; Trợ lý AI truy cập
 // qua icon robot trên Header (route /chat riêng), mở cho mọi vai trò.
 const DashboardRouter = () => {
@@ -113,6 +116,13 @@ function App() {
       deadlineCheckerService.stopChecking();
     };
   }, [firebaseUser, isWhitelisted, user?.schoolId]);
+
+  // Nạp tên vai trò tùy chỉnh (nếu admin đã đổi) 1 lần lúc đăng nhập — dùng
+  // chung cho mọi màn hình qua getRoleLabel(), xem src/lib/roleLabels.ts.
+  useEffect(() => {
+    if (!firebaseUser) return;
+    roleLabelService.getCustomLabels().then(setCustomRoleLabels);
+  }, [firebaseUser]);
 
   if (isLoading) {
     return (
@@ -225,6 +235,16 @@ function App() {
             <ProtectedRoute allowedRoles={['admin', 'principal']}>
               <AppLayout>
                 <CampusesScreen />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/roles"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AppLayout>
+                <RoleManagementScreen />
               </AppLayout>
             </ProtectedRoute>
           }

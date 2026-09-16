@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { documentTypeService } from '@/services/documentTypeService';
 import { userService } from '@/services/userService';
 import { DocumentType, User } from '@/types';
+import { getRoleLabel } from '@/lib/roleLabels';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -431,12 +432,7 @@ export const DocumentTypesScreen = () => {
                       />
                       <span>{u.displayName}</span>
                       <Badge variant="outline" className="ml-auto text-xs">
-                        {u.role === 'admin' && 'Admin'}
-                        {u.role === 'vice_principal' && 'Hiệu phó'}
-                      {u.role === 'youth_leader' && 'Tổng phụ trách Đội'}
-                        {u.role === 'department_head' && 'Tổ trưởng'}
-                      {u.role === 'deputy_department_head' && 'Tổ phó'}
-                        {u.role === 'teacher' && 'Giáo viên'}
+                        {getRoleLabel(u.role)}
                       </Badge>
                     </label>
                   ))}
@@ -462,12 +458,7 @@ export const DocumentTypesScreen = () => {
                     />
                     <span>{u.displayName}</span>
                     <Badge variant="outline" className="ml-auto text-xs">
-                      {u.role === 'admin' && 'Admin'}
-                      {u.role === 'vice_principal' && 'Hiệu phó'}
-                      {u.role === 'youth_leader' && 'Tổng phụ trách Đội'}
-                      {u.role === 'department_head' && 'Tổ trưởng'}
-                      {u.role === 'deputy_department_head' && 'Tổ phó'}
-                      {u.role === 'teacher' && 'Giáo viên'}
+                      {getRoleLabel(u.role)}
                     </Badge>
                   </label>
                 ))}

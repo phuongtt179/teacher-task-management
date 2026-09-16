@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { notificationService } from '../../services/notificationService';
+import { getRoleLabel } from '../../lib/roleLabels';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -54,20 +55,7 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
     }
   };
 
-  const getRoleName = (role: string) => {
-    const roleMap: Record<string, string> = {
-      admin: 'Quản trị viên',
-      principal: 'Hiệu trưởng',
-      vice_principal: 'Hiệu phó',
-      youth_leader: 'Tổng phụ trách Đội',
-      department_head: 'Tổ trưởng',
-      deputy_department_head: 'Tổ phó',
-      teacher: 'Giáo viên',
-      staff: 'Nhân viên',
-      van_thu: 'Văn thư',
-    };
-    return roleMap[role] || role;
-  };
+  const getRoleName = (role: string) => getRoleLabel(role);
 
   const getInitials = (name: string) => {
     return name

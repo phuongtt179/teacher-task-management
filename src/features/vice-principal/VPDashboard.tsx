@@ -8,6 +8,7 @@ import { UsagePanel } from '../../components/dashboard/UsagePanel';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SemesterFilter, SEMESTER_FILTER_LABELS } from '../../utils/semesterUtils';
 import { SchoolYear } from '../../types';
+import { getRoleLabel } from '../../lib/roleLabels';
 import {
   ClipboardList,
   Users,
@@ -22,11 +23,6 @@ import {
 
 // VPDashboard dùng chung cho 3 vai trò (principal/vice_principal/youth_leader) —
 // tiêu đề phải đổi theo đúng vai trò người đang xem, không gắn cứng "Hiệu trưởng".
-const DASHBOARD_ROLE_LABELS = {
-  principal: 'Hiệu trưởng',
-  vice_principal: 'Hiệu phó',
-  youth_leader: 'Tổng phụ trách Đội',
-};
 
 export const VPDashboard = () => {
   const { user } = useAuth();
@@ -120,7 +116,7 @@ export const VPDashboard = () => {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">
-            Dashboard {DASHBOARD_ROLE_LABELS[user?.role as keyof typeof DASHBOARD_ROLE_LABELS] || ''}
+            Dashboard {getRoleLabel(user?.role)}
           </h2>
           <p className="text-gray-600">
             {user?.role === 'principal' ? 'Tổng quan toàn trường' : 'Quản lý và theo dõi công việc của bạn'}
