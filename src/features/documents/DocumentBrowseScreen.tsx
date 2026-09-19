@@ -9,8 +9,9 @@ import { userService } from '@/services/userService';
 import { departmentService } from '@/services/departmentService';
 import { fileRequestService } from '@/services/fileRequestService';
 import { documentHistoryService } from '@/services/documentHistoryService';
+import { campusService } from '@/services/campusService';
 import { getRoleLabel } from '@/lib/roleLabels';
-import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile, DocumentType, User } from '@/types';
+import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile, DocumentType, User, Campus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +35,31 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { DepartmentDocumentsTreeView } from './DepartmentDocumentsTreeView';
 
+// Chế độ "personal" (viewMode) cho phép cấp trên chọn xem hồ sơ cá nhân của
+// người khác — nhưng chỉ theo chiều QUẢN LÝ (cấp trên xem cấp dưới), không
+// phải giữa các đồng cấp/cấp trên với nhau. Nếu không giới hạn, 1 hiệu phó có
+// thể chọn xem hồ sơ cá nhân của admin/hiệu trưởng/hiệu phó khác — sai vì đây
+// là hồ sơ RIÊNG của từng người, kể cả trong nhóm Ban giám hiệu.
+function getSelectableUsersForPersonalMode(
+  viewerRole: User['role'] | undefined,
+  allUsers: User[],
+  userDepartment: Department | null
+): User[] {
+  if (viewerRole === 'admin') return allUsers;
+  if (viewerRole === 'principal') {
+    return allUsers.filter((u) => u.role !== 'admin' && u.role !== 'super_admin');
+  }
+  if (viewerRole === 'vice_principal' || viewerRole === 'youth_leader') {
+    const peerOrAbove: User['role'][] = ['admin', 'super_admin', 'principal', 'vice_principal', 'youth_leader'];
+    return allUsers.filter((u) => !peerOrAbove.includes(u.role));
+  }
+  if (viewerRole === 'department_head' || viewerRole === 'deputy_department_head') {
+    const deptMemberIds = userDepartment?.memberIds || [];
+    return allUsers.filter((u) => deptMemberIds.includes(u.uid));
+  }
+  return [];
+}
+
 export function DocumentBrowseScreen() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -46,6 +72,7 @@ export function DocumentBrowseScreen() {
   const [currentDocumentType, setCurrentDocumentType] = useState<DocumentType | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>(''); // For personal mode
+  const [campuses, setCampuses] = useState<Campus[]>([]);
 
   const [selectedYearId, setSelectedYearId] = useState<string>('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
@@ -76,6 +103,7 @@ export function DocumentBrowseScreen() {
     loadSchoolYears();
     loadUserDepartment();
     loadAllUsers();
+    campusService.getAllCampuses(schoolId).then(setCampuses).catch((error) => console.error('Error loading campuses:', error));
   }, [user, schoolId]);
 
   useEffect(() => {
@@ -226,31 +254,18 @@ export function DocumentBrowseScreen() {
       const viewMode = currentDocumentType?.viewMode;
 
       if (viewMode === 'personal') {
-        // PERSONAL MODE: Each user sees only specific files
-        if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' || user?.role === 'principal') {
-          // Admin, Vice Principal & Principal can select any user to view
-          if (selectedUserId) {
-            // Show documents from selected user only
-            filteredDocs = allDocs.filter(doc =>
-              doc.uploadedBy === selectedUserId && (doc.status === 'approved' || doc.uploadedBy === user?.uid)
-            );
-          } else {
-            // If no user selected, show own documents only
-            filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
-          }
-        } else if (user?.role === 'department_head' || user?.role === 'deputy_department_head') {
-          // Department Head/Deputy can select users in their department
-          if (selectedUserId) {
-            // Show documents from selected user only
-            filteredDocs = allDocs.filter(doc =>
-              doc.uploadedBy === selectedUserId && (doc.status === 'approved' || doc.uploadedBy === user?.uid)
-            );
-          } else {
-            // If no user selected, show own documents only
-            filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
-          }
+        // PERSONAL MODE: Each user sees only their own files, unless they manage
+        // (not just outrank) the selected user — see getSelectableUsersForPersonalMode.
+        const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment);
+        const canSelectOthers = selectableUsers.length > 0;
+        const selectedUserAllowed = selectedUserId && selectableUsers.some((u) => u.uid === selectedUserId);
+
+        if (canSelectOthers && selectedUserAllowed) {
+          filteredDocs = allDocs.filter(doc =>
+            doc.uploadedBy === selectedUserId && (doc.status === 'approved' || doc.uploadedBy === user?.uid)
+          );
         } else {
-          // Regular teachers/staff: only see own documents
+          // Không chọn ai, hoặc người được chọn không thuộc phạm vi quản lý → chỉ thấy hồ sơ của chính mình
           filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
         }
       } else if (viewMode === 'shared') {
@@ -518,9 +533,12 @@ export function DocumentBrowseScreen() {
       }
 
       // Build document data with multiple files
+      // campusId chỉ là nhãn lọc/thống kê — lấy cơ sở của người tải, hoặc cơ sở
+      // đầu tiên của trường nếu người tải dùng chung toàn trường (admin/hiệu trưởng...).
       const docData: Record<string, any> = {
         schoolYearId: selectedYearId,
         categoryId: selectedCategoryId,
+        campusId: user?.primaryCampusId || campuses[0]?.id || '',
         title: documentTitle.trim(),
 
         // NEW: Array of files
@@ -1318,39 +1336,31 @@ export function DocumentBrowseScreen() {
                 })()}
               </div>
 
-              {/* User Selection (for personal mode with elevated roles) */}
-              {currentDocumentType?.viewMode === 'personal' &&
-               (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' || user?.role === 'department_head' || user?.role === 'deputy_department_head') && (
-                <div className="mb-3">
-                  <label className="block text-sm font-medium mb-1">Xem hồ sơ của:</label>
-                  <select
-                    value={selectedUserId}
-                    onChange={(e) => setSelectedUserId(e.target.value)}
-                    className="w-full border rounded px-3 py-2 text-sm"
-                  >
-                    <option value="">-- Chọn người dùng --</option>
-                    {(() => {
-                      // Filter users based on role
-                      let availableUsers = allUsers;
-                      if (user?.role === 'department_head' || user?.role === 'deputy_department_head') {
-                        // Dept head/deputy can only see users in their department
-                        const deptMemberIds = userDepartment?.memberIds || [];
-                        availableUsers = allUsers.filter(u => deptMemberIds.includes(u.uid));
-                      }
-                      // Admin and VP can see all users
-
-                      return availableUsers.map(u => (
+              {/* User Selection (for personal mode — chỉ hiện nếu có ai đó thuộc phạm vi quản lý để chọn) */}
+              {currentDocumentType?.viewMode === 'personal' && (() => {
+                const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment);
+                if (selectableUsers.length === 0) return null;
+                return (
+                  <div className="mb-3">
+                    <label className="block text-sm font-medium mb-1">Xem hồ sơ của:</label>
+                    <select
+                      value={selectedUserId}
+                      onChange={(e) => setSelectedUserId(e.target.value)}
+                      className="w-full border rounded px-3 py-2 text-sm"
+                    >
+                      <option value="">-- Chọn người dùng --</option>
+                      {selectableUsers.map(u => (
                         <option key={u.uid} value={u.uid}>
                           {u.displayName} ({getRoleLabel(u.role)})
                         </option>
-                      ));
-                    })()}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {currentDocumentType.viewMode === 'personal' && 'Chế độ cá nhân: Mỗi user chỉ thấy file của mình'}
-                  </p>
-                </div>
-              )}
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Chế độ cá nhân: Mỗi người chỉ thấy hồ sơ của mình, trừ khi bạn chọn xem hồ sơ người khác ở đây
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* Search */}
               <div className="relative">
