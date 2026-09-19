@@ -33,33 +33,6 @@ import {
   Filter
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { DepartmentDocumentsTreeView } from './DepartmentDocumentsTreeView';
-
-// Chế độ "personal" (viewMode) cho phép cấp trên chọn xem hồ sơ cá nhân của
-// người khác — nhưng chỉ theo chiều QUẢN LÝ (cấp trên xem cấp dưới), không
-// phải giữa các đồng cấp/cấp trên với nhau. Nếu không giới hạn, 1 hiệu phó có
-// thể chọn xem hồ sơ cá nhân của admin/hiệu trưởng/hiệu phó khác — sai vì đây
-// là hồ sơ RIÊNG của từng người, kể cả trong nhóm Ban giám hiệu.
-function getSelectableUsersForPersonalMode(
-  viewerRole: User['role'] | undefined,
-  allUsers: User[],
-  userDepartment: Department | null
-): User[] {
-  if (viewerRole === 'admin') return allUsers;
-  if (viewerRole === 'principal') {
-    return allUsers.filter((u) => u.role !== 'admin' && u.role !== 'super_admin');
-  }
-  if (viewerRole === 'vice_principal' || viewerRole === 'youth_leader') {
-    const peerOrAbove: User['role'][] = ['admin', 'super_admin', 'principal', 'vice_principal', 'youth_leader'];
-    return allUsers.filter((u) => !peerOrAbove.includes(u.role));
-  }
-  if (viewerRole === 'department_head' || viewerRole === 'deputy_department_head') {
-    const deptMemberIds = userDepartment?.memberIds || [];
-    return allUsers.filter((u) => deptMemberIds.includes(u.uid));
-  }
-  return [];
-}
-
 export function DocumentBrowseScreen() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -254,20 +227,10 @@ export function DocumentBrowseScreen() {
       const viewMode = currentDocumentType?.viewMode;
 
       if (viewMode === 'personal') {
-        // PERSONAL MODE: Each user sees only their own files, unless they manage
-        // (not just outrank) the selected user — see getSelectableUsersForPersonalMode.
-        const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment);
-        const canSelectOthers = selectableUsers.length > 0;
-        const selectedUserAllowed = selectedUserId && selectableUsers.some((u) => u.uid === selectedUserId);
-
-        if (canSelectOthers && selectedUserAllowed) {
-          filteredDocs = allDocs.filter(doc =>
-            doc.uploadedBy === selectedUserId && (doc.status === 'approved' || doc.uploadedBy === user?.uid)
-          );
-        } else {
-          // Không chọn ai, hoặc người được chọn không thuộc phạm vi quản lý → chỉ thấy hồ sơ của chính mình
-          filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
-        }
+        // PERSONAL MODE: hồ sơ RIÊNG TƯ tuyệt đối — như nhật ký cá nhân, chỉ chính
+        // chủ mới đọc được, kể cả admin/hiệu trưởng/tổ trưởng cũng KHÔNG được xem
+        // của người khác. Không có ngoại lệ theo vai trò.
+        filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
       } else if (viewMode === 'shared') {
         // SHARED MODE: All viewers see all files from all uploaders (flat list)
         // Show all approved documents + own pending documents
@@ -280,19 +243,8 @@ export function DocumentBrowseScreen() {
         const isPersonalCategory = selectedCategory?.categoryType === 'personal';
 
         if (isPersonalCategory) {
-          if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' || user?.role === 'principal') {
-            filteredDocs = allDocs.filter(doc =>
-              doc.status === 'approved' || doc.uploadedBy === user?.uid
-            );
-          } else if (user?.role === 'department_head' || user?.role === 'deputy_department_head') {
-            const deptMemberIds = userDepartment?.memberIds || [];
-            filteredDocs = allDocs.filter(doc =>
-              (doc.status === 'approved' && deptMemberIds.includes(doc.uploadedBy)) ||
-              doc.uploadedBy === user?.uid
-            );
-          } else {
-            filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
-          }
+          // Riêng tư tuyệt đối — giống hệt quy tắc ở nhánh viewMode === 'personal' phía trên.
+          filteredDocs = allDocs.filter(doc => doc.uploadedBy === user?.uid);
         } else {
           filteredDocs = allDocs.filter(doc =>
             doc.status === 'approved' || doc.uploadedBy === user?.uid
@@ -1336,31 +1288,12 @@ export function DocumentBrowseScreen() {
                 })()}
               </div>
 
-              {/* User Selection (for personal mode — chỉ hiện nếu có ai đó thuộc phạm vi quản lý để chọn) */}
-              {currentDocumentType?.viewMode === 'personal' && (() => {
-                const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment);
-                if (selectableUsers.length === 0) return null;
-                return (
-                  <div className="mb-3">
-                    <label className="block text-sm font-medium mb-1">Xem hồ sơ của:</label>
-                    <select
-                      value={selectedUserId}
-                      onChange={(e) => setSelectedUserId(e.target.value)}
-                      className="w-full border rounded px-3 py-2 text-sm"
-                    >
-                      <option value="">-- Chọn người dùng --</option>
-                      {selectableUsers.map(u => (
-                        <option key={u.uid} value={u.uid}>
-                          {u.displayName} ({getRoleLabel(u.role)})
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Chế độ cá nhân: Mỗi người chỉ thấy hồ sơ của mình, trừ khi bạn chọn xem hồ sơ người khác ở đây
-                    </p>
-                  </div>
-                );
-              })()}
+              {/* Personal mode: riêng tư tuyệt đối — không có ô chọn xem hồ sơ người khác nữa */}
+              {currentDocumentType?.viewMode === 'personal' && (
+                <p className="text-xs text-gray-500 mb-3">
+                  Hồ sơ riêng tư: chỉ mình bạn xem được, không ai khác (kể cả quản lý) xem được hồ sơ này.
+                </p>
+              )}
 
               {/* Search */}
               <div className="relative">
@@ -1378,38 +1311,9 @@ export function DocumentBrowseScreen() {
             {/* Documents List */}
             <div className="flex-1 overflow-y-auto p-4">
               {(() => {
-                // NEW: Disable tree view when using DocumentType viewMode
-                // Tree view is only for legacy categories without DocumentType
-                const selectedCategory = categories.find(c => c.id === selectedCategoryId);
-                const isPersonalCategory = selectedCategory?.categoryType === 'personal';
-                const hasDocumentType = !!currentDocumentType;
-
-                // Only show tree view for legacy personal categories (no DocumentType)
-                const showTreeView =
-                  !hasDocumentType && // Don't show tree view if using new DocumentType system
-                  isPersonalCategory &&
-                  selectedSubCategoryId &&
-                  (user?.role === 'admin' ||
-                   user?.role === 'vice_principal' ||
-                   user?.role === 'youth_leader' ||
-                   user?.role === 'department_head' ||
-                   user?.role === 'deputy_department_head');
-
-                if (showTreeView) {
-                  // Show Department → Teacher → Documents tree view (legacy)
-                  return (
-                    <DepartmentDocumentsTreeView
-                      key={selectedSubCategoryId}
-                      subCategoryId={selectedSubCategoryId}
-                      categoryId={selectedCategoryId}
-                      schoolYearId={selectedYearId}
-                      onUploadClick={() => setShowUploadDialog(true)}
-                      refreshTrigger={treeViewRefreshTrigger}
-                    />
-                  );
-                }
-
-                // Show regular list view for other cases
+                // Cây Department → Teacher → Documents (legacy) cho phép duyệt hồ sơ CỦA
+                // NGƯỜI KHÁC theo tổ — trái với quy tắc "cá nhân = riêng tư tuyệt đối" nên
+                // đã bỏ hẳn, luôn dùng danh sách thường (chỉ hiện hồ sơ của chính mình).
                 if (loading) {
                   return (
                     <div className="text-center py-12">
