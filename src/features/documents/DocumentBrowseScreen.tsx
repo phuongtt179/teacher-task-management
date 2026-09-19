@@ -40,22 +40,35 @@ import { DepartmentDocumentsTreeView } from './DepartmentDocumentsTreeView';
 // phải giữa các đồng cấp/cấp trên với nhau. Nếu không giới hạn, 1 hiệu phó có
 // thể chọn xem hồ sơ cá nhân của admin/hiệu trưởng/hiệu phó khác — sai vì đây
 // là hồ sơ RIÊNG của từng người, kể cả trong nhóm Ban giám hiệu.
+//
+// QUAN TRỌNG: danh sách này còn phải giới hạn trong đúng những người ĐƯỢC PHÉP
+// XEM loại hồ sơ này (documentType.allowedViewerUserIds, cấu hình ở "Cấu hình
+// hồ sơ") — nếu không, "Hồ sơ Ban giám hiệu" dù chỉ cấu hình cho 1-2 người xem
+// vẫn hiện ra cả trường vì hàm này trước đó chỉ lọc theo VAI TRÒ trên allUsers
+// (toàn trường), không biết gì về danh sách người xem đã cấu hình riêng cho
+// loại hồ sơ đang mở.
 function getSelectableUsersForPersonalMode(
   viewerRole: User['role'] | undefined,
   allUsers: User[],
-  userDepartment: Department | null
+  userDepartment: Department | null,
+  documentType: DocumentType | null
 ): User[] {
-  if (viewerRole === 'admin') return allUsers;
+  const scopedUsers =
+    documentType?.viewPermissionType === 'specific_users'
+      ? allUsers.filter((u) => documentType.allowedViewerUserIds?.includes(u.uid))
+      : allUsers;
+
+  if (viewerRole === 'admin') return scopedUsers;
   if (viewerRole === 'principal') {
-    return allUsers.filter((u) => u.role !== 'admin' && u.role !== 'super_admin');
+    return scopedUsers.filter((u) => u.role !== 'admin' && u.role !== 'super_admin');
   }
   if (viewerRole === 'vice_principal' || viewerRole === 'youth_leader') {
     const peerOrAbove: User['role'][] = ['admin', 'super_admin', 'principal', 'vice_principal', 'youth_leader'];
-    return allUsers.filter((u) => !peerOrAbove.includes(u.role));
+    return scopedUsers.filter((u) => !peerOrAbove.includes(u.role));
   }
   if (viewerRole === 'department_head' || viewerRole === 'deputy_department_head') {
     const deptMemberIds = userDepartment?.memberIds || [];
-    return allUsers.filter((u) => deptMemberIds.includes(u.uid));
+    return scopedUsers.filter((u) => deptMemberIds.includes(u.uid));
   }
   return [];
 }
@@ -163,8 +176,9 @@ export function DocumentBrowseScreen() {
 
       // Filter categories based on view permissions
       const filteredCats = allCats.filter(cat => {
-        // Admin and VP can see all categories
-        if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader') {
+        // Admin luôn thấy mọi danh mục (quản trị hệ thống). Không bypass cho VP/tổng
+        // phụ trách nữa — cùng lý do như canUserViewDocumentType ở trên.
+        if (user?.role === 'admin') {
           return true;
         }
 
@@ -256,7 +270,7 @@ export function DocumentBrowseScreen() {
       if (viewMode === 'personal') {
         // PERSONAL MODE: Each user sees only their own files, unless they manage
         // (not just outrank) the selected user — see getSelectableUsersForPersonalMode.
-        const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment);
+        const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment, currentDocumentType);
         const canSelectOthers = selectableUsers.length > 0;
         const selectedUserAllowed = selectedUserId && selectableUsers.some((u) => u.uid === selectedUserId);
 
@@ -962,8 +976,14 @@ export function DocumentBrowseScreen() {
   const canUserViewDocumentType = (docType: DocumentType) => {
     if (!user) return false;
 
-    // Admin, VP, and Principal can view all DocumentTypes
-    if (user.role === 'admin' || user.role === 'vice_principal' || user.role === 'youth_leader' || user.role === 'principal') {
+    // Admin là quản trị hệ thống, luôn thấy mọi loại hồ sơ để phục vụ quản lý/hỗ trợ.
+    // KHÔNG bypass cho vice_principal/youth_leader/principal nữa — trước đây họ luôn
+    // thấy được MỌI loại hồ sơ bất kể cấu hình "chỉ chọn từng người cụ thể" ở "Cấu
+    // hình hồ sơ", khiến 1 loại hồ sơ dù chỉ cho phép 1 người xem vẫn lộ cho tất cả
+    // hiệu phó/tổng phụ trách. Giờ quyền xem hoàn toàn theo đúng viewPermissionType/
+    // allowedViewerUserIds đã cấu hình — muốn 1 hiệu phó xem được thì phải thêm họ
+    // vào danh sách "Người được xem" của loại hồ sơ đó.
+    if (user.role === 'admin') {
       return true;
     }
 
@@ -1303,8 +1323,11 @@ export function DocumentBrowseScreen() {
                   // Check if user has permission to upload to this category
                   let hasUploadPermission = false;
 
-                  // Admin, VP, and Principal always have upload permission
-                  if (user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader' || user?.role === 'principal') {
+                  // Admin (quản trị hệ thống) luôn được tải lên. KHÔNG bypass cho VP/tổng
+                  // phụ trách/hiệu trưởng nữa — như canUserViewDocumentType phía trên, việc
+                  // này từng khiến "chỉ 1 người được upload" bị vô hiệu vì mọi hiệu phó đều
+                  // tải lên được bất kể danh sách allowedUploaderUserIds đã cấu hình.
+                  if (user?.role === 'admin') {
                     hasUploadPermission = true;
                   } else if (currentDocumentType?.viewMode === 'personal') {
                     // Personal viewMode: mọi user đều tự upload hồ sơ của mình
@@ -1338,7 +1361,7 @@ export function DocumentBrowseScreen() {
 
               {/* User Selection (for personal mode — chỉ hiện nếu có ai đó thuộc phạm vi quản lý để chọn) */}
               {currentDocumentType?.viewMode === 'personal' && (() => {
-                const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment);
+                const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment, currentDocumentType);
                 if (selectableUsers.length === 0) return null;
                 return (
                   <div className="mb-3">
