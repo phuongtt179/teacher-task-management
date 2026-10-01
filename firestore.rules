@@ -356,8 +356,14 @@ service cloud.firestore {
 
     // Monthly AI usage counters — written only by the server (Admin SDK bypasses
     // rules), read-only here for the school's own dashboard + super-admin.
+    //
+    // resource == null ĐỨNG TRƯỚC sameSchool(resource.data) (short-circuit): tháng
+    // chưa phát sinh usage nào thì doc chưa tồn tại, và get() trên doc chưa tồn tại
+    // rồi truy cập .data sẽ lỗi (cùng lỗi đã gặp ở users/{userId}) → UsagePanel báo
+    // "Missing or insufficient permissions" dù đáng ra chỉ cần trả về "chưa có dữ
+    // liệu". Đọc 1 doc không tồn tại không lộ gì nên cho qua thẳng.
     match /usageStats/{statId} {
-      allow read: if isSuperAdmin() || sameSchool(resource.data);
+      allow read: if isSuperAdmin() || resource == null || sameSchool(resource.data);
     }
   }
 }

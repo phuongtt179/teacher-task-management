@@ -80,6 +80,10 @@ async function verifyAuth(req, res, next) {
 
     next();
   } catch (error) {
+    // Lỗi thật trước đây bị nuốt mất — không cách nào biết token bị từ chối vì
+    // sao (hết hạn, sai project, FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY trên
+    // Render bị thiếu/sai...). Log ra để xem được trong Render > Logs.
+    console.error('verifyAuth failed:', error?.message || error);
     return res.status(401).json({ error: 'invalid_token' });
   }
 }
