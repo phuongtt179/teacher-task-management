@@ -248,10 +248,26 @@ service cloud.firestore {
 
     // Departments (tổ chuyên môn — dùng chung toàn trường, KHÔNG theo cơ sở)
     match /departments/{departmentId} {
+      // GV tự đổi Tổ ở "Hồ sơ cá nhân" (TeacherProfileScreen) chỉ được tự thêm/bớt
+      // CHÍNH UID của mình khỏi memberIds — không được đổi field nào khác (name,
+      // headTeacherId...) và không được thêm/bớt người khác. BGH/admin vẫn update
+      // tự do qua nhánh role-based bên dưới.
+      function isSelfMembershipToggle() {
+        let oldIds = resource.data.memberIds;
+        let newIds = request.resource.data.memberIds;
+        let added = newIds.removeAll(oldIds);
+        let removed = oldIds.removeAll(newIds);
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'updatedAt']) &&
+          ((added.size() == 1 && added.hasOnly([request.auth.uid]) && removed.size() == 0) ||
+           (removed.size() == 1 && removed.hasOnly([request.auth.uid]) && added.size() == 0));
+      }
+
       allow read: if sameSchool(resource.data);
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
                     request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
-      allow update, delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
+      allow update: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data) ||
+                    (isSignedIn() && sameSchool(resource.data) && isSelfMembershipToggle());
+      allow delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }
 
     // Documents (file metadata)
