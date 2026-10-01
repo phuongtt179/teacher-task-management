@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { notificationService } from '../services/notificationService';
 import { useAuth } from './useAuth';
 import { useToast } from '@/components/ui/use-toast';
@@ -6,9 +6,18 @@ import { useToast } from '@/components/ui/use-toast';
 export const useFCM = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  // user (object) và toast (hàm mới mỗi lần useToast() render) không ổn định về
+  // reference, nên effect bên dưới từng chạy lại mỗi khi App.tsx re-render dù
+  // vẫn cùng 1 người đăng nhập — tự ghi FCM token lặp lại nhiều lần/trang
+  // (thấy rõ trong log: "saving to user document" lặp 5 lần cho 1 người),
+  // tốn ghi Firestore vô ích và góp phần làm hết quota khi nhiều GV cùng dùng.
+  // Dùng ref để chỉ chạy đúng 1 lần cho mỗi lượt đăng nhập (theo uid).
+  const initializedForUid = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
+    if (initializedForUid.current === user.uid) return;
+    initializedForUid.current = user.uid;
 
     const setupFCM = async () => {
       try {
