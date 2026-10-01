@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { documentTypeService } from '@/services/documentTypeService';
 import { userService } from '@/services/userService';
-import { DocumentType, User } from '@/types';
+import { departmentService } from '@/services/departmentService';
+import { DocumentType, User, Department } from '@/types';
 import { getRoleLabel } from '@/lib/roleLabels';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,11 +20,18 @@ export const DocumentTypesScreen = () => {
   const schoolId = user?.schoolId;
   const [types, setTypes] = useState<DocumentType[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<DocumentType | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
+
+  // Chọn nhanh theo tổ + tìm theo tên, để không phải dò từng người trong danh sách dài
+  const [viewerDeptPick, setViewerDeptPick] = useState('');
+  const [viewerSearch, setViewerSearch] = useState('');
+  const [uploaderDeptPick, setUploaderDeptPick] = useState('');
+  const [uploaderSearch, setUploaderSearch] = useState('');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -47,12 +55,14 @@ export const DocumentTypesScreen = () => {
     if (!schoolId) return;
     try {
       setLoading(true);
-      const [typesData, usersData] = await Promise.all([
+      const [typesData, usersData, departmentsData] = await Promise.all([
         documentTypeService.getAllDocumentTypes(schoolId),
         userService.getAllUsers(schoolId),
+        departmentService.getAllDepartments(schoolId),
       ]);
       setTypes(typesData);
       setAllUsers(usersData);
+      setDepartments(departmentsData);
     } catch (error) {
       console.error('Error loading data:', error);
       toast({
@@ -100,6 +110,10 @@ export const DocumentTypesScreen = () => {
       order: types.length + 1,
       isActive: true,
     });
+    setViewerDeptPick('');
+    setViewerSearch('');
+    setUploaderDeptPick('');
+    setUploaderSearch('');
   };
 
   const handleCreate = () => {
@@ -109,6 +123,10 @@ export const DocumentTypesScreen = () => {
 
   const handleEdit = (type: DocumentType) => {
     setSelectedType(type);
+    setViewerDeptPick('');
+    setViewerSearch('');
+    setUploaderDeptPick('');
+    setUploaderSearch('');
     setFormData({
       name: type.name,
       description: type.description || '',
@@ -283,6 +301,38 @@ export const DocumentTypesScreen = () => {
     }
   };
 
+  // Thêm cả 1 tổ vào danh sách "được xem" chỉ bằng 1 lần bấm, thay vì dò từng
+  // người trong danh sách dài (toàn trường có thể vài chục giáo viên).
+  const addDepartmentToViewers = (departmentId: string) => {
+    const dept = departments.find(d => d.id === departmentId);
+    if (!dept) return;
+    setFormData(prev => {
+      const merged = new Set(prev.allowedViewerUserIds);
+      dept.memberIds.forEach(uid => merged.add(uid));
+      return { ...prev, allowedViewerUserIds: Array.from(merged) };
+    });
+  };
+
+  // Thêm cả 1 tổ vào danh sách "được upload" — tự động thêm luôn vào "được xem"
+  // nếu đang ở chế độ chọn từng người (uploader bắt buộc phải là viewer).
+  const addDepartmentToUploaders = (departmentId: string) => {
+    const dept = departments.find(d => d.id === departmentId);
+    if (!dept) return;
+    setFormData(prev => {
+      const viewers = new Set(prev.allowedViewerUserIds);
+      if (prev.viewPermissionType === 'specific_users') {
+        dept.memberIds.forEach(uid => viewers.add(uid));
+      }
+      const uploaders = new Set(prev.allowedUploaderUserIds);
+      dept.memberIds.forEach(uid => uploaders.add(uid));
+      return {
+        ...prev,
+        allowedViewerUserIds: Array.from(viewers),
+        allowedUploaderUserIds: Array.from(uploaders),
+      };
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -422,20 +472,52 @@ export const DocumentTypesScreen = () => {
             {formData.viewPermissionType === 'specific_users' && (
               <div className="space-y-2">
                 <Label>Người được xem * ({formData.allowedViewerUserIds.length} người)</Label>
+
+                {/* Chọn nhanh cả 1 tổ + tìm theo tên — đỡ phải dò từng người trong danh sách dài */}
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    value={viewerDeptPick}
+                    onChange={(e) => setViewerDeptPick(e.target.value)}
+                    className="border rounded-md px-2 py-1.5 text-sm flex-1 min-w-[160px]"
+                  >
+                    <option value="">-- Chọn tổ để thêm nhanh --</option>
+                    {departments.map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.memberIds.length} người)</option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!viewerDeptPick}
+                    onClick={() => addDepartmentToViewers(viewerDeptPick)}
+                  >
+                    Thêm cả tổ
+                  </Button>
+                  <Input
+                    placeholder="Tìm theo tên..."
+                    value={viewerSearch}
+                    onChange={(e) => setViewerSearch(e.target.value)}
+                    className="flex-1 min-w-[160px]"
+                  />
+                </div>
+
                 <div className="border rounded-lg p-4 max-h-60 overflow-y-auto space-y-2">
-                  {allUsers.map(u => (
-                    <label key={u.uid} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.allowedViewerUserIds.includes(u.uid)}
-                        onChange={() => toggleViewerUser(u.uid)}
-                      />
-                      <span>{u.displayName}</span>
-                      <Badge variant="outline" className="ml-auto text-xs">
-                        {getRoleLabel(u.role)}
-                      </Badge>
-                    </label>
-                  ))}
+                  {allUsers
+                    .filter(u => u.displayName.toLowerCase().includes(viewerSearch.trim().toLowerCase()))
+                    .map(u => (
+                      <label key={u.uid} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.allowedViewerUserIds.includes(u.uid)}
+                          onChange={() => toggleViewerUser(u.uid)}
+                        />
+                        <span>{u.displayName}</span>
+                        <Badge variant="outline" className="ml-auto text-xs">
+                          {getRoleLabel(u.role)}
+                        </Badge>
+                      </label>
+                    ))}
                 </div>
               </div>
             )}
@@ -448,20 +530,52 @@ export const DocumentTypesScreen = () => {
                   ? 'Chọn những người được phép upload file'
                   : 'Chỉ người được xem mới có thể được chọn làm uploader'}
               </p>
+
+              {/* Chọn nhanh cả 1 tổ + tìm theo tên */}
+              <div className="flex flex-wrap gap-2">
+                <select
+                  value={uploaderDeptPick}
+                  onChange={(e) => setUploaderDeptPick(e.target.value)}
+                  className="border rounded-md px-2 py-1.5 text-sm flex-1 min-w-[160px]"
+                >
+                  <option value="">-- Chọn tổ để thêm nhanh --</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id}>{d.name} ({d.memberIds.length} người)</option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!uploaderDeptPick}
+                  onClick={() => addDepartmentToUploaders(uploaderDeptPick)}
+                >
+                  Thêm cả tổ
+                </Button>
+                <Input
+                  placeholder="Tìm theo tên..."
+                  value={uploaderSearch}
+                  onChange={(e) => setUploaderSearch(e.target.value)}
+                  className="flex-1 min-w-[160px]"
+                />
+              </div>
+
               <div className="border rounded-lg p-4 max-h-60 overflow-y-auto space-y-2">
-                {getAvailableUploaders().map(u => (
-                  <label key={u.uid} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.allowedUploaderUserIds.includes(u.uid)}
-                      onChange={() => toggleUploaderUser(u.uid)}
-                    />
-                    <span>{u.displayName}</span>
-                    <Badge variant="outline" className="ml-auto text-xs">
-                      {getRoleLabel(u.role)}
-                    </Badge>
-                  </label>
-                ))}
+                {getAvailableUploaders()
+                  .filter(u => u.displayName.toLowerCase().includes(uploaderSearch.trim().toLowerCase()))
+                  .map(u => (
+                    <label key={u.uid} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.allowedUploaderUserIds.includes(u.uid)}
+                        onChange={() => toggleUploaderUser(u.uid)}
+                      />
+                      <span>{u.displayName}</span>
+                      <Badge variant="outline" className="ml-auto text-xs">
+                        {getRoleLabel(u.role)}
+                      </Badge>
+                    </label>
+                  ))}
               </div>
             </div>
 
