@@ -9,6 +9,7 @@ import { dirname } from 'path';
 import dotenv from 'dotenv';
 import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials, getValidOAuth2Client } from './oauth-config.js';
 import { sendNewTaskNotification, sendTaskScoredNotification } from './notificationService.js';
+import { checkDeadlinesAndNotify } from './deadlineChecker.js';
 import admin, { db as adminDb } from './firebase-config.js';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from './_gemini.js';
 
@@ -2974,4 +2975,10 @@ app.listen(PORT, () => {
     console.log(`👉 Visit: http://localhost:${PORT}/api/auth/google to authorize`);
   }
   console.log('\n');
+
+  // Kiểm tra deadline tập trung ở server — 1 lần duy nhất mỗi 30 phút bất kể có
+  // bao nhiêu người đang mở app (trước đây chạy ở client, N tab mở = N lần đọc
+  // Firestore trùng nhau + gửi trùng lặp thông báo cho cùng 1 người).
+  checkDeadlinesAndNotify();
+  setInterval(checkDeadlinesAndNotify, 30 * 60 * 1000);
 });

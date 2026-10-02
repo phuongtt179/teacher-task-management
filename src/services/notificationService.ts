@@ -5,6 +5,7 @@ import {
   where,
   orderBy,
   getDocs,
+  getCountFromServer,
   updateDoc,
   doc,
   Timestamp,
@@ -154,6 +155,12 @@ export const notificationService = {
   },
 
   // Get unread count
+  // Dùng getCountFromServer (đếm phía server) thay vì getDocs() — trước đây mỗi
+  // lần gọi là TẢI VỀ TOÀN BỘ document thông báo chưa đọc để lấy .size, trong khi
+  // chỗ gọi hàm này (Header.tsx) lại polling mỗi 30 GIÂY cho MỌI tab đang mở —
+  // ai càng nhiều thông báo tồn đọng, càng tốn đọc Firestore nhiều mỗi lần poll.
+  // getCountFromServer tính phí đúng 1 lượt đọc duy nhất bất kể có bao nhiêu
+  // thông báo khớp điều kiện.
   async getUnreadCount(userId: string): Promise<number> {
     try {
       const q = query(
@@ -161,8 +168,8 @@ export const notificationService = {
         where('userId', '==', userId),
         where('read', '==', false)
       );
-      const snapshot = await getDocs(q);
-      return snapshot.size;
+      const snapshot = await getCountFromServer(q);
+      return snapshot.data().count;
     } catch (error) {
       console.error('Error getting unread count:', error);
       return 0;

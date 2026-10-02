@@ -28,15 +28,19 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Phụ thuộc user.uid (chuỗi) thay vì cả object user — object không ổn định
+  // reference giữa các lần render, từng khiến effect này tự chạy lại (và gọi
+  // loadUnreadCount thừa 1 lần) mỗi khi App re-render dù vẫn cùng 1 người.
   useEffect(() => {
-    if (user) {
-      loadUnreadCount();
-      
-      // Poll for new notifications every 30 seconds
-      const interval = setInterval(loadUnreadCount, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [user]);
+    if (!user) return;
+    loadUnreadCount();
+
+    // Poll mỗi 60 giây — đã đổi getUnreadCount sang đếm phía server (không tải
+    // về toàn bộ document nữa) nên chi phí mỗi lần poll giờ rất nhỏ, nhưng vẫn
+    // dãn chu kỳ ra (trước là 30s) để giảm thêm số lượt gọi khi nhiều tab mở cùng lúc.
+    const interval = setInterval(loadUnreadCount, 60000);
+    return () => clearInterval(interval);
+  }, [user?.uid]);
 
   const loadUnreadCount = async () => {
     if (!user) return;

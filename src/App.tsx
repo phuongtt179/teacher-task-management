@@ -39,7 +39,6 @@ import { DocumentUploadScreen } from './features/documents/DocumentUploadScreen'
 import { DocumentApprovalsScreen } from './features/documents/DocumentApprovalsScreen';
 import { MyRequestsScreen } from './features/documents/MyRequestsScreen';
 import { TeacherProfileScreen } from './features/teacher/TeacherProfileScreen';
-import { deadlineCheckerService } from './services/deadlineCheckerService';
 import { roleLabelService } from './services/roleLabelService';
 import { setCustomRoleLabels } from './lib/roleLabels';
 import { RoleManagementScreen } from './features/admin/RoleManagementScreen';
@@ -104,18 +103,8 @@ function App() {
   // Initialize Service Worker auto-update
   useServiceWorker();
 
-  // Start/stop deadline checker based on authentication
-  useEffect(() => {
-    if (firebaseUser && isWhitelisted && user?.schoolId) {
-      deadlineCheckerService.startChecking(user.schoolId);
-    } else {
-      deadlineCheckerService.stopChecking();
-    }
-
-    return () => {
-      deadlineCheckerService.stopChecking();
-    };
-  }, [firebaseUser, isWhitelisted, user?.schoolId]);
+  // Kiểm tra deadline giờ chạy tập trung ở server (xem server/deadlineChecker.js)
+  // — không còn polling riêng trên từng tab trình duyệt nữa.
 
   // Nạp tên vai trò tùy chỉnh (nếu admin đã đổi) 1 lần lúc đăng nhập — dùng
   // chung cho mọi màn hình qua getRoleLabel(), xem src/lib/roleLabels.ts.
