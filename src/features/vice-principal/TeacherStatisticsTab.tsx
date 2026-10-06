@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { User } from '../../types';
 import { userService } from '../../services/userService';
-import { analyticsService, TeacherStats } from '../../services/analyticsService';
+import type { TeacherStats } from '../../services/analyticsService';
+import { statisticsService, toStatSemester } from '../../services/statisticsService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronRight, User as UserIcon } from 'lucide-react';
 
@@ -21,7 +22,8 @@ export const TeacherStatisticsTab = ({ schoolYearId, semesterFilter }: TeacherSt
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!schoolId) return;
+    // schoolYearId rỗng = màn cha chưa nạp xong năm học → chờ, tránh tải nhầm "tất cả năm".
+    if (!schoolId || !schoolYearId) return;
     loadTeachersStats();
   }, [schoolId, schoolYearId, semesterFilter]);
 
@@ -29,7 +31,11 @@ export const TeacherStatisticsTab = ({ schoolYearId, semesterFilter }: TeacherSt
     if (!schoolId) return;
     try {
       setIsLoading(true);
-      const stats = await analyticsService.getAllTeachersStats(schoolId, semesterFilter, schoolYearId === 'all' ? undefined : schoolYearId);
+      // Dùng chung bản thống kê server tính sẵn với màn "Thống kê" (đã nhớ sẵn trong
+      // trình duyệt) — trước đây tab này tự đọc lại toàn bộ dữ liệu năm học mỗi lần mở
+      // và mỗi lần đổi học kỳ.
+      const statistics = await statisticsService.getStatistics(schoolYearId);
+      const stats = [...statistics.bySemester[toStatSemester(semesterFilter)].teachersStats];
       // Sort by display name
       stats.sort((a, b) => a.displayName.localeCompare(b.displayName));
       setTeachersStats(stats);

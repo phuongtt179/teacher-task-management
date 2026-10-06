@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { analyticsService, TeacherStats, SchoolStats } from '../../services/analyticsService';
+import type { TeacherStats, SchoolStats } from '../../services/analyticsService';
+import { statisticsService, type SchoolStatistics } from '../../services/statisticsService';
 import { useAuth } from '../../hooks/useAuth';
 import { schoolYearService } from '../../services/schoolYearService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StatsCard } from '../../components/dashboard/StatsCard';
-import { Users, Award, TrendingUp, CheckCircle, Target, BarChart3, Calendar } from 'lucide-react';
+import { Users, Award, TrendingUp, CheckCircle, Target, BarChart3, Calendar, RefreshCw } from 'lucide-react';
 import { TaskStatisticsTab } from './TaskStatisticsTab';
 import { TeacherStatisticsTab } from './TeacherStatisticsTab';
 import { SchoolYear } from '../../types';
@@ -15,17 +16,24 @@ import { SchoolYear } from '../../types';
 export const StatisticsScreen = () => {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [schoolStats, setSchoolStats] = useState<SchoolStats | null>(null);
-  const [teachersStats, setTeachersStats] = useState<TeacherStats[]>([]);
-  const [vpStats, setVpStats] = useState<any>(null);
+  const [statistics, setStatistics] = useState<SchoolStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<'all' | 'HK1' | 'HK2'>('all');
 
   const activeTab = searchParams.get('tab') || 'overview';
   const schoolId = user?.schoolId;
-  const uid = user?.uid;
+
+  // Dữ liệu đã có sẵn cho cả 3 học kỳ → đổi học kỳ chỉ chọn lại, không tải lại.
+  const semesterData = statistics?.bySemester[selectedSemester];
+  const schoolStats: SchoolStats | null = semesterData?.schoolStats ?? null;
+  const teachersStats: TeacherStats[] = useMemo(
+    () => [...(semesterData?.teachersStats ?? [])].sort((a, b) => b.averageScore - a.averageScore),
+    [semesterData]
+  );
+  const vpStats = statistics?.myVpStats[selectedSemester] ?? null;
 
   // Load school years once on mount
   useEffect(() => {
@@ -44,36 +52,38 @@ export const StatisticsScreen = () => {
     initFilters();
   }, [schoolId]);
 
-  // Reload stats whenever filters change (skip until filters are initialized)
+  // Chỉ tải khi đổi NĂM HỌC (server tính sẵn, dùng lại 1 giờ; trình duyệt nhớ 15 phút).
   useEffect(() => {
-    if (!schoolId || !uid || selectedSchoolYearId === '') return;
+    if (!schoolId || selectedSchoolYearId === '') return;
+    let cancelled = false;
 
     const loadStats = async () => {
       try {
         setIsLoading(true);
-        const semParam = selectedSemester === 'all' ? undefined : selectedSemester;
-        const yearParam = selectedSchoolYearId === 'all' ? undefined : selectedSchoolYearId;
-
-        const [overview, vp] = await Promise.all([
-          // Tab "Tổng quan" + "Giáo viên" — toàn trường, tải chung 1 lần (trước đây
-          // getSchoolStats và getAllTeachersStats mỗi hàm tự tải toàn bộ trường 1 lần).
-          analyticsService.getSchoolOverview(schoolId, semParam, yearParam),
-          // Tab "Công việc của tôi" — đúng nghĩa việc do chính người xem tạo.
-          analyticsService.getVPStats(schoolId, uid, semParam, yearParam),
-        ]);
-
-        setSchoolStats(overview.schoolStats);
-        setTeachersStats([...overview.teachersStats].sort((a, b) => b.averageScore - a.averageScore));
-        setVpStats(vp);
+        const data = await statisticsService.getStatistics(selectedSchoolYearId);
+        if (!cancelled) setStatistics(data);
       } catch (error) {
         console.error('Error loading statistics:', error);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     loadStats();
-  }, [schoolId, uid, selectedSchoolYearId, selectedSemester]);
+    return () => { cancelled = true; };
+  }, [schoolId, selectedSchoolYearId]);
+
+  const handleRefresh = async () => {
+    if (!selectedSchoolYearId) return;
+    try {
+      setIsRefreshing(true);
+      setStatistics(await statisticsService.getStatistics(selectedSchoolYearId, true));
+    } catch (error) {
+      console.error('Error refreshing statistics:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -81,6 +91,20 @@ export const StatisticsScreen = () => {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Thống kê & Phân tích</h2>
           <p className="text-gray-600">Tổng quan hiệu suất và kết quả công việc</p>
+          {statistics && (
+            <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
+              Số liệu cập nhật lúc {new Date(statistics.computedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="inline-flex items-center gap-1 text-indigo-600 hover:underline disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                Làm mới
+              </button>
+            </p>
+          )}
         </div>
 
         {/* Year and Semester Filters */}

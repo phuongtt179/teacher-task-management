@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { analyticsService } from '../../services/analyticsService';
+import { statisticsService, toStatSemester, type SchoolStatistics } from '../../services/statisticsService';
 import { schoolYearService } from '../../services/schoolYearService';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { QuickAction } from '../../components/dashboard/QuickAction';
@@ -18,6 +18,7 @@ import {
   BarChart3,
   Award,
   Calendar,
+  RefreshCw,
   FileText
 } from 'lucide-react';
 
@@ -26,8 +27,9 @@ import {
 
 export const VPDashboard = () => {
   const { user } = useAuth();
-  const [stats, setStats] = useState<any>(null);
+  const [statistics, setStatistics] = useState<SchoolStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
@@ -57,28 +59,46 @@ export const VPDashboard = () => {
     init();
   }, [schoolId]);
 
-  // Bước 2: tải thống kê theo bộ lọc.
+  // Bước 2: lấy thống kê server tính sẵn của năm học (dùng chung với màn "Thống kê",
+  // nhớ 15 phút). Đã có sẵn số liệu cả 3 học kỳ → đổi học kỳ không tải lại.
   useEffect(() => {
     if (!schoolId || !uid || selectedSchoolYearId === '') return;
+    let cancelled = false;
 
     const loadStats = async () => {
       try {
         setIsLoading(true);
-        const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
-        // Hiệu trưởng: xem toàn trường (mọi việc, không chỉ việc tự mình tạo).
-        // Hiệu phó/Tổng phụ trách Đội: vẫn xem việc do chính mình tạo/quản lý.
-        const scopeUid = role === 'principal' ? undefined : uid;
-        const data = await analyticsService.getVPStats(schoolId, scopeUid, semesterParam, selectedSchoolYearId);
-        setStats(data);
+        const data = await statisticsService.getStatistics(selectedSchoolYearId);
+        if (!cancelled) setStatistics(data);
       } catch (error) {
         console.error('Error loading stats:', error);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     loadStats();
-  }, [schoolId, uid, role, selectedSemester, selectedSchoolYearId]);
+    return () => { cancelled = true; };
+  }, [schoolId, uid, selectedSchoolYearId]);
+
+  const handleRefresh = async () => {
+    if (!selectedSchoolYearId) return;
+    try {
+      setIsRefreshing(true);
+      setStatistics(await statisticsService.getStatistics(selectedSchoolYearId, true));
+    } catch (error) {
+      console.error('Error refreshing stats:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Hiệu trưởng: xem toàn trường (mọi việc, không chỉ việc tự mình tạo).
+  // Hiệu phó/Tổng phụ trách Đội: vẫn xem việc do chính mình tạo/quản lý.
+  const semesterKey = toStatSemester(selectedSemester);
+  const stats = statistics
+    ? (role === 'principal' ? statistics.schoolVpStats : statistics.myVpStats)[semesterKey]
+    : null;
 
   if (isLoading) {
     return (
@@ -98,6 +118,20 @@ export const VPDashboard = () => {
           <p className="text-gray-600">
             {user?.role === 'principal' ? 'Tổng quan toàn trường' : 'Quản lý và theo dõi công việc của bạn'}
           </p>
+          {statistics && (
+            <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
+              Số liệu cập nhật lúc {new Date(statistics.computedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="inline-flex items-center gap-1 text-indigo-600 hover:underline disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                Làm mới
+              </button>
+            </p>
+          )}
         </div>
 
         {/* Year and Semester Filters */}

@@ -11,6 +11,7 @@ import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials, getVa
 import { sendNewTaskNotification, sendTaskScoredNotification } from './notificationService.js';
 import { checkDeadlinesAndNotify } from './deadlineChecker.js';
 import { getRankingSnapshot, getComboStats } from './rankingSnapshot.js';
+import { getStatisticsSnapshot, viewForUser } from './statisticsSnapshot.js';
 import { rankTeachers, RANKING_PERIODS, RANKING_TYPES, RANKING_SEMESTERS } from '../src/shared/rankingCompute.js';
 import admin, { db as adminDb } from './firebase-config.js';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from './_gemini.js';
@@ -2908,6 +2909,28 @@ app.get('/api/rankings', verifyAuth, async (req, res) => {
   } catch (error) {
     console.error('Error getting rankings:', error);
     res.status(500).json({ error: 'rankings_failed' });
+  }
+});
+
+/**
+ * Thống kê cho BGH — server tính sẵn, dùng lại 1 giờ (xem server/statisticsSnapshot.js).
+ * ?year=<schoolYearId|all>&refresh=1 (refresh: ép tính lại, tối đa 1 lần/10 phút).
+ */
+const STATISTICS_ROLES = ['admin', 'principal', 'vice_principal', 'youth_leader'];
+app.get('/api/statistics', verifyAuth, async (req, res) => {
+  try {
+    if (!req.schoolId) return res.status(400).json({ error: 'no_school' });
+    if (!STATISTICS_ROLES.includes(req.role)) return res.status(403).json({ error: 'forbidden' });
+    const yearKey = typeof req.query.year === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(req.query.year)
+      ? req.query.year
+      : 'all';
+
+    const snapshot = await getStatisticsSnapshot(req.schoolId, yearKey, { refresh: req.query.refresh === '1' });
+    if (!snapshot) return res.status(404).json({ error: 'school_year_not_found' });
+    res.json(viewForUser(snapshot, req.uid));
+  } catch (error) {
+    console.error('Error getting statistics:', error);
+    res.status(500).json({ error: 'statistics_failed' });
   }
 });
 
