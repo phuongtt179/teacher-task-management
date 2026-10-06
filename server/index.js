@@ -2913,8 +2913,8 @@ app.get('/api/rankings', verifyAuth, async (req, res) => {
 });
 
 /**
- * Thống kê cho BGH — server tính sẵn, dùng lại 1 giờ (xem server/statisticsSnapshot.js).
- * ?year=<schoolYearId|all>&refresh=1 (refresh: ép tính lại, tối đa 1 lần/10 phút).
+ * Thống kê cho BGH — server tính sẵn, mỗi ngày (giờ VN) chỉ tính 1 lần (xem server/statisticsSnapshot.js).
+ * ?year=<schoolYearId|all>
  */
 const STATISTICS_ROLES = ['admin', 'principal', 'vice_principal', 'youth_leader'];
 app.get('/api/statistics', verifyAuth, async (req, res) => {
@@ -2925,7 +2925,7 @@ app.get('/api/statistics', verifyAuth, async (req, res) => {
       ? req.query.year
       : 'all';
 
-    const snapshot = await getStatisticsSnapshot(req.schoolId, yearKey, { refresh: req.query.refresh === '1' });
+    const snapshot = await getStatisticsSnapshot(req.schoolId, yearKey);
     if (!snapshot) return res.status(404).json({ error: 'school_year_not_found' });
     res.json(viewForUser(snapshot, req.uid));
   } catch (error) {

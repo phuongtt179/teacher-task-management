@@ -9,15 +9,20 @@ import { computeTeacherStats, computeSchoolStats, computeVPStats } from '../src/
  * việc + bài nộp của năm học (cuối năm ~10.000–15.000 lượt đọc/lần) — vài người BGH
  * mở vài lần/ngày là vượt hạn mức Firestore miễn phí.
  *
- * Giờ: tính 1 lần cho cả 3 lựa chọn học kỳ, mọi người BGH xem chung; kết quả dùng
- * lại trong 1 giờ. Nút "Làm mới" ép tính lại ngay (nhưng không quá 1 lần/10 phút để
- * tránh bấm liên tục làm tốn quota).
+ * Giờ: MỖI NGÀY (theo giờ Việt Nam) chỉ tính 1 lần, cho cả 3 lựa chọn học kỳ —
+ * người đầu tiên mở trong ngày khiến server tính, cả ngày mọi người BGH xem chung
+ * kết quả đó. Chi phí tối đa cố định ~1 lần tính/ngày bất kể mở bao nhiêu lần;
+ * đổi lại, bài chấm trong ngày sẽ hiện trên thống kê vào ngày hôm sau.
  */
 
 const SNAPSHOT_COLLECTION = 'statisticsSnapshots';
-const TTL_MS = 60 * 60 * 1000;
-const MIN_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+const VN_OFFSET_MS = 7 * 60 * 60 * 1000; // Việt Nam = UTC+7
 const IN_QUERY_LIMIT = 30;
+
+/** Ngày hiện tại theo giờ Việt Nam, dạng "2026-10-07". */
+export function vnDayKey(now = new Date(Date.now())) {
+  return new Date(now.getTime() + VN_OFFSET_MS).toISOString().slice(0, 10);
+}
 const TEACHER_ROLES = ['teacher', 'department_head', 'deputy_department_head'];
 export const STAT_SEMESTERS = ['all', 'HK1', 'HK2'];
 const SCHOOL_SCOPE = '__school__'; // thống kê việc của cả trường (dashboard hiệu trưởng)
@@ -74,7 +79,7 @@ async function computeSnapshot(schoolId, yearKey) {
     for (const sem of STAT_SEMESTERS) vpStats[scope][sem] = computeVPStats(scopeTasks, submissions, sem, schoolYearId);
   }
 
-  const snapshot = { schoolId, yearKey, computedAt: Date.now(), bySemester, vpStats };
+  const snapshot = { schoolId, yearKey, dayKey: vnDayKey(), computedAt: Date.now(), bySemester, vpStats };
   await db.collection(SNAPSHOT_COLLECTION).doc(`${schoolId}__${yearKey}`).set(snapshot);
   console.log(`📈 Statistics snapshot computed for ${schoolId}/${yearKey}: ${tasks.length} tasks, ${submissions.length} submissions`);
   return snapshot;
@@ -86,13 +91,12 @@ async function isValidYear(schoolId, yearKey) {
   return snap.exists && snap.data().schoolId === schoolId;
 }
 
-export async function getStatisticsSnapshot(schoolId, yearKey, { refresh = false } = {}) {
+export async function getStatisticsSnapshot(schoolId, yearKey) {
   const docId = `${schoolId}__${yearKey}`;
   const existing = await db.collection(SNAPSHOT_COLLECTION).doc(docId).get();
   if (existing.exists) {
-    const data = existing.data();
-    const age = Date.now() - data.computedAt;
-    if (age < TTL_MS && !(refresh && age >= MIN_REFRESH_INTERVAL_MS)) return data;
+    // Đã tính trong hôm nay (giờ VN) → dùng lại, không tính thêm lần nào nữa trong ngày.
+    if (existing.data().dayKey === vnDayKey()) return existing.data();
   } else if (!(await isValidYear(schoolId, yearKey))) {
     // Năm học không thuộc trường này → không tạo bản lưu rác theo tham số tùy ý.
     return null;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { statisticsService, toStatSemester, type SchoolStatistics } from '../../services/statisticsService';
+import { statisticsService, toStatSemester, describeComputedAt, type SchoolStatistics } from '../../services/statisticsService';
 import { schoolYearService } from '../../services/schoolYearService';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { QuickAction } from '../../components/dashboard/QuickAction';
@@ -18,7 +18,6 @@ import {
   BarChart3,
   Award,
   Calendar,
-  RefreshCw,
   FileText
 } from 'lucide-react';
 
@@ -29,7 +28,6 @@ export const VPDashboard = () => {
   const { user } = useAuth();
   const [statistics, setStatistics] = useState<SchoolStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
@@ -81,18 +79,6 @@ export const VPDashboard = () => {
     return () => { cancelled = true; };
   }, [schoolId, uid, selectedSchoolYearId]);
 
-  const handleRefresh = async () => {
-    if (!selectedSchoolYearId) return;
-    try {
-      setIsRefreshing(true);
-      setStatistics(await statisticsService.getStatistics(selectedSchoolYearId, true));
-    } catch (error) {
-      console.error('Error refreshing stats:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   // Hiệu trưởng: xem toàn trường (mọi việc, không chỉ việc tự mình tạo).
   // Hiệu phó/Tổng phụ trách Đội: vẫn xem việc do chính mình tạo/quản lý.
   const semesterKey = toStatSemester(selectedSemester);
@@ -119,18 +105,7 @@ export const VPDashboard = () => {
             {user?.role === 'principal' ? 'Tổng quan toàn trường' : 'Quản lý và theo dõi công việc của bạn'}
           </p>
           {statistics && (
-            <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
-              Số liệu cập nhật lúc {new Date(statistics.computedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                className="inline-flex items-center gap-1 text-indigo-600 hover:underline disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                Làm mới
-              </button>
-            </p>
+            <p className="text-sm text-gray-500 mt-1">{describeComputedAt(statistics.computedAt)}</p>
           )}
         </div>
 

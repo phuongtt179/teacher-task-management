@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { TeacherStats, SchoolStats } from '../../services/analyticsService';
-import { statisticsService, type SchoolStatistics } from '../../services/statisticsService';
+import { statisticsService, describeComputedAt, type SchoolStatistics } from '../../services/statisticsService';
 import { useAuth } from '../../hooks/useAuth';
 import { schoolYearService } from '../../services/schoolYearService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StatsCard } from '../../components/dashboard/StatsCard';
-import { Users, Award, TrendingUp, CheckCircle, Target, BarChart3, Calendar, RefreshCw } from 'lucide-react';
+import { Users, Award, TrendingUp, CheckCircle, Target, BarChart3, Calendar } from 'lucide-react';
 import { TaskStatisticsTab } from './TaskStatisticsTab';
 import { TeacherStatisticsTab } from './TeacherStatisticsTab';
 import { SchoolYear } from '../../types';
@@ -18,7 +18,6 @@ export const StatisticsScreen = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [statistics, setStatistics] = useState<SchoolStatistics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<'all' | 'HK1' | 'HK2'>('all');
@@ -73,18 +72,6 @@ export const StatisticsScreen = () => {
     return () => { cancelled = true; };
   }, [schoolId, selectedSchoolYearId]);
 
-  const handleRefresh = async () => {
-    if (!selectedSchoolYearId) return;
-    try {
-      setIsRefreshing(true);
-      setStatistics(await statisticsService.getStatistics(selectedSchoolYearId, true));
-    } catch (error) {
-      console.error('Error refreshing statistics:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -92,18 +79,7 @@ export const StatisticsScreen = () => {
           <h2 className="text-2xl font-bold text-gray-900">Thống kê & Phân tích</h2>
           <p className="text-gray-600">Tổng quan hiệu suất và kết quả công việc</p>
           {statistics && (
-            <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
-              Số liệu cập nhật lúc {new Date(statistics.computedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                className="inline-flex items-center gap-1 text-indigo-600 hover:underline disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                Làm mới
-              </button>
-            </p>
+            <p className="text-sm text-gray-500 mt-1">{describeComputedAt(statistics.computedAt)}</p>
           )}
         </div>
 

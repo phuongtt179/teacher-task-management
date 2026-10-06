@@ -23,18 +23,25 @@ const cache = new Map<string, { at: number; promise: Promise<SchoolStatistics> }
 export const toStatSemester = (semester: string | undefined): StatSemester =>
   semester === 'HK1' || semester === 'HK2' ? semester : 'all';
 
+/** Dòng ghi chú dưới tiêu đề: thống kê chỉ tính 1 lần/ngày nên ghi rõ tính lúc nào. */
+export const describeComputedAt = (computedAt: number) => {
+  const d = new Date(computedAt);
+  const time = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  const date = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+  return `Số liệu tính lúc ${time} ngày ${date} — mỗi ngày cập nhật 1 lần, bài chấm hôm nay sẽ hiện vào ngày mai.`;
+};
+
 export const statisticsService = {
   /**
    * Thống kê của cả 3 lựa chọn học kỳ cho 1 năm học (đổi học kỳ không cần tải lại).
-   * Server tính sẵn và dùng lại 1 giờ; refresh = true để ép tính lại ngay ("Làm mới").
+   * Server mỗi ngày chỉ tính 1 lần (giờ VN), cả BGH dùng chung.
    */
-  getStatistics(schoolYearId: string, refresh = false): Promise<SchoolStatistics> {
+  getStatistics(schoolYearId: string): Promise<SchoolStatistics> {
     const yearKey = schoolYearId || 'all';
     const hit = cache.get(yearKey);
-    if (!refresh && hit && Date.now() - hit.at < CLIENT_TTL_MS) return hit.promise;
+    if (hit && Date.now() - hit.at < CLIENT_TTL_MS) return hit.promise;
 
     const params = new URLSearchParams({ year: yearKey });
-    if (refresh) params.set('refresh', '1');
     const promise = authFetch(`${API_BASE_URL}/statistics?${params}`).then(async (response) => {
       if (!response.ok) throw new Error(`Statistics request failed: ${response.status}`);
       return response.json() as Promise<SchoolStatistics>;
