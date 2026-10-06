@@ -406,6 +406,38 @@ export const taskService = {
     }
   },
 
+  // Lấy TẤT CẢ bài nộp mới nhất của 1 giáo viên trong 1 lần truy vấn — dùng thay
+  // cho việc gọi getSubmission() lặp lại cho từng task (N việc = N lượt đọc
+  // riêng). MyTasksScreen trước đây làm vậy: 1 giáo viên có vài chục việc là tốn
+  // vài chục lượt đọc chỉ để mở màn danh sách, góp phần lớn vào việc hết quota
+  // Firestore khi nhiều giáo viên cùng vào kiểm tra/nộp bài.
+  async getSubmissionsByTeacher(schoolId: string, teacherId: string): Promise<Submission[]> {
+    try {
+      const q = query(
+        tenantCollection('submissions', schoolId),
+        where('teacherId', '==', teacherId),
+        where('isLatest', '==', true)
+      );
+      const snapshot = await getDocs(q);
+
+      return snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          submittedAt: data.submittedAt?.toDate(),
+          scoredAt: data.scoredAt?.toDate(),
+          version: data.version || 1,
+          previousVersionId: data.previousVersionId,
+          isLatest: data.isLatest ?? true,
+        } as Submission;
+      });
+    } catch (error) {
+      console.error('Error getting submissions by teacher:', error);
+      throw error;
+    }
+  },
+
   // Get all submissions for a task (returns only latest version for each teacher)
   async getSubmissionsForTask(schoolId: string, taskId: string): Promise<Submission[]> {
     try {

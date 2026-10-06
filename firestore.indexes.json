@@ -1,5 +1,10 @@
 {
   "indexes": [
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "isLatest", "order": "ASCENDING" }
+    ]},
     { "collectionGroup": "campuses", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "schoolId", "order": "ASCENDING" },
       { "fieldPath": "order", "order": "ASCENDING" }

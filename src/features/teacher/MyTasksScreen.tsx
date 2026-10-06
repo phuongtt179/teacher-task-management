@@ -38,45 +38,48 @@ export const MyTasksScreen = () => {
 
       try {
         setIsLoading(true);
-        const [tasksData, schoolYearsData, activeYear] = await Promise.all([
+        const [tasksData, schoolYearsData, activeYear, mySubmissions] = await Promise.all([
           taskService.getTasksForTeacher(schoolId, user.uid),
           schoolYearService.getAllSchoolYears(schoolId),
           schoolYearService.getActiveSchoolYear(schoolId),
+          // 1 truy vấn duy nhất cho TẤT CẢ bài nộp của giáo viên này, thay vì gọi
+          // getSubmission() riêng cho từng task bên dưới (N task = N lượt đọc).
+          taskService.getSubmissionsByTeacher(schoolId, user.uid),
         ]);
+        const submissionByTaskId = new Map(mySubmissions.map((s) => [s.taskId, s]));
 
-        // Load submissions for each task and determine teacher-specific status
-        const tasksWithStatus: TaskWithStatus[] = await Promise.all(
-          tasksData.map(async (task) => {
-            // Get submission for this teacher
-            const submission = await taskService.getSubmission(schoolId, task.id, user.uid);
+        // Xác định trạng thái của từng task theo bài nộp đã tra sẵn ở trên (không
+        // gọi Firestore lại nữa).
+        const tasksWithStatus: TaskWithStatus[] = tasksData.map((task) => {
+          // Get submission for this teacher
+          const submission = submissionByTaskId.get(task.id) ?? null;
 
-            // Determine teacher-specific status
-            let teacherStatus: TaskStatus;
-            const now = new Date();
+          // Determine teacher-specific status
+          let teacherStatus: TaskStatus;
+          const now = new Date();
 
-            if (submission) {
-              // Has submission
-              if (submission.score !== undefined) {
-                teacherStatus = 'completed'; // Has been scored
-              } else {
-                teacherStatus = 'submitted'; // Submitted but not scored yet
-              }
+          if (submission) {
+            // Has submission
+            if (submission.score !== undefined) {
+              teacherStatus = 'completed'; // Has been scored
             } else {
-              // No submission yet
-              if (now > (task.deadline2 ?? task.deadline)) {
-                teacherStatus = 'overdue'; // Past deadline
-              } else {
-                teacherStatus = 'assigned'; // Not yet submitted
-              }
+              teacherStatus = 'submitted'; // Submitted but not scored yet
             }
+          } else {
+            // No submission yet
+            if (now > (task.deadline2 ?? task.deadline)) {
+              teacherStatus = 'overdue'; // Past deadline
+            } else {
+              teacherStatus = 'assigned'; // Not yet submitted
+            }
+          }
 
-            return {
-              ...task,
-              teacherStatus,
-              submission: submission || undefined,
-            };
-          })
-        );
+          return {
+            ...task,
+            teacherStatus,
+            submission: submission || undefined,
+          };
+        });
 
         // Define status priority (lower number = higher priority)
         const statusPriority: Record<TaskStatus, number> = {
