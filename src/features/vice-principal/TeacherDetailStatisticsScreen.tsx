@@ -4,7 +4,6 @@ import { useAuth } from '../../hooks/useAuth';
 import { User, Task, Submission, SchoolYear } from '../../types';
 import { userService } from '../../services/userService';
 import { taskService } from '../../services/taskService';
-import { submissionService } from '../../services/submissionService';
 import { schoolYearService } from '../../services/schoolYearService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -75,26 +74,27 @@ export const TeacherDetailStatisticsScreen = () => {
 
       setTeacher(teacherData);
 
-      // Load all tasks assigned to this teacher
-      const tasks = await taskService.getTasksForTeacher(schoolId, teacherId);
+      // 1 truy vấn cho mọi việc + 1 truy vấn cho mọi bài nộp (bản mới nhất) của
+      // giáo viên này. Trước đây mỗi việc tải bài nộp của TẤT CẢ người được giao
+      // rồi chỉ lấy 1 bài — việc giao 80 người thì đọc 80 bài để dùng 1.
+      const [tasks, mySubmissions] = await Promise.all([
+        taskService.getTasksForTeacher(schoolId, teacherId),
+        taskService.getSubmissionsByTeacher(schoolId, teacherId),
+      ]);
+      const submissionByTaskId = new Map(mySubmissions.map((s) => [s.taskId, s]));
 
-      // Load submissions for all these tasks
-      const tasksWithSubmissions = await Promise.all(
-        tasks.map(async (task) => {
-          const submissions = await submissionService.getSubmissionsByTask(schoolId, task.id);
-          const submission = submissions.find((s) => s.teacherId === teacherId);
+      const tasksWithSubmissions = tasks.map((task) => {
+        const submission = submissionByTaskId.get(task.id);
+        const isCompleted = submission?.score !== undefined;
+        const isOverdue = !submission && new Date() > new Date(task.deadline);
 
-          const isCompleted = submission?.score !== undefined;
-          const isOverdue = !submission && new Date() > new Date(task.deadline);
-
-          return {
-            task,
-            submission: submission || null,
-            isCompleted,
-            isOverdue,
-          };
-        })
-      );
+        return {
+          task,
+          submission: submission || null,
+          isCompleted,
+          isOverdue,
+        };
+      });
 
       setTaskSubmissions(tasksWithSubmissions);
     } catch (error) {

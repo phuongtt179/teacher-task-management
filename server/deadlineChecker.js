@@ -32,6 +32,18 @@ export async function checkDeadlinesAndNotify() {
       const assignedTo = Array.isArray(task.assignedTo) ? task.assignedTo : [];
       if (!schoolId || assignedTo.length === 0 || !task.deadline) continue;
 
+      // Mỗi người chỉ được nhắc 1 lần cho mỗi hạn chót. Trước đây job chạy 30
+      // phút/lần và lần nào cũng tạo thông báo mới → 1 người chưa nộp có thể nhận
+      // ~48 thông báo "sắp hết hạn" cho cùng 1 việc. Lưu mốc deadline + danh sách
+      // người đã nhắc trên task; hạn bị dời thì danh sách tự reset và nhắc lại.
+      const deadlineMillis = task.deadline.toMillis();
+      const remindedSet = new Set(
+        task.deadlineReminderFor === deadlineMillis && Array.isArray(task.deadlineRemindedUids)
+          ? task.deadlineRemindedUids
+          : []
+      );
+      if (assignedTo.every((tid) => remindedSet.has(tid))) continue;
+
       const subsSnap = await db
         .collection('submissions')
         .where('taskId', '==', taskId)
@@ -39,7 +51,9 @@ export async function checkDeadlinesAndNotify() {
         .get();
       const submittedTeacherIds = new Set(subsSnap.docs.map((d) => d.data().teacherId));
 
-      const teachersNotSubmitted = assignedTo.filter((tid) => !submittedTeacherIds.has(tid));
+      const teachersNotSubmitted = assignedTo.filter(
+        (tid) => !submittedTeacherIds.has(tid) && !remindedSet.has(tid)
+      );
       if (teachersNotSubmitted.length === 0) continue;
 
       const deadlineDate = task.deadline.toDate();
@@ -61,6 +75,10 @@ export async function checkDeadlinesAndNotify() {
           read: false,
           createdAt: admin.firestore.Timestamp.fromDate(now),
         });
+      });
+      batch.update(taskDoc.ref, {
+        deadlineReminderFor: deadlineMillis,
+        deadlineRemindedUids: [...remindedSet, ...teachersNotSubmitted],
       });
       await batch.commit();
 

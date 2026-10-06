@@ -32,65 +32,42 @@ export const VPDashboard = () => {
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
 
-  // Load school years and set initial filters
+  const schoolId = user?.schoolId;
+  const uid = user?.uid;
+  const role = user?.role;
+
+  // Bước 1: chỉ nạp năm học + đặt bộ lọc mặc định (trước đây bước này tải thống
+  // kê xong rồi đặt bộ lọc, làm effect bên dưới tải lại lần thứ 2).
   useEffect(() => {
-    const loadData = async () => {
-      if (!user || !user.schoolId) return;
-      const schoolId = user.schoolId;
-
+    if (!schoolId) return;
+    const init = async () => {
       try {
-        setIsLoading(true);
-
-        // Load school years and active year
         const [years, activeYear] = await Promise.all([
           schoolYearService.getAllSchoolYears(schoolId),
           schoolYearService.getActiveSchoolYear(schoolId),
         ]);
-
         setSchoolYears(years);
-
-        // Set initial filters based on active year
-        let initialSchoolYearId = 'all';
-        let initialSemester: SemesterFilter = 'all';
-
-        if (activeYear) {
-          initialSchoolYearId = activeYear.id;
-          if (activeYear.activeSemester) {
-            initialSemester = activeYear.activeSemester as SemesterFilter;
-          }
-        }
-
-        setSelectedSchoolYearId(initialSchoolYearId);
-        setSelectedSemester(initialSemester);
-
-        // Load stats with initial filters
-        const semesterParam = (initialSemester === 'all' || initialSemester === 'unassigned') ? 'all' : initialSemester;
-        // Hiệu trưởng: xem toàn trường (mọi việc, không chỉ việc tự mình tạo).
-        // Hiệu phó/Tổng phụ trách Đội: vẫn xem việc do chính mình tạo/quản lý.
-        const scopeUid = user.role === 'principal' ? undefined : user.uid;
-        const data = await analyticsService.getVPStats(schoolId, scopeUid, semesterParam, initialSchoolYearId);
-        setStats(data);
+        setSelectedSemester((activeYear?.activeSemester as SemesterFilter) || 'all');
+        setSelectedSchoolYearId(activeYear?.id ?? 'all');
       } catch (error) {
-        console.error('Error loading data:', error);
-      } finally {
+        console.error('Error loading school years:', error);
         setIsLoading(false);
       }
     };
+    init();
+  }, [schoolId]);
 
-    loadData();
-  }, [user]);
-
-  // Reload stats when filters change (but not on initial load)
+  // Bước 2: tải thống kê theo bộ lọc.
   useEffect(() => {
-    // Skip if initial load hasn't completed (selectedSchoolYearId is still empty)
-    if (!user || !user.schoolId || selectedSchoolYearId === '') return;
-    const schoolId = user.schoolId;
+    if (!schoolId || !uid || selectedSchoolYearId === '') return;
 
     const loadStats = async () => {
       try {
         setIsLoading(true);
         const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
-        const scopeUid = user.role === 'principal' ? undefined : user.uid;
+        // Hiệu trưởng: xem toàn trường (mọi việc, không chỉ việc tự mình tạo).
+        // Hiệu phó/Tổng phụ trách Đội: vẫn xem việc do chính mình tạo/quản lý.
+        const scopeUid = role === 'principal' ? undefined : uid;
         const data = await analyticsService.getVPStats(schoolId, scopeUid, semesterParam, selectedSchoolYearId);
         setStats(data);
       } catch (error) {
@@ -101,7 +78,7 @@ export const VPDashboard = () => {
     };
 
     loadStats();
-  }, [selectedSemester, selectedSchoolYearId]);
+  }, [schoolId, uid, role, selectedSemester, selectedSchoolYearId]);
 
   if (isLoading) {
     return (

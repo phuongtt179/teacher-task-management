@@ -7,13 +7,27 @@ export interface TeacherSuggestion extends TeacherStats {
   performanceStatus: 'excellent' | 'good' | 'average' | 'needs_improvement';
 }
 
+// Gợi ý chỉ mang tính tham khảo nên dùng lại kết quả trong 10 phút: màn "Tạo công
+// việc" được mở rất nhiều lần/ngày, mỗi lần trước đây đều tải lại toàn bộ dữ liệu
+// của trường để tính gợi ý.
+const OVERVIEW_TTL_MS = 10 * 60 * 1000;
+const overviewCache = new Map<string, { at: number; data: Awaited<ReturnType<typeof analyticsService.getSchoolOverview>> }>();
+
+async function getCachedOverview(schoolId: string) {
+  const hit = overviewCache.get(schoolId);
+  if (hit && Date.now() - hit.at < OVERVIEW_TTL_MS) return hit.data;
+  const data = await analyticsService.getSchoolOverview(schoolId);
+  overviewCache.set(schoolId, { at: Date.now(), data });
+  return data;
+}
+
 export const suggestionService = {
   // Get smart assignment suggestions
   async getAssignmentSuggestions(schoolId: string): Promise<TeacherSuggestion[]> {
     try {
-      // Get all teachers stats
-      const teachersStats = await analyticsService.getAllTeachersStats(schoolId);
-      const schoolStats = await analyticsService.getSchoolStats(schoolId);
+      // Thống kê toàn trường + từng giáo viên trong 1 lần tải (trước đây gọi
+      // getAllTeachersStats rồi getSchoolStats — mỗi hàm tải toàn bộ trường 1 lần).
+      const { teachersStats, schoolStats } = await getCachedOverview(schoolId);
 
       // Calculate suggestion score for each teacher
       const suggestions = teachersStats.map(teacher => {

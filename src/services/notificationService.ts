@@ -6,6 +6,7 @@ import {
   orderBy,
   getDocs,
   getCountFromServer,
+  limit,
   updateDoc,
   doc,
   Timestamp,
@@ -126,12 +127,15 @@ export const notificationService = {
   },
 
   // Get notifications for user
-  async getNotifications(userId: string, limit: number = 50): Promise<Notification[]> {
+  // Giới hạn số lượng NGAY TRONG truy vấn — trước đây đọc toàn bộ thông báo từ
+  // trước tới nay rồi mới cắt lấy 50 ở trình duyệt, càng để lâu càng tốn đọc.
+  async getNotifications(userId: string, maxResults: number = 50): Promise<Notification[]> {
     try {
       const q = query(
         collection(db, 'notifications'),
         where('userId', '==', userId),
-        orderBy('createdAt', 'desc')
+        orderBy('createdAt', 'desc'),
+        limit(maxResults)
       );
       const snapshot = await getDocs(q);
 
@@ -147,7 +151,7 @@ export const notificationService = {
           read: data.read,
           createdAt: data.createdAt?.toDate() || new Date(),
         } as Notification;
-      }).slice(0, limit);
+      });
     } catch (error) {
       console.error('Error getting notifications:', error);
       return [];

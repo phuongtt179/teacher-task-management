@@ -1,236 +1,149 @@
 import {
   getDocs,
+  getAggregateFromServer,
+  average,
   query,
   where,
 } from 'firebase/firestore';
 import { tenantCollection } from '../lib/tenantQuery';
 import { Task, Submission } from '../types';
+import {
+  computeTeacherStats,
+  computeSchoolStats,
+  computeVPStats,
+  type TeacherStats,
+  type SchoolStats,
+  type SemesterParam,
+} from './statsCompute';
 
-// ✅ Helper function to safely convert Timestamp/Date to Date
-const toDate = (value: any): Date => {
-  if (!value) return new Date();
-  if (value instanceof Date) return value;
-  if (typeof value.toDate === 'function') return value.toDate();
-  if (typeof value === 'string' || typeof value === 'number') return new Date(value);
-  return new Date();
-};
+export type { TeacherStats, SchoolStats } from './statsCompute';
 
-export interface TeacherStats {
-  uid: string;
-  displayName: string;
-  email: string;
-  totalTasks: number;
-  completedTasks: number;
-  pendingTasks: number;
-  averageScore: number;
-  totalScore: number;
-  scoredTasksCount: number;
-  completionRate: number;
-  onTimeRate: number;
+// Firestore giới hạn tối đa 30 giá trị cho toán tử 'in'.
+const IN_QUERY_LIMIT = 30;
+
+const TEACHER_ROLES = ['teacher', 'department_head', 'deputy_department_head'];
+
+const isYearFilter = (schoolYearId?: string): schoolYearId is string =>
+  !!schoolYearId && schoolYearId !== 'all';
+
+async function loadSchoolTasks(schoolId: string, schoolYearId?: string): Promise<Task[]> {
+  const base = tenantCollection('tasks', schoolId);
+  const q = isYearFilter(schoolYearId) ? query(base, where('schoolYearId', '==', schoolYearId)) : base;
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Task));
 }
 
-export interface SchoolStats {
-  totalTeachers: number;
-  totalTasks: number;
-  completedTasks: number;
-  averageScore: number;
-  highPerformers: number;
-  lowPerformers: number;
-  averagePerformers: number;
-  completionRate: number;
+async function loadAllSubmissions(schoolId: string): Promise<Submission[]> {
+  const snap = await getDocs(tenantCollection('submissions', schoolId));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Submission));
+}
+
+/** Mọi bài nộp (mọi phiên bản) của các task cho trước — gộp 30 task/truy vấn, chạy song song. */
+async function loadSubmissionsForTasks(schoolId: string, taskIds: string[]): Promise<Submission[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < taskIds.length; i += IN_QUERY_LIMIT) {
+    chunks.push(taskIds.slice(i, i + IN_QUERY_LIMIT));
+  }
+  const snaps = await Promise.all(
+    chunks.map(chunk => getDocs(query(tenantCollection('submissions', schoolId), where('taskId', 'in', chunk))))
+  );
+  return snaps.flatMap(snap => snap.docs.map(d => ({ id: d.id, ...d.data() } as Submission)));
+}
+
+/**
+ * Tải dữ liệu của CẢ TRƯỜNG đúng 1 lần cho mọi thống kê theo giáo viên.
+ *
+ * Trước đây mỗi giáo viên tự gửi 3 truy vấn riêng (hồ sơ + mọi việc được giao,
+ * kể cả các năm cũ + mọi bài nộp) — 1 việc giao cho 80 người bị đọc lại 80 lần.
+ * Với ~100 giáo viên, mỗi lần mở dashboard giáo viên tốn hàng chục nghìn lượt đọc,
+ * là nguyên nhân chính làm hết quota Firestore miễn phí.
+ *
+ * Có lọc năm học: chỉ tải việc của năm đó, và bài nộp của đúng các việc đó (gồm
+ * cả bài nộp cũ chưa có schoolYearId — logic đối chiếu taskId vẫn giữ nguyên).
+ */
+async function loadSchoolData(schoolId: string, schoolYearId?: string) {
+  const [usersSnap, tasks] = await Promise.all([
+    getDocs(query(tenantCollection('users', schoolId), where('role', 'in', TEACHER_ROLES))),
+    loadSchoolTasks(schoolId, schoolYearId),
+  ]);
+  const submissions = isYearFilter(schoolYearId)
+    ? await loadSubmissionsForTasks(schoolId, tasks.map(t => t.id))
+    : await loadAllSubmissions(schoolId);
+
+  const teachers = usersSnap.docs.map(d => ({
+    uid: d.id,
+    displayName: d.data().displayName,
+    email: d.data().email,
+  }));
+  return { teachers, tasks, submissions };
 }
 
 export const analyticsService = {
-  // Get stats for a specific teacher
-  async getTeacherStats(schoolId: string, teacherId: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<TeacherStats | null> {
+  /** Dữ liệu thô của 1 giáo viên: hồ sơ + việc được giao + mọi bài nộp (mọi phiên bản). */
+  async loadTeacherData(schoolId: string, teacherId: string) {
+    const [usersSnap, tasksSnap, submissionsSnap] = await Promise.all([
+      getDocs(query(tenantCollection('users', schoolId), where('__name__', '==', teacherId))),
+      getDocs(query(tenantCollection('tasks', schoolId), where('assignedTo', 'array-contains', teacherId))),
+      getDocs(query(tenantCollection('submissions', schoolId), where('teacherId', '==', teacherId))),
+    ]);
+    const userData = usersSnap.empty ? null : usersSnap.docs[0].data();
+    return {
+      user: userData ? { uid: teacherId, displayName: userData.displayName, email: userData.email } : null,
+      tasks: tasksSnap.docs.map(d => ({ id: d.id, ...d.data() } as Task)),
+      submissions: submissionsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Submission)),
+    };
+  },
+
+  /** Lấy task theo danh sách id — gộp 30 id/truy vấn, chạy song song. */
+  async getTasksByIds(schoolId: string, taskIds: string[]): Promise<Task[]> {
+    const chunks: string[][] = [];
+    for (let i = 0; i < taskIds.length; i += IN_QUERY_LIMIT) chunks.push(taskIds.slice(i, i + IN_QUERY_LIMIT));
+    const snaps = await Promise.all(
+      chunks.map(chunk => getDocs(query(tenantCollection('tasks', schoolId), where('__name__', 'in', chunk))))
+    );
+    return snaps.flatMap(snap => snap.docs.map(d => ({ id: d.id, ...d.data() } as Task)));
+  },
+
+  // Thống kê của 1 giáo viên — chỉ đọc dữ liệu của đúng người đó.
+  async getTeacherStats(schoolId: string, teacherId: string, semesterFilter?: SemesterParam, schoolYearId?: string): Promise<TeacherStats | null> {
     try {
-      // Get user info
-      const usersSnap = await getDocs(
-        query(tenantCollection('users', schoolId), where('__name__', '==', teacherId))
-      );
-
-      if (usersSnap.empty) return null;
-
-      const userData = usersSnap.docs[0].data();
-
-      // Get tasks assigned to teacher
-      const tasksQuery = query(
-        tenantCollection('tasks', schoolId),
-        where('assignedTo', 'array-contains', teacherId)
-      );
-      const tasksSnap = await getDocs(tasksQuery);
-      let tasks = tasksSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Task));
-
-      // Filter tasks by school year (client-side)
-      if (schoolYearId && schoolYearId !== 'all') {
-        tasks = tasks.filter(t => t.schoolYearId === schoolYearId);
-      }
-
-      // Filter tasks by semester (client-side)
-      if (semesterFilter && semesterFilter !== 'all') {
-        tasks = tasks.filter(t => t.semester === semesterFilter);
-      }
-
-      // Get submissions and scores
-      const submissionsQuery = query(
-        tenantCollection('submissions', schoolId),
-        where('teacherId', '==', teacherId)
-      );
-      const submissionsSnap = await getDocs(submissionsQuery);
-      let submissions = submissionsSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Submission));
-
-      // Filter submissions by school year:
-      // - New submissions: use denormalized schoolYearId field (PA2)
-      // - Old submissions without schoolYearId: cross-reference with filtered task IDs (PA1 fallback)
-      if (schoolYearId && schoolYearId !== 'all') {
-        const taskIdSet = new Set(tasks.map(t => t.id));
-        submissions = submissions.filter(s =>
-          s.schoolYearId === schoolYearId ||
-          (!s.schoolYearId && taskIdSet.has(s.taskId))
-        );
-      }
-
-      // Filter submissions by semester (client-side)
-      if (semesterFilter && semesterFilter !== 'all') {
-        submissions = submissions.filter(s => s.semester === semesterFilter);
-      }
-
-      // Calculate stats
-      const completedTasks = tasks.filter(t => t.status === 'completed').length;
-      const pendingTasks = tasks.filter(
-        t => t.status === 'assigned' || t.status === 'in_progress' || t.status === 'submitted'
-      ).length;
-
-      const scoredSubmissions = submissions.filter(s => s.score !== undefined);
-      const totalScore = scoredSubmissions.reduce((sum, s) => sum + (s.score || 0), 0);
-      const averageScore = scoredSubmissions.length > 0
-        ? Math.round((totalScore / scoredSubmissions.length) * 10) / 10
-        : 0;
-
-      const completionRate = tasks.length > 0
-        ? Math.round((completedTasks / tasks.length) * 100)
-        : 0;
-
-      // ✅ Calculate on-time rate using helper function
-      let onTimeCount = 0;
-      submissions.forEach(submission => {
-        const task = tasks.find(t => t.id === submission.taskId);
-        if (task && submission.submittedAt && task.deadline) {
-          const submittedDate = toDate(submission.submittedAt);
-          const deadlineDate = toDate(task.deadline);
-          if (submittedDate <= deadlineDate) {
-            onTimeCount++;
-          }
-        }
-      });
-      const onTimeRate = submissions.length > 0
-        ? Math.round((onTimeCount / submissions.length) * 100)
-        : 0;
-
-      return {
-        uid: teacherId,
-        displayName: userData.displayName || '',
-        email: userData.email || '',
-        totalTasks: tasks.length,
-        completedTasks,
-        pendingTasks,
-        averageScore,
-        totalScore,
-        scoredTasksCount: scoredSubmissions.length,
-        completionRate,
-        onTimeRate,
-      };
+      const { user, tasks, submissions } = await this.loadTeacherData(schoolId, teacherId);
+      if (!user) return null;
+      return computeTeacherStats(user, tasks, submissions, semesterFilter, schoolYearId);
     } catch (error) {
       console.error('Error getting teacher stats:', error);
       return null;
     }
   },
 
-  // Get stats for all teachers and department heads
-  async getAllTeachersStats(schoolId: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string): Promise<TeacherStats[]> {
+  /**
+   * Thống kê toàn trường + từng giáo viên trong 1 lần tải. Màn hình nào cần cả
+   * 2 thì gọi hàm này thay vì gọi getSchoolStats + getAllTeachersStats (trước
+   * đây mỗi hàm tự tải toàn bộ dữ liệu trường 1 lần riêng).
+   */
+  async getSchoolOverview(schoolId: string, semesterFilter?: SemesterParam, schoolYearId?: string, vpUid?: string): Promise<{ schoolStats: SchoolStats; teachersStats: TeacherStats[] }> {
+    const { teachers, tasks, submissions } = await loadSchoolData(schoolId, schoolYearId);
+    const teachersStats = teachers.map(t => computeTeacherStats(t, tasks, submissions, semesterFilter, schoolYearId));
+
+    // vpUid: chỉ đếm việc do người đó tạo — trong mọi năm học nếu không lọc năm,
+    // nên khi không lọc năm thì `tasks` (toàn trường) đã đủ; có lọc năm thì
+    // `tasks` đã là việc của năm đó.
+    const schoolStats = computeSchoolStats(teachersStats, tasks, semesterFilter, schoolYearId, vpUid);
+    return { schoolStats, teachersStats };
+  },
+
+  async getAllTeachersStats(schoolId: string, semesterFilter?: SemesterParam, schoolYearId?: string): Promise<TeacherStats[]> {
     try {
-      const teachersQuery = query(
-        tenantCollection('users', schoolId),
-        where('role', 'in', ['teacher', 'department_head', 'deputy_department_head'])
-      );
-      const teachersSnap = await getDocs(teachersQuery);
-
-      const statsPromises = teachersSnap.docs.map(doc =>
-        this.getTeacherStats(schoolId, doc.id, semesterFilter, schoolYearId)
-      );
-
-      const stats = await Promise.all(statsPromises);
-      return stats.filter(s => s !== null) as TeacherStats[];
+      return (await this.getSchoolOverview(schoolId, semesterFilter, schoolYearId)).teachersStats;
     } catch (error) {
       console.error('Error getting all teachers stats:', error);
       return [];
     }
   },
 
-  // Get school-wide statistics (filtered by VP creator when vpUid provided)
-  async getSchoolStats(schoolId: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string, vpUid?: string): Promise<SchoolStats> {
+  async getSchoolStats(schoolId: string, semesterFilter?: SemesterParam, schoolYearId?: string, vpUid?: string): Promise<SchoolStats> {
     try {
-      const teachersStats = await this.getAllTeachersStats(schoolId, semesterFilter, schoolYearId);
-
-      const totalTeachers = teachersStats.length;
-
-      // Đếm tasks trực tiếp từ collection để tránh đếm trùng (1 task giao nhiều GV chỉ tính 1 lần)
-      // Nếu có vpUid thì chỉ lấy tasks do VP đó tạo
-      const tasksQuery = vpUid
-        ? query(tenantCollection('tasks', schoolId), where('createdBy', '==', vpUid))
-        : query(tenantCollection('tasks', schoolId));
-      const allTasksSnap = await getDocs(tasksQuery);
-      let allTasks = allTasksSnap.docs.map(d => ({ id: d.id, ...d.data() } as Task));
-
-      if (schoolYearId && schoolYearId !== 'all') {
-        allTasks = allTasks.filter(t => t.schoolYearId === schoolYearId);
-      }
-      if (semesterFilter && semesterFilter !== 'all') {
-        allTasks = allTasks.filter(t => t.semester === semesterFilter);
-      }
-
-      const totalTasks = allTasks.length;
-      const completedTasks = allTasks.filter(t => t.status === 'completed').length;
-
-      // Calculate average score across all teachers
-      const teachersWithScores = teachersStats.filter(t => t.scoredTasksCount > 0);
-      const totalWeightedScore = teachersWithScores.reduce(
-        (sum, t) => sum + (t.averageScore * t.scoredTasksCount),
-        0
-      );
-      const totalScoredTasks = teachersWithScores.reduce(
-        (sum, t) => sum + t.scoredTasksCount,
-        0
-      );
-      const averageScore = totalScoredTasks > 0
-        ? Math.round((totalWeightedScore / totalScoredTasks) * 10) / 10
-        : 0;
-
-      // Count high and low performers
-      const highPerformers = teachersWithScores.filter(
-        t => t.averageScore > averageScore
-      ).length;
-      const lowPerformers = teachersWithScores.filter(
-        t => t.averageScore < averageScore
-      ).length;
-      const averagePerformers = teachersWithScores.length - highPerformers - lowPerformers;
-
-      return {
-        totalTeachers,
-        totalTasks,
-        completedTasks,
-        averageScore,
-        highPerformers,
-        lowPerformers,
-        averagePerformers,
-        completionRate: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
-      };
+      return (await this.getSchoolOverview(schoolId, semesterFilter, schoolYearId, vpUid)).schoolStats;
     } catch (error) {
       console.error('Error getting school stats:', error);
       return {
@@ -246,83 +159,50 @@ export const analyticsService = {
     }
   },
 
+  /**
+   * Điểm trung bình toàn trường cho dashboard/"Điểm của tôi" của giáo viên.
+   *
+   * Dùng truy vấn tổng hợp average() phía server — tính phí ~1 lượt đọc cho mỗi
+   * 1000 bài nộp, thay vì tải toàn bộ dữ liệu cả trường chỉ để lấy 1 con số như
+   * trước (mỗi giáo viên mở dashboard từng tốn hàng chục nghìn lượt đọc).
+   * Khác biệt nhỏ so với cách tính cũ: lọc năm học theo trường schoolYearId của
+   * bài nộp (bài nộp rất cũ chưa có trường này sẽ không được tính khi lọc năm).
+   */
+  async getSchoolAverageScore(schoolId: string, semesterFilter?: SemesterParam, schoolYearId?: string): Promise<number> {
+    try {
+      let q = tenantCollection('submissions', schoolId);
+      if (isYearFilter(schoolYearId)) q = query(q, where('schoolYearId', '==', schoolYearId));
+      if (semesterFilter && semesterFilter !== 'all') q = query(q, where('semester', '==', semesterFilter));
+
+      const snap = await getAggregateFromServer(q, { avgScore: average('score') });
+      const avg = snap.data().avgScore;
+      return avg == null ? 0 : Math.round(avg * 10) / 10;
+    } catch (error) {
+      console.error('Error getting school average score:', error);
+      return 0;
+    }
+  },
+
   // Get VP statistics
   // vpUid bỏ trống = toàn trường (dùng cho hiệu trưởng xem tổng quan); truyền vào =
   // chỉ tính việc do đúng người đó tạo (dùng cho "Công việc của tôi" của hiệu phó/...).
-  async getVPStats(schoolId: string, vpUid?: string, semesterFilter?: 'HK1' | 'HK2' | 'all', schoolYearId?: string) {
+  async getVPStats(schoolId: string, vpUid?: string, semesterFilter?: SemesterParam, schoolYearId?: string) {
     try {
       const tasksQuery = vpUid
         ? query(tenantCollection('tasks', schoolId), where('createdBy', '==', vpUid))
-        : query(tenantCollection('tasks', schoolId));
+        : tenantCollection('tasks', schoolId);
       const tasksSnap = await getDocs(tasksQuery);
-      let tasks = tasksSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Task));
+      const allTasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() } as Task));
 
-      // Filter tasks by school year (client-side)
-      if (schoolYearId && schoolYearId !== 'all') {
-        tasks = tasks.filter(t => t.schoolYearId === schoolYearId);
-      }
+      // Chỉ tải bài nộp của các việc còn lại sau khi lọc năm/học kỳ — gộp 30 việc
+      // mỗi truy vấn, chạy song song (trước đây 1 truy vấn/việc, chạy tuần tự).
+      const scopedIds = allTasks
+        .filter(t => !isYearFilter(schoolYearId) || t.schoolYearId === schoolYearId)
+        .filter(t => !semesterFilter || semesterFilter === 'all' || t.semester === semesterFilter)
+        .map(t => t.id);
+      const submissions = await loadSubmissionsForTasks(schoolId, scopedIds);
 
-      // Filter tasks by semester (client-side)
-      if (semesterFilter && semesterFilter !== 'all') {
-        tasks = tasks.filter(t => t.semester === semesterFilter);
-      }
-
-      // Get all submissions for these tasks
-      const taskIds = tasks.map(t => t.id);
-      let allSubmissions: Submission[] = [];
-
-      for (const taskId of taskIds) {
-        const submissionsQuery = query(
-          tenantCollection('submissions', schoolId),
-          where('taskId', '==', taskId)
-        );
-        const submissionsSnap = await getDocs(submissionsQuery);
-        const submissionsData = submissionsSnap.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as Submission));
-        allSubmissions.push(...submissionsData);
-      }
-
-      // Filter submissions by semester (client-side)
-      if (semesterFilter && semesterFilter !== 'all') {
-        allSubmissions = allSubmissions.filter(s => s.semester === semesterFilter);
-      }
-
-      // Calculate stats
-      const totalTasks = tasks.length;
-      const completedTasks = tasks.filter(t => t.status === 'completed').length;
-      const submittedTasks = tasks.filter(t => t.status === 'submitted').length;
-      const assignedTasks = tasks.filter(t => t.status === 'assigned' || t.status === 'in_progress').length;
-
-      const scoredSubmissions = allSubmissions.filter(s => s.score !== undefined);
-      const averageScore = scoredSubmissions.length > 0
-        ? Math.round(
-            (scoredSubmissions.reduce((sum, s) => sum + (s.score || 0), 0) / scoredSubmissions.length) * 10
-          ) / 10
-        : 0;
-
-      // Get unique teachers assigned
-      const uniqueTeachers = new Set<string>();
-      tasks.forEach(task => {
-        if (task.assignedTo && Array.isArray(task.assignedTo)) {
-          task.assignedTo.forEach((teacherId: string) => uniqueTeachers.add(teacherId));
-        }
-      });
-
-      return {
-        totalTasks,
-        completedTasks,
-        submittedTasks,
-        assignedTasks,
-        averageScore,
-        totalTeachers: uniqueTeachers.size,
-        completionRate: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
-        submissionRate: totalTasks > 0 ? Math.round(((submittedTasks + completedTasks) / totalTasks) * 100) : 0,
-      };
+      return computeVPStats(allTasks, submissions, semesterFilter, schoolYearId);
     } catch (error) {
       console.error('Error getting VP stats:', error);
       return null;

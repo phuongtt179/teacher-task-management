@@ -24,14 +24,16 @@ export const StatisticsScreen = () => {
   const [selectedSemester, setSelectedSemester] = useState<'all' | 'HK1' | 'HK2'>('all');
 
   const activeTab = searchParams.get('tab') || 'overview';
+  const schoolId = user?.schoolId;
+  const uid = user?.uid;
 
   // Load school years once on mount
   useEffect(() => {
+    if (!schoolId) return;
     const initFilters = async () => {
-      if (!user || !user.schoolId) return;
       const [years, activeYear] = await Promise.all([
-        schoolYearService.getAllSchoolYears(user.schoolId),
-        schoolYearService.getActiveSchoolYear(user.schoolId),
+        schoolYearService.getAllSchoolYears(schoolId),
+        schoolYearService.getActiveSchoolYear(schoolId),
       ]);
       setSchoolYears(years);
       setSelectedSchoolYearId(activeYear?.id ?? 'all');
@@ -40,12 +42,11 @@ export const StatisticsScreen = () => {
       }
     };
     initFilters();
-  }, [user]);
+  }, [schoolId]);
 
   // Reload stats whenever filters change (skip until filters are initialized)
   useEffect(() => {
-    if (!user || !user.schoolId || selectedSchoolYearId === '') return;
-    const schoolId = user.schoolId;
+    if (!schoolId || !uid || selectedSchoolYearId === '') return;
 
     const loadStats = async () => {
       try {
@@ -53,16 +54,16 @@ export const StatisticsScreen = () => {
         const semParam = selectedSemester === 'all' ? undefined : selectedSemester;
         const yearParam = selectedSchoolYearId === 'all' ? undefined : selectedSchoolYearId;
 
-        const [school, teachers, vp] = await Promise.all([
-          // Tab "Tổng quan" luôn là toàn trường — không lọc theo người tạo việc.
-          analyticsService.getSchoolStats(schoolId, semParam, yearParam),
-          analyticsService.getAllTeachersStats(schoolId, semParam, yearParam),
+        const [overview, vp] = await Promise.all([
+          // Tab "Tổng quan" + "Giáo viên" — toàn trường, tải chung 1 lần (trước đây
+          // getSchoolStats và getAllTeachersStats mỗi hàm tự tải toàn bộ trường 1 lần).
+          analyticsService.getSchoolOverview(schoolId, semParam, yearParam),
           // Tab "Công việc của tôi" — đúng nghĩa việc do chính người xem tạo.
-          analyticsService.getVPStats(schoolId, user.uid, semParam, yearParam),
+          analyticsService.getVPStats(schoolId, uid, semParam, yearParam),
         ]);
 
-        setSchoolStats(school);
-        setTeachersStats(teachers.sort((a, b) => b.averageScore - a.averageScore));
+        setSchoolStats(overview.schoolStats);
+        setTeachersStats([...overview.teachersStats].sort((a, b) => b.averageScore - a.averageScore));
         setVpStats(vp);
       } catch (error) {
         console.error('Error loading statistics:', error);
@@ -72,7 +73,7 @@ export const StatisticsScreen = () => {
     };
 
     loadStats();
-  }, [user, selectedSchoolYearId, selectedSemester]);
+  }, [schoolId, uid, selectedSchoolYearId, selectedSemester]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">

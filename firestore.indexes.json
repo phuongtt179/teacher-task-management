@@ -2,6 +2,26 @@
   "indexes": [
     { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "score", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+      { "fieldPath": "score", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "semester", "order": "ASCENDING" },
+      { "fieldPath": "score", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+      { "fieldPath": "semester", "order": "ASCENDING" },
+      { "fieldPath": "score", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
       { "fieldPath": "teacherId", "order": "ASCENDING" },
       { "fieldPath": "isLatest", "order": "ASCENDING" }
     ]},

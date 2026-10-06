@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { analyticsService, TeacherStats } from '../../services/analyticsService';
+import { analyticsService, type TeacherStats } from '../../services/analyticsService';
+import { computeTeacherStats, toDate } from '../../services/statsCompute';
 import { schoolYearService } from '../../services/schoolYearService';
 import { SemesterFilter, SEMESTER_FILTER_LABELS, getActiveSemester } from '../../utils/semesterUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatsCard } from '../../components/dashboard/StatsCard';
 import { Award, TrendingUp, Target, CheckCircle, Calendar } from 'lucide-react';
@@ -32,170 +31,85 @@ export const MyScoresScreen = () => {
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
 
-  // Load school years and initial data
+  const schoolId = user?.schoolId;
+  const uid = user?.uid;
+
+  // Bước 1: chỉ nạp năm học + đặt bộ lọc mặc định. Không tải dữ liệu ở đây —
+  // trước đây bước này tải xong rồi đặt bộ lọc làm effect bên dưới tải lại lần 2.
   useEffect(() => {
-    const loadData = async () => {
-      if (!user || !user.schoolId) return;
-      const schoolId = user.schoolId;
-
+    if (!schoolId) return;
+    const init = async () => {
       try {
-        setIsLoading(true);
-
-        // Load school years and active year
         const [years, activeYear] = await Promise.all([
           schoolYearService.getAllSchoolYears(schoolId),
           schoolYearService.getActiveSchoolYear(schoolId),
         ]);
-
         setSchoolYears(years);
-
-        // Set initial filters based on active year
-        let initialSchoolYearId = 'all';
-        let initialSemester: SemesterFilter = 'all';
-
-        if (activeYear) {
-          initialSchoolYearId = activeYear.id;
-          if (activeYear.activeSemester) {
-            initialSemester = activeYear.activeSemester as SemesterFilter;
-          }
-        }
-
-        setSelectedSchoolYearId(initialSchoolYearId);
-        setSelectedSemester(initialSemester);
-
-        // Get teacher stats with initial filters
-        const semesterParam = (initialSemester === 'all' || initialSemester === 'unassigned') ? 'all' : initialSemester;
-        const [teacherStats, schoolStats] = await Promise.all([
-          analyticsService.getTeacherStats(schoolId, user.uid, semesterParam, initialSchoolYearId),
-          analyticsService.getSchoolStats(schoolId, semesterParam, initialSchoolYearId),
-        ]);
-
-        setStats(teacherStats);
-        setSchoolAverage(schoolStats.averageScore);
-
-        // Get detailed scores with initial filters
-        const submissionsQuery = query(
-          collection(db, 'submissions'),
-          where('teacherId', '==', user.uid),
-          where('score', '!=', null)
-        );
-        const submissionsSnap = await getDocs(submissionsQuery);
-
-        const scoresData: ScoreDetail[] = [];
-        for (const doc of submissionsSnap.docs) {
-          const submission = doc.data();
-
-          // Skip if no scoredAt timestamp
-          if (!submission.scoredAt) continue;
-
-          // Filter by semester (client-side)
-          if (initialSemester !== 'all') {
-            if (initialSemester === 'unassigned' && submission.semester) continue;
-            if (initialSemester !== 'unassigned' && submission.semester !== initialSemester) continue;
-          }
-
-          // Get task info
-          const tasksQuery = query(
-            collection(db, 'tasks'),
-            where('__name__', '==', submission.taskId)
-          );
-          const tasksSnap = await getDocs(tasksQuery);
-
-          if (!tasksSnap.empty) {
-            const task = tasksSnap.docs[0].data();
-
-            // Filter by school year (client-side)
-            if (initialSchoolYearId !== 'all' && task.schoolYearId !== initialSchoolYearId) {
-              continue;
-            }
-
-            scoresData.push({
-              taskTitle: task.title,
-              score: submission.score,
-              maxScore: task.maxScore,
-              feedback: submission.feedback || '',
-              scoredAt: submission.scoredAt.toDate(),
-              scoredByName: submission.scoredByName || 'N/A',
-            });
-          }
-        }
-
-        setScores(scoresData.sort((a, b) => b.scoredAt.getTime() - a.scoredAt.getTime()));
+        setSelectedSemester((activeYear?.activeSemester as SemesterFilter) || 'all');
+        setSelectedSchoolYearId(activeYear?.id ?? 'all');
       } catch (error) {
-        console.error('Error loading data:', error);
-      } finally {
+        console.error('Error loading school years:', error);
         setIsLoading(false);
       }
     };
+    init();
+  }, [schoolId]);
 
-    loadData();
-  }, [user]);
-
-  // Reload data when filters change (but not on initial load)
+  // Bước 2: tải dữ liệu theo bộ lọc.
   useEffect(() => {
-    // Skip if initial load hasn't completed (selectedSchoolYearId is still empty)
-    if (!user || !user.schoolId || selectedSchoolYearId === '') return;
-    const schoolId = user.schoolId;
+    if (!schoolId || !uid || selectedSchoolYearId === '') return;
 
     const loadData = async () => {
       try {
         setIsLoading(true);
-
-        // Get teacher stats with filters
         const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
-        const [teacherStats, schoolStats] = await Promise.all([
-          analyticsService.getTeacherStats(schoolId, user.uid, semesterParam, selectedSchoolYearId),
-          analyticsService.getSchoolStats(schoolId, semesterParam, selectedSchoolYearId),
+
+        // Dữ liệu của chính giáo viên này được tải 1 lần, dùng chung cho cả thống kê
+        // lẫn danh sách điểm chi tiết. Điểm TB toàn trường dùng truy vấn tổng hợp
+        // (rất rẻ) thay vì tải toàn bộ dữ liệu cả trường như trước.
+        const [teacherData, avg] = await Promise.all([
+          analyticsService.loadTeacherData(schoolId, uid),
+          analyticsService.getSchoolAverageScore(schoolId, semesterParam, selectedSchoolYearId),
         ]);
 
-        setStats(teacherStats);
-        setSchoolAverage(schoolStats.averageScore);
-
-        // Get detailed scores with filters
-        const submissionsQuery = query(
-          collection(db, 'submissions'),
-          where('teacherId', '==', user.uid),
-          where('score', '!=', null)
+        setStats(
+          teacherData.user
+            ? computeTeacherStats(teacherData.user, teacherData.tasks, teacherData.submissions, semesterParam, selectedSchoolYearId)
+            : null
         );
-        const submissionsSnap = await getDocs(submissionsQuery);
+        setSchoolAverage(avg);
+
+        // Danh sách điểm chi tiết. Trước đây: truy vấn không lọc schoolId (bị
+        // firestore.rules từ chối nên danh sách luôn trống) + mỗi bài 1 truy vấn
+        // riêng để lấy tên việc. Giờ tra tên việc từ dữ liệu đã tải, chỉ việc nào
+        // không còn trong danh sách được giao mới phải tải thêm (gộp 1 lần).
+        const scored = teacherData.submissions.filter((submission) => {
+          if (submission.score == null || !submission.scoredAt) return false;
+          if (selectedSemester === 'unassigned') return !submission.semester;
+          if (selectedSemester !== 'all') return submission.semester === selectedSemester;
+          return true;
+        });
+
+        const taskById = new Map(teacherData.tasks.map((t) => [t.id, t]));
+        const missingIds = [...new Set(scored.map((s) => s.taskId))].filter((id) => !taskById.has(id));
+        if (missingIds.length > 0) {
+          (await analyticsService.getTasksByIds(schoolId, missingIds)).forEach((t) => taskById.set(t.id, t));
+        }
 
         const scoresData: ScoreDetail[] = [];
-        for (const doc of submissionsSnap.docs) {
-          const submission = doc.data();
+        for (const submission of scored) {
+          const task = taskById.get(submission.taskId);
+          if (!task) continue;
+          if (selectedSchoolYearId !== 'all' && task.schoolYearId !== selectedSchoolYearId) continue;
 
-          // Skip if no scoredAt timestamp
-          if (!submission.scoredAt) continue;
-
-          // Filter by semester (client-side)
-          if (selectedSemester !== 'all') {
-            if (selectedSemester === 'unassigned' && submission.semester) continue;
-            if (selectedSemester !== 'unassigned' && submission.semester !== selectedSemester) continue;
-          }
-
-          // Get task info
-          const tasksQuery = query(
-            collection(db, 'tasks'),
-            where('__name__', '==', submission.taskId)
-          );
-          const tasksSnap = await getDocs(tasksQuery);
-
-          if (!tasksSnap.empty) {
-            const task = tasksSnap.docs[0].data();
-
-            // Filter by school year (client-side)
-            if (selectedSchoolYearId !== 'all' && task.schoolYearId !== selectedSchoolYearId) {
-              continue;
-            }
-
-            scoresData.push({
-              taskTitle: task.title,
-              score: submission.score,
-              maxScore: task.maxScore,
-              feedback: submission.feedback || '',
-              scoredAt: submission.scoredAt.toDate(),
-              scoredByName: submission.scoredByName || 'N/A',
-            });
-          }
+          scoresData.push({
+            taskTitle: task.title,
+            score: submission.score as number,
+            maxScore: task.maxScore,
+            feedback: submission.feedback || '',
+            scoredAt: toDate(submission.scoredAt),
+            scoredByName: submission.scoredByName || 'N/A',
+          });
         }
 
         setScores(scoresData.sort((a, b) => b.scoredAt.getTime() - a.scoredAt.getTime()));
@@ -207,7 +121,7 @@ export const MyScoresScreen = () => {
     };
 
     loadData();
-  }, [selectedSemester, selectedSchoolYearId]);
+  }, [schoolId, uid, selectedSemester, selectedSchoolYearId]);
 
   if (isLoading) {
     return (

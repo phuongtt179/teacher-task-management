@@ -111,13 +111,19 @@ export function DocumentBrowseScreen() {
 
   const schoolId = user?.schoolId;
 
+  // Danh sách toàn bộ user chỉ dùng cho ô "Xem hồ sơ của" — chỉ cấp quản lý mới
+  // có ô này (xem getSelectableUsersForPersonalMode), nên giáo viên/nhân viên
+  // không cần tải (trước đây mọi người mở "Hồ sơ điện tử" đều tải cả trường).
+  const canSelectOtherUsers = ['admin', 'principal', 'vice_principal', 'youth_leader', 'department_head', 'deputy_department_head']
+    .includes(user?.role ?? '');
+
   useEffect(() => {
     if (!schoolId) return;
     loadSchoolYears();
     loadUserDepartment();
-    loadAllUsers();
+    if (canSelectOtherUsers) loadAllUsers();
     campusService.getAllCampuses(schoolId).then(setCampuses).catch((error) => console.error('Error loading campuses:', error));
-  }, [user, schoolId]);
+  }, [schoolId, user?.uid, canSelectOtherUsers]);
 
   useEffect(() => {
     if (selectedYearId) {

@@ -28,73 +28,49 @@ export const TeacherDashboard = () => {
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
 
-  // Load school years and set initial filters
+  const schoolId = user?.schoolId;
+  const uid = user?.uid;
+
+  // Bước 1: chỉ nạp danh sách năm học và đặt bộ lọc mặc định. KHÔNG tải thống kê
+  // ở đây — trước đây bước này tải thống kê xong rồi đặt bộ lọc, khiến effect
+  // bên dưới chạy lại và tải thêm lần nữa (mỗi lần mở dashboard tải 2 lần).
   useEffect(() => {
-    const loadData = async () => {
-      if (!user || !user.schoolId) return;
-      const schoolId = user.schoolId;
-
+    if (!schoolId) return;
+    const init = async () => {
       try {
-        setIsLoading(true);
-
-        // Load school years and active year
         const [years, activeYear] = await Promise.all([
           schoolYearService.getAllSchoolYears(schoolId),
           schoolYearService.getActiveSchoolYear(schoolId),
         ]);
-
         setSchoolYears(years);
-
-        // Set initial filters based on active year
-        let initialSchoolYearId = 'all';
-        let initialSemester: SemesterFilter = 'all';
-
-        if (activeYear) {
-          initialSchoolYearId = activeYear.id;
-          if (activeYear.activeSemester) {
-            initialSemester = activeYear.activeSemester as SemesterFilter;
-          }
-        }
-
-        setSelectedSchoolYearId(initialSchoolYearId);
-        setSelectedSemester(initialSemester);
-
-        // Load stats with initial filters
-        const semesterParam = (initialSemester === 'all' || initialSemester === 'unassigned') ? 'all' : initialSemester;
-        const [teacherStats, schoolStats] = await Promise.all([
-          analyticsService.getTeacherStats(schoolId, user.uid, semesterParam, initialSchoolYearId),
-          analyticsService.getSchoolStats(schoolId, semesterParam, initialSchoolYearId),
-        ]);
-
-        setStats(teacherStats);
-        setSchoolAverage(schoolStats.averageScore);
+        setSelectedSemester((activeYear?.activeSemester as SemesterFilter) || 'all');
+        setSelectedSchoolYearId(activeYear?.id ?? 'all');
       } catch (error) {
-        console.error('Error loading data:', error);
-      } finally {
+        console.error('Error loading school years:', error);
         setIsLoading(false);
       }
     };
+    init();
+  }, [schoolId]);
 
-    loadData();
-  }, [user]);
-
-  // Reload stats when filters change (but not on initial load)
+  // Bước 2: tải thống kê theo bộ lọc (chạy 1 lần sau khi bộ lọc được đặt, và mỗi
+  // khi người dùng đổi bộ lọc).
   useEffect(() => {
-    // Skip if initial load hasn't completed (selectedSchoolYearId is still empty)
-    if (!user || !user.schoolId || selectedSchoolYearId === '') return;
-    const schoolId = user.schoolId;
+    if (!schoolId || !uid || selectedSchoolYearId === '') return;
 
     const loadStats = async () => {
       try {
         setIsLoading(true);
         const semesterParam = selectedSemester === 'all' || selectedSemester === 'unassigned' ? 'all' : selectedSemester;
-        const [teacherStats, schoolStats] = await Promise.all([
-          analyticsService.getTeacherStats(schoolId, user.uid, semesterParam, selectedSchoolYearId),
-          analyticsService.getSchoolStats(schoolId, semesterParam, selectedSchoolYearId),
+        // Điểm TB toàn trường: dùng truy vấn tổng hợp phía server (rất rẻ) thay vì
+        // getSchoolStats — hàm đó tải toàn bộ dữ liệu cả trường chỉ để lấy 1 con số.
+        const [teacherStats, avg] = await Promise.all([
+          analyticsService.getTeacherStats(schoolId, uid, semesterParam, selectedSchoolYearId),
+          analyticsService.getSchoolAverageScore(schoolId, semesterParam, selectedSchoolYearId),
         ]);
 
         setStats(teacherStats);
-        setSchoolAverage(schoolStats.averageScore);
+        setSchoolAverage(avg);
       } catch (error) {
         console.error('Error loading stats:', error);
       } finally {
@@ -103,7 +79,7 @@ export const TeacherDashboard = () => {
     };
 
     loadStats();
-  }, [selectedSemester, selectedSchoolYearId]);
+  }, [schoolId, uid, selectedSemester, selectedSchoolYearId]);
 
   if (isLoading) {
     return (

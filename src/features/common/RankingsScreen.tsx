@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { rankingService, AnonymousRanking, RankingPeriod, RankingType } from '../../services/rankingService';
+import { useState, useEffect, useMemo } from 'react';
+import { rankingService, type AnonymousRanking, type RankingPeriod, type RankingStat, type RankingType } from '../../services/rankingService';
 import { useAuth } from '../../hooks/useAuth';
 import { SemesterFilter, SEMESTER_FILTER_LABELS } from '../../utils/semesterUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,22 +10,25 @@ import { Trophy, Medal, Award, TrendingUp, Target, Clock, Crown } from 'lucide-r
 
 export const RankingsScreen = () => {
   const { user } = useAuth();
-  const [rankings, setRankings] = useState<AnonymousRanking[]>([]);
+  const [rankingStats, setRankingStats] = useState<RankingStat[]>([]);
   const [period, setPeriod] = useState<RankingPeriod>('all_time');
   const [rankBy, setRankBy] = useState<RankingType>('total_score');
   const [semesterFilter, setSemesterFilter] = useState<SemesterFilter>('all');
   const [isLoading, setIsLoading] = useState(true);
 
   const schoolId = user?.schoolId;
+  const uid = user?.uid;
+  const role = user?.role;
 
+  // Chỉ tải lại dữ liệu khi đổi kỳ/học kỳ — đổi kiểu xếp hạng chỉ cần sắp xếp lại
+  // số liệu đã có (trước đây mỗi lần đổi kiểu xếp hạng là tải lại toàn bộ trường).
   useEffect(() => {
     if (!schoolId) return;
     const loadRankings = async () => {
       try {
         setIsLoading(true);
         const semesterParam = semesterFilter === 'all' || semesterFilter === 'unassigned' ? 'all' : semesterFilter;
-        const data = await rankingService.getRankings(schoolId, period, rankBy, semesterParam, user?.uid, user?.role);
-        setRankings(data);
+        setRankingStats(await rankingService.getRankingStats(schoolId, period, semesterParam));
       } catch (error) {
         console.error('Error loading rankings:', error);
       } finally {
@@ -34,7 +37,12 @@ export const RankingsScreen = () => {
     };
 
     loadRankings();
-  }, [schoolId, period, rankBy, semesterFilter, user]);
+  }, [schoolId, period, semesterFilter]);
+
+  const rankings: AnonymousRanking[] = useMemo(
+    () => rankingService.rankTeachers(rankingStats, rankBy, uid, role),
+    [rankingStats, rankBy, uid, role]
+  );
 
   const getMedalIcon = (rank: number) => {
     switch (rank) {
