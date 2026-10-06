@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { rankingService, type AnonymousRanking, type RankingPeriod, type RankingStat, type RankingType } from '../../services/rankingService';
+import { useState, useEffect } from 'react';
+import { rankingService, type AnonymousRanking, type RankingPeriod, type RankingType } from '../../services/rankingService';
 import { useAuth } from '../../hooks/useAuth';
 import { SemesterFilter, SEMESTER_FILTER_LABELS } from '../../utils/semesterUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,39 +10,41 @@ import { Trophy, Medal, Award, TrendingUp, Target, Clock, Crown } from 'lucide-r
 
 export const RankingsScreen = () => {
   const { user } = useAuth();
-  const [rankingStats, setRankingStats] = useState<RankingStat[]>([]);
-  const [period, setPeriod] = useState<RankingPeriod>('all_time');
+  const [rankings, setRankings] = useState<AnonymousRanking[]>([]);
+  const [weekStart, setWeekStart] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [period, setPeriod] = useState<RankingPeriod>('school_year');
   const [rankBy, setRankBy] = useState<RankingType>('total_score');
   const [semesterFilter, setSemesterFilter] = useState<SemesterFilter>('all');
   const [isLoading, setIsLoading] = useState(true);
 
   const schoolId = user?.schoolId;
-  const uid = user?.uid;
-  const role = user?.role;
 
-  // Chỉ tải lại dữ liệu khi đổi kỳ/học kỳ — đổi kiểu xếp hạng chỉ cần sắp xếp lại
-  // số liệu đã có (trước đây mỗi lần đổi kiểu xếp hạng là tải lại toàn bộ trường).
+  // Bảng xếp hạng do server tính sẵn mỗi tuần; mỗi lần đổi lựa chọn chỉ tốn vài
+  // lượt đọc (server sắp xếp + ẩn danh rồi mới gửi về).
   useEffect(() => {
     if (!schoolId) return;
     const loadRankings = async () => {
       try {
         setIsLoading(true);
-        const semesterParam = semesterFilter === 'all' || semesterFilter === 'unassigned' ? 'all' : semesterFilter;
-        setRankingStats(await rankingService.getRankingStats(schoolId, period, semesterParam));
+        setLoadError(false);
+        const semesterParam = semesterFilter === 'HK1' || semesterFilter === 'HK2' ? semesterFilter : 'all';
+        const result = await rankingService.getRankings(period, rankBy, semesterParam);
+        setRankings(result.rankings);
+        setWeekStart(result.weekStart);
       } catch (error) {
         console.error('Error loading rankings:', error);
+        setLoadError(true);
       } finally {
         setIsLoading(false);
       }
     };
 
     loadRankings();
-  }, [schoolId, period, semesterFilter]);
+  }, [schoolId, period, rankBy, semesterFilter]);
 
-  const rankings: AnonymousRanking[] = useMemo(
-    () => rankingService.rankTeachers(rankingStats, rankBy, uid, role),
-    [rankingStats, rankBy, uid, role]
-  );
+  // Bảng tính đến hết Chủ nhật trước tuần hiện tại.
+  const dataUntil = weekStart ? new Date(weekStart - 1) : null;
 
   const getMedalIcon = (rank: number) => {
     switch (rank) {
@@ -72,12 +74,12 @@ export const RankingsScreen = () => {
 
   const getPeriodLabel = (p: RankingPeriod) => {
     switch (p) {
-      case 'all_time':
-        return 'Cả năm học này';
-      case 'this_month':
-        return 'Tháng này';
-      case 'this_week':
-        return 'Tuần này';
+      case 'school_year':
+        return 'Cả năm học';
+      case 'last_4_weeks':
+        return '4 tuần gần nhất';
+      case 'last_week':
+        return 'Tuần trước';
     }
   };
 
@@ -125,10 +127,18 @@ export const RankingsScreen = () => {
           Bảng xếp hạng
         </h2>
         <p className="text-gray-600">
-          {user?.role === 'admin' || user?.role === 'vice_principal' || user?.role === 'youth_leader'
-            ? 'Xếp hạng ẩn danh theo thành tích'
+          {['admin', 'principal', 'vice_principal', 'youth_leader'].includes(user?.role ?? '')
+            ? 'Xếp hạng theo thành tích của năm học hiện tại'
             : 'Xếp hạng theo thành tích (chỉ hiển thị tên bạn)'}
         </p>
+        {dataUntil && (
+          <p className="text-sm text-gray-500 mt-1">
+            Cập nhật mỗi sáng thứ Hai — số liệu tính đến hết Chủ nhật {dataUntil.toLocaleDateString('vi-VN')}
+          </p>
+        )}
+        {loadError && (
+          <p className="text-sm text-red-600 mt-1">Không tải được bảng xếp hạng. Vui lòng thử lại sau.</p>
+        )}
       </div>
 
       {/* Filters */}
@@ -145,9 +155,9 @@ export const RankingsScreen = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all_time">Cả năm học này</SelectItem>
-                    <SelectItem value="this_month">Tháng này</SelectItem>
-                    <SelectItem value="this_week">Tuần này</SelectItem>
+                    <SelectItem value="school_year">{getPeriodLabel('school_year')}</SelectItem>
+                    <SelectItem value="last_4_weeks">{getPeriodLabel('last_4_weeks')}</SelectItem>
+                    <SelectItem value="last_week">{getPeriodLabel('last_week')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

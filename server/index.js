@@ -10,6 +10,8 @@ import dotenv from 'dotenv';
 import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials, getValidOAuth2Client } from './oauth-config.js';
 import { sendNewTaskNotification, sendTaskScoredNotification } from './notificationService.js';
 import { checkDeadlinesAndNotify } from './deadlineChecker.js';
+import { getRankingSnapshot, getComboStats } from './rankingSnapshot.js';
+import { rankTeachers, RANKING_PERIODS, RANKING_TYPES, RANKING_SEMESTERS } from '../src/shared/rankingCompute.js';
 import admin, { db as adminDb } from './firebase-config.js';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from './_gemini.js';
 
@@ -2889,6 +2891,26 @@ app.post('/api/chat/document-details', verifyAuth, express.json(), async (req, r
 /**
  * Send notification endpoint
  */
+/**
+ * Bảng xếp hạng giáo viên — tính sẵn mỗi tuần (xem server/rankingSnapshot.js).
+ * Sắp xếp + ẩn danh làm ở server: giáo viên không nhận được tên thật của người khác.
+ */
+app.get('/api/rankings', verifyAuth, async (req, res) => {
+  try {
+    if (!req.schoolId) return res.status(400).json({ error: 'no_school' });
+    const period = RANKING_PERIODS.includes(req.query.period) ? req.query.period : 'school_year';
+    const semester = RANKING_SEMESTERS.includes(req.query.semester) ? req.query.semester : 'all';
+    const rankBy = RANKING_TYPES.includes(req.query.rankBy) ? req.query.rankBy : 'total_score';
+
+    const snapshot = await getRankingSnapshot(req.schoolId);
+    const rankings = rankTeachers(getComboStats(snapshot, period, semester), rankBy, req.uid, req.role);
+    res.json({ rankings, weekStart: snapshot.weekStart, computedAt: snapshot.computedAt });
+  } catch (error) {
+    console.error('Error getting rankings:', error);
+    res.status(500).json({ error: 'rankings_failed' });
+  }
+});
+
 app.post('/api/notifications/send', verifyAuth, express.json(), async (req, res) => {
   try {
     const { type, task, assignedTo, userId, score } = req.body;
