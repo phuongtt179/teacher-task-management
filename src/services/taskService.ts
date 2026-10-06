@@ -123,13 +123,21 @@ export const taskService = {
   },
 
   // Get tasks assigned to teacher
-  async getTasksForTeacher(schoolId: string, teacherUid: string): Promise<Task[]> {
+  // schoolYearId: chỉ lấy việc của năm học đó (để không phải đọc lại việc của mọi năm cũ).
+  async getTasksForTeacher(schoolId: string, teacherUid: string, schoolYearId?: string): Promise<Task[]> {
     try {
-      const q = query(
-        tenantCollection('tasks', schoolId),
-        where('assignedTo', 'array-contains', teacherUid),
-        orderBy('deadline', 'asc')
-      );
+      const q = schoolYearId
+        ? query(
+            tenantCollection('tasks', schoolId),
+            where('assignedTo', 'array-contains', teacherUid),
+            where('schoolYearId', '==', schoolYearId),
+            orderBy('deadline', 'asc')
+          )
+        : query(
+            tenantCollection('tasks', schoolId),
+            where('assignedTo', 'array-contains', teacherUid),
+            orderBy('deadline', 'asc')
+          );
       const snapshot = await getDocs(q);
 
       return snapshot.docs.map((doc) => {
@@ -411,13 +419,16 @@ export const taskService = {
   // riêng). MyTasksScreen trước đây làm vậy: 1 giáo viên có vài chục việc là tốn
   // vài chục lượt đọc chỉ để mở màn danh sách, góp phần lớn vào việc hết quota
   // Firestore khi nhiều giáo viên cùng vào kiểm tra/nộp bài.
-  async getSubmissionsByTeacher(schoolId: string, teacherId: string): Promise<Submission[]> {
+  // schoolYearId: chỉ lấy bài nộp của năm học đó (dựa vào schoolYearId lưu trên bài
+  // nộp — có từ 15/04/2026, nên chỉ dùng cho năm học hiện tại trở đi).
+  async getSubmissionsByTeacher(schoolId: string, teacherId: string, schoolYearId?: string): Promise<Submission[]> {
     try {
-      const q = query(
+      const base = query(
         tenantCollection('submissions', schoolId),
         where('teacherId', '==', teacherId),
         where('isLatest', '==', true)
       );
+      const q = schoolYearId ? query(base, where('schoolYearId', '==', schoolYearId)) : base;
       const snapshot = await getDocs(q);
 
       return snapshot.docs.map((doc) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { googleDriveServiceBackend } from '@/services/googleDriveServiceBackend';
 import { documentService } from '@/services/documentService';
@@ -83,6 +83,12 @@ export function DocumentBrowseScreen() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [userDepartment, setUserDepartment] = useState<Department | null>(null);
   const [currentDocumentType, setCurrentDocumentType] = useState<DocumentType | null>(null);
+  // Bản "luôn mới nhất" của cấu hình loại hồ sơ cho loadDocuments — state trong
+  // closure có thể vẫn là cấu hình của mục mở trước đó.
+  const docTypeRef = useRef<DocumentType | null>(null);
+  const docTypeLoadingRef = useRef(false);
+  const loadDocumentsRequestRef = useRef(0);
+  const [docTypeReadyTick, setDocTypeReadyTick] = useState(0);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>(''); // For personal mode
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -132,34 +138,49 @@ export function DocumentBrowseScreen() {
   }, [selectedYearId]);
 
   useEffect(() => {
-    if (selectedCategoryId) {
-      const category = categories.find(c => c.id === selectedCategoryId);
+    if (!selectedCategoryId) return;
+    const category = categories.find(c => c.id === selectedCategoryId);
+    let cancelled = false;
 
-      // Load DocumentType if category has one
-      if (category?.documentTypeId) {
-        loadDocumentType(category.documentTypeId);
-      } else {
-        setCurrentDocumentType(null);
-      }
-
-      // Reset selected user when category changes
-      setSelectedUserId('');
-
-      if (category?.hasSubCategories) {
-        loadSubCategories(selectedCategoryId);
-      } else {
-        setSubCategories([]);
-        loadDocuments();
-      }
+    // Reset selected user when category changes
+    setSelectedUserId('');
+    if (category?.hasSubCategories) {
+      loadSubCategories(selectedCategoryId);
+    } else {
+      setSubCategories([]);
     }
+
+    // Phải có cấu hình (cá nhân/chia sẻ) của ĐÚNG mục này rồi mới tải hồ sơ. Trước
+    // đây hồ sơ được tải ngay với cấu hình của mục mở trước đó → mở 1 mục "cá nhân"
+    // sau 1 mục "chia sẻ" có thể hiện cả hồ sơ người khác và đọc hồ sơ cả trường.
+    const applyDocumentType = (docType: DocumentType | null) => {
+      if (cancelled) return;
+      docTypeRef.current = docType;
+      docTypeLoadingRef.current = false;
+      setCurrentDocumentType(docType);
+      // Không tải ngay ở đây (closure còn giá trị cũ, vd người đang được chọn xem) —
+      // báo cho effect tải hồ sơ chạy ở lần render kế tiếp với dữ liệu mới nhất.
+      setDocTypeReadyTick((t) => t + 1);
+    };
+
+    if (category?.documentTypeId) {
+      docTypeLoadingRef.current = true;
+      loadDocumentType(category.documentTypeId).then(applyDocumentType);
+    } else {
+      applyDocumentType(null);
+    }
+
+    return () => { cancelled = true; };
   }, [selectedCategoryId]);
 
-  // Auto load documents when subcategory or selected user changes
+  // Nơi DUY NHẤT tự tải hồ sơ khi đổi mục / mục con / người được chọn xem, hoặc khi
+  // cấu hình loại hồ sơ của mục vừa tải xong.
   useEffect(() => {
-    if (selectedSubCategoryId || selectedCategoryId) {
-      loadDocuments();
-    }
-  }, [selectedSubCategoryId, selectedUserId]);
+    if (!selectedCategoryId || docTypeLoadingRef.current) return;
+    const category = categories.find(c => c.id === selectedCategoryId);
+    if (category?.hasSubCategories && !selectedSubCategoryId) return; // chờ chọn mục con
+    loadDocuments();
+  }, [selectedSubCategoryId, selectedUserId, docTypeReadyTick]);
 
   const loadSchoolYears = async () => {
     if (!schoolId) return;
@@ -242,19 +263,24 @@ export function DocumentBrowseScreen() {
     }
   };
 
-  const loadDocumentType = async (documentTypeId: string) => {
+  const loadDocumentType = async (documentTypeId: string): Promise<DocumentType | null> => {
     try {
       const docType = await documentTypeService.getDocumentTypeById(documentTypeId);
-      setCurrentDocumentType(docType);
       console.log('📋 Loaded DocumentType:', docType?.name, 'viewMode:', docType?.viewMode);
+      return docType;
     } catch (error) {
       console.error('Error loading document type:', error);
-      setCurrentDocumentType(null);
+      return null;
     }
   };
 
   const loadDocuments = async () => {
     if (!schoolId) return;
+    // Cấu hình của mục đang mở chưa tải xong thì chưa tải hồ sơ: luồng chọn mục sẽ
+    // tự tải sau khi có cấu hình (tránh dùng nhầm cấu hình của mục mở trước đó).
+    if (docTypeLoadingRef.current) return;
+    const currentDocumentType = docTypeRef.current;
+    const requestId = ++loadDocumentsRequestRef.current;
     try {
       setLoading(true);
       const filters: any = {
@@ -266,19 +292,34 @@ export function DocumentBrowseScreen() {
         filters.subCategoryId = selectedSubCategoryId;
       }
 
-      const allDocs = await documentService.getDocuments(schoolId, filters);
-
-      let filteredDocs: Document[];
-
       // NEW: Use viewMode from DocumentType instead of categoryType
       const viewMode = currentDocumentType?.viewMode;
+      const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment, currentDocumentType);
+      const canSelectOthers = selectableUsers.length > 0;
+      const selectedUserAllowed = selectedUserId && selectableUsers.some((u) => u.uid === selectedUserId);
+      const legacyCategory = categories.find(c => c.id === selectedCategoryId);
+      const isElevatedLegacyViewer = ['admin', 'vice_principal', 'youth_leader', 'principal', 'department_head', 'deputy_department_head']
+        .includes(user?.role ?? '');
+
+      // Chế độ cá nhân luôn chỉ hiện hồ sơ của ĐÚNG 1 người (chính mình, hoặc người
+      // được cấp trên chọn xem) → chỉ hỏi Firestore hồ sơ của người đó. Trước đây tải
+      // về hồ sơ của CẢ TRƯỜNG trong mục rồi mới lọc ở trình duyệt (vd "Kế hoạch bài
+      // dạy" cuối năm ~3.500 hồ sơ cho mỗi lần mở, trong khi chỉ cần ~35).
+      if (viewMode === 'personal') {
+        filters.uploadedBy = canSelectOthers && selectedUserAllowed ? selectedUserId : user?.uid;
+      } else if (!viewMode && legacyCategory?.categoryType === 'personal' && !isElevatedLegacyViewer) {
+        filters.uploadedBy = user?.uid;
+      }
+
+      const allDocs = await documentService.getDocuments(schoolId, filters);
+      // Người dùng đã chuyển sang mục khác trong lúc chờ → bỏ kết quả cũ.
+      if (requestId !== loadDocumentsRequestRef.current) return;
+
+      let filteredDocs: Document[];
 
       if (viewMode === 'personal') {
         // PERSONAL MODE: Each user sees only their own files, unless they manage
         // (not just outrank) the selected user — see getSelectableUsersForPersonalMode.
-        const selectableUsers = getSelectableUsersForPersonalMode(user?.role, allUsers, userDepartment, currentDocumentType);
-        const canSelectOthers = selectableUsers.length > 0;
-        const selectedUserAllowed = selectedUserId && selectableUsers.some((u) => u.uid === selectedUserId);
 
         if (canSelectOthers && selectedUserAllowed) {
           filteredDocs = allDocs.filter(doc =>
@@ -324,13 +365,15 @@ export function DocumentBrowseScreen() {
       setDocuments(filteredDocs);
     } catch (error) {
       console.error('Error loading documents:', error);
-      toast({
-        title: 'Lỗi',
-        description: 'Không thể tải danh sách hồ sơ',
-        variant: 'destructive',
-      });
+      if (requestId === loadDocumentsRequestRef.current) {
+        toast({
+          title: 'Lỗi',
+          description: 'Không thể tải danh sách hồ sơ',
+          variant: 'destructive',
+        });
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadDocumentsRequestRef.current) setLoading(false);
     }
   };
 
@@ -923,7 +966,8 @@ export function DocumentBrowseScreen() {
     if (category.hasSubCategories) {
       toggleCategory(category.id);
     } else {
-      loadDocuments();
+      // Không gọi loadDocuments() ở đây: lúc này state chưa cập nhật nên nó sẽ tải lại
+      // hồ sơ của mục CŨ (tốn lượt đọc vô ích). Effect bên trên tự tải khi đã sẵn sàng.
       // Close sidebar on mobile after selecting category without subcategories
       setSidebarOpen(false);
     }

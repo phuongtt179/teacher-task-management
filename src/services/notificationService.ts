@@ -11,13 +11,46 @@ import {
   doc,
   Timestamp,
   deleteDoc,
+  onSnapshot,
 } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { db, app } from '../lib/firebase';
 // ✅ FIXED: Import Notification từ types (custom type)
 import type { Notification, NotificationType } from '../types';
 
+// Phát khi người dùng tự đánh dấu đã đọc/xóa thông báo, để chuông cập nhật số ngay.
+export const NOTIFICATIONS_CHANGED_EVENT = 'notifications-changed';
+const emitNotificationsChanged = () => window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED_EVENT));
+
 export const notificationService = {
+  /**
+   * Lắng nghe thông báo MỚI của người dùng (tạo sau mốc `since`) — gọi `onNew` mỗi
+   * khi có thông báo mới. Thay cho việc hỏi Firestore định kỳ: trước đây chuông
+   * thông báo hỏi mỗi 60 giây cho MỌI tab đang mở (~60 lượt đọc/giờ/tab kể cả khi
+   * không có gì mới); lắng nghe chỉ tốn lượt đọc khi thật sự có thông báo mới.
+   * Trả về hàm hủy lắng nghe.
+   */
+  subscribeToNewNotifications(userId: string, since: Date, onNew: () => void): () => void {
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', userId),
+      where('createdAt', '>', Timestamp.fromDate(since))
+    );
+    let isFirstSnapshot = true;
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        // Lần đầu chỉ là dữ liệu hiện có (đã được đếm riêng) — bỏ qua.
+        if (isFirstSnapshot) {
+          isFirstSnapshot = false;
+          return;
+        }
+        if (snapshot.docChanges().some((change) => change.type === 'added')) onNew();
+      },
+      (error) => console.error('Error listening for notifications:', error)
+    );
+  },
+
   // Initialize FCM and get token
   async initializeFCM(): Promise<string | null> {
     try {
@@ -187,6 +220,7 @@ export const notificationService = {
       await updateDoc(notifRef, {
         read: true,
       });
+      emitNotificationsChanged();
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
@@ -207,6 +241,7 @@ export const notificationService = {
       );
 
       await Promise.all(updatePromises);
+      emitNotificationsChanged();
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
@@ -216,6 +251,7 @@ export const notificationService = {
   async deleteNotification(notificationId: string): Promise<void> {
     try {
       await deleteDoc(doc(db, 'notifications', notificationId));
+      emitNotificationsChanged();
     } catch (error) {
       console.error('Error deleting notification:', error);
     }

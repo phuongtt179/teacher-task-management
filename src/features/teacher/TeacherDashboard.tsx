@@ -27,6 +27,7 @@ export const TeacherDashboard = () => {
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
+  const [activeYearId, setActiveYearId] = useState<string | undefined>(undefined);
 
   const schoolId = user?.schoolId;
   const uid = user?.uid;
@@ -43,6 +44,7 @@ export const TeacherDashboard = () => {
           schoolYearService.getActiveSchoolYear(schoolId),
         ]);
         setSchoolYears(years);
+        setActiveYearId(activeYear?.id);
         setSelectedSemester((activeYear?.activeSemester as SemesterFilter) || 'all');
         setSelectedSchoolYearId(activeYear?.id ?? 'all');
       } catch (error) {
@@ -65,7 +67,7 @@ export const TeacherDashboard = () => {
         // Điểm TB toàn trường: dùng truy vấn tổng hợp phía server (rất rẻ) thay vì
         // getSchoolStats — hàm đó tải toàn bộ dữ liệu cả trường chỉ để lấy 1 con số.
         const [teacherStats, avg] = await Promise.all([
-          analyticsService.getTeacherStats(schoolId, uid, semesterParam, selectedSchoolYearId),
+          analyticsService.getTeacherStats(schoolId, uid, semesterParam, selectedSchoolYearId, activeYearId),
           analyticsService.getSchoolAverageScore(schoolId, semesterParam, selectedSchoolYearId),
         ]);
 
@@ -79,7 +81,7 @@ export const TeacherDashboard = () => {
     };
 
     loadStats();
-  }, [schoolId, uid, selectedSemester, selectedSchoolYearId]);
+  }, [schoolId, uid, selectedSemester, selectedSchoolYearId, activeYearId]);
 
   if (isLoading) {
     return (

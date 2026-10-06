@@ -1,5 +1,31 @@
 {
   "indexes": [
+    { "collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "userId", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "assignedTo", "arrayConfig": "CONTAINS" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" },
+      { "fieldPath": "deadline", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "assignedTo", "arrayConfig": "CONTAINS" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "isLatest", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "teacherId", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" }
+    ]},
     { "collectionGroup": "submissions", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "schoolId", "order": "ASCENDING" },
       { "fieldPath": "score", "order": "ASCENDING" }

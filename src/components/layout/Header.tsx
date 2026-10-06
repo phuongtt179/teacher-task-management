@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { notificationService } from '../../services/notificationService';
+import { notificationService, NOTIFICATIONS_CHANGED_EVENT } from '../../services/notificationService';
 import { getRoleLabel } from '../../lib/roleLabels';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,19 +28,26 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Phụ thuộc user.uid (chuỗi) thay vì cả object user — object không ổn định
-  // reference giữa các lần render, từng khiến effect này tự chạy lại (và gọi
-  // loadUnreadCount thừa 1 lần) mỗi khi App re-render dù vẫn cùng 1 người.
+  const uid = user?.uid;
+
+  // Đếm số chưa đọc 1 lần khi mở trang, sau đó chỉ đếm lại khi CÓ thông báo mới
+  // (Firestore tự báo qua lắng nghe) hoặc khi người dùng đánh dấu đã đọc/xóa.
+  // Trước đây hỏi Firestore mỗi 60 giây cho mọi tab đang mở (~60 lượt đọc/giờ/tab
+  // kể cả khi không có gì mới) — là khoản tốn quota đều đặn lớn nhất.
   useEffect(() => {
-    if (!user) return;
+    if (!uid) return;
     loadUnreadCount();
 
-    // Poll mỗi 60 giây — đã đổi getUnreadCount sang đếm phía server (không tải
-    // về toàn bộ document nữa) nên chi phí mỗi lần poll giờ rất nhỏ, nhưng vẫn
-    // dãn chu kỳ ra (trước là 30s) để giảm thêm số lượt gọi khi nhiều tab mở cùng lúc.
-    const interval = setInterval(loadUnreadCount, 60000);
-    return () => clearInterval(interval);
-  }, [user?.uid]);
+    // Lùi mốc 10 phút phòng đồng hồ máy người dùng chạy nhanh hơn giờ server
+    // (thông báo do server tạo có thể mang giờ "sớm hơn" mốc tính ở trình duyệt).
+    const since = new Date(Date.now() - 10 * 60 * 1000);
+    const unsubscribe = notificationService.subscribeToNewNotifications(uid, since, loadUnreadCount);
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, loadUnreadCount);
+    return () => {
+      unsubscribe();
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, loadUnreadCount);
+    };
+  }, [uid]);
 
   const loadUnreadCount = async () => {
     if (!user) return;

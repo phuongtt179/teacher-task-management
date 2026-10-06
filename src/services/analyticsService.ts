@@ -88,12 +88,19 @@ async function loadSchoolData(schoolId: string, schoolYearId?: string) {
 }
 
 export const analyticsService = {
-  /** Dữ liệu thô của 1 giáo viên: hồ sơ + việc được giao + mọi bài nộp (mọi phiên bản). */
-  async loadTeacherData(schoolId: string, teacherId: string) {
+  /**
+   * Dữ liệu thô của 1 giáo viên: hồ sơ + việc được giao + mọi bài nộp (mọi phiên bản).
+   * onlyYearId: chỉ đọc dữ liệu của năm học đó thay vì của mọi năm (chỉ truyền cho
+   * năm học HIỆN TẠI — bài nộp có trường schoolYearId từ 15/04/2026, năm cũ hơn có
+   * thể thiếu nên khi xem năm cũ vẫn phải đọc toàn bộ như trước).
+   */
+  async loadTeacherData(schoolId: string, teacherId: string, onlyYearId?: string) {
+    const tasksQuery = query(tenantCollection('tasks', schoolId), where('assignedTo', 'array-contains', teacherId));
+    const submissionsQuery = query(tenantCollection('submissions', schoolId), where('teacherId', '==', teacherId));
     const [usersSnap, tasksSnap, submissionsSnap] = await Promise.all([
       getDocs(query(tenantCollection('users', schoolId), where('__name__', '==', teacherId))),
-      getDocs(query(tenantCollection('tasks', schoolId), where('assignedTo', 'array-contains', teacherId))),
-      getDocs(query(tenantCollection('submissions', schoolId), where('teacherId', '==', teacherId))),
+      getDocs(onlyYearId ? query(tasksQuery, where('schoolYearId', '==', onlyYearId)) : tasksQuery),
+      getDocs(onlyYearId ? query(submissionsQuery, where('schoolYearId', '==', onlyYearId)) : submissionsQuery),
     ]);
     const userData = usersSnap.empty ? null : usersSnap.docs[0].data();
     return {
@@ -114,9 +121,11 @@ export const analyticsService = {
   },
 
   // Thống kê của 1 giáo viên — chỉ đọc dữ liệu của đúng người đó.
-  async getTeacherStats(schoolId: string, teacherId: string, semesterFilter?: SemesterParam, schoolYearId?: string): Promise<TeacherStats | null> {
+  // activeYearId: năm học hiện tại — nếu đang xem đúng năm đó thì chỉ đọc dữ liệu năm này.
+  async getTeacherStats(schoolId: string, teacherId: string, semesterFilter?: SemesterParam, schoolYearId?: string, activeYearId?: string): Promise<TeacherStats | null> {
     try {
-      const { user, tasks, submissions } = await this.loadTeacherData(schoolId, teacherId);
+      const onlyYearId = activeYearId && schoolYearId === activeYearId ? activeYearId : undefined;
+      const { user, tasks, submissions } = await this.loadTeacherData(schoolId, teacherId, onlyYearId);
       if (!user) return null;
       return computeTeacherStats(user, tasks, submissions, semesterFilter, schoolYearId);
     } catch (error) {

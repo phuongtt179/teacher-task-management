@@ -30,6 +30,7 @@ export const MyScoresScreen = () => {
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
+  const [activeYearId, setActiveYearId] = useState<string | undefined>(undefined);
 
   const schoolId = user?.schoolId;
   const uid = user?.uid;
@@ -45,6 +46,7 @@ export const MyScoresScreen = () => {
           schoolYearService.getActiveSchoolYear(schoolId),
         ]);
         setSchoolYears(years);
+        setActiveYearId(activeYear?.id);
         setSelectedSemester((activeYear?.activeSemester as SemesterFilter) || 'all');
         setSelectedSchoolYearId(activeYear?.id ?? 'all');
       } catch (error) {
@@ -68,7 +70,8 @@ export const MyScoresScreen = () => {
         // lẫn danh sách điểm chi tiết. Điểm TB toàn trường dùng truy vấn tổng hợp
         // (rất rẻ) thay vì tải toàn bộ dữ liệu cả trường như trước.
         const [teacherData, avg] = await Promise.all([
-          analyticsService.loadTeacherData(schoolId, uid),
+          // Đang xem năm học hiện tại thì chỉ đọc dữ liệu năm này (không đọc lại mọi năm cũ).
+          analyticsService.loadTeacherData(schoolId, uid, selectedSchoolYearId === activeYearId ? activeYearId : undefined),
           analyticsService.getSchoolAverageScore(schoolId, semesterParam, selectedSchoolYearId),
         ]);
 
@@ -121,7 +124,7 @@ export const MyScoresScreen = () => {
     };
 
     loadData();
-  }, [schoolId, uid, selectedSemester, selectedSchoolYearId]);
+  }, [schoolId, uid, selectedSemester, selectedSchoolYearId, activeYearId]);
 
   if (isLoading) {
     return (

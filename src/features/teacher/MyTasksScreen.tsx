@@ -28,23 +28,49 @@ export const MyTasksScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [schoolYears, setSchoolYears] = useState<SchoolYear[]>([]);
-  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('all');
+  // '' = chưa nạp xong năm học (chưa tải dữ liệu) — tránh tải "tất cả năm" rồi tải lại.
+  const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
+  const [activeYearId, setActiveYearId] = useState<string | undefined>(undefined);
   const [semesterFilter, setSemesterFilter] = useState<SemesterFilter>('all');
 
-  useEffect(() => {
-    const loadData = async () => {
-      if (!user || !user.schoolId) return;
-      const schoolId = user.schoolId;
+  const schoolId = user?.schoolId;
+  const uid = user?.uid;
 
+  // Bước 1: nạp năm học, mặc định chọn năm học hiện tại.
+  useEffect(() => {
+    if (!schoolId) return;
+    const init = async () => {
       try {
-        setIsLoading(true);
-        const [tasksData, schoolYearsData, activeYear, mySubmissions] = await Promise.all([
-          taskService.getTasksForTeacher(schoolId, user.uid),
+        const [schoolYearsData, activeYear] = await Promise.all([
           schoolYearService.getAllSchoolYears(schoolId),
           schoolYearService.getActiveSchoolYear(schoolId),
+        ]);
+        setSchoolYears(schoolYearsData);
+        setActiveYearId(activeYear?.id);
+        setSelectedSchoolYearId(activeYear?.id ?? 'all');
+      } catch (error) {
+        console.error('Error loading school years:', error);
+        setSelectedSchoolYearId('all');
+      }
+    };
+    init();
+  }, [schoolId]);
+
+  // Bước 2: tải việc + bài nộp. Đang xem năm học hiện tại thì chỉ đọc dữ liệu năm
+  // này; xem năm cũ / tất cả thì đọc toàn bộ như trước (bài nộp trước 15/04/2026
+  // không có trường schoolYearId nên không lọc theo năm ở Firestore được).
+  useEffect(() => {
+    if (!schoolId || !uid || selectedSchoolYearId === '') return;
+    const yearScope = activeYearId && selectedSchoolYearId === activeYearId ? activeYearId : undefined;
+
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        const [tasksData, mySubmissions] = await Promise.all([
+          taskService.getTasksForTeacher(schoolId, uid, yearScope),
           // 1 truy vấn duy nhất cho TẤT CẢ bài nộp của giáo viên này, thay vì gọi
           // getSubmission() riêng cho từng task bên dưới (N task = N lượt đọc).
-          taskService.getSubmissionsByTeacher(schoolId, user.uid),
+          taskService.getSubmissionsByTeacher(schoolId, uid, yearScope),
         ]);
         const submissionByTaskId = new Map(mySubmissions.map((s) => [s.taskId, s]));
 
@@ -104,12 +130,6 @@ export const MyTasksScreen = () => {
 
         setTasks(sortedTasks);
         setFilteredTasks(sortedTasks);
-        setSchoolYears(schoolYearsData);
-
-        // Default to active school year if exists
-        if (activeYear) {
-          setSelectedSchoolYearId(activeYear.id);
-        }
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
@@ -118,7 +138,7 @@ export const MyTasksScreen = () => {
     };
 
     loadData();
-  }, [user]);
+  }, [schoolId, uid, selectedSchoolYearId, activeYearId]);
 
   useEffect(() => {
     let filtered = [...tasks];
