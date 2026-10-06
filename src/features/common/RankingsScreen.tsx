@@ -73,7 +73,7 @@ export const RankingsScreen = () => {
   const getPeriodLabel = (p: RankingPeriod) => {
     switch (p) {
       case 'all_time':
-        return 'Tất cả thời gian';
+        return 'Cả năm học này';
       case 'this_month':
         return 'Tháng này';
       case 'this_week':
@@ -145,7 +145,7 @@ export const RankingsScreen = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all_time">Tất cả thời gian</SelectItem>
+                    <SelectItem value="all_time">Cả năm học này</SelectItem>
                     <SelectItem value="this_month">Tháng này</SelectItem>
                     <SelectItem value="this_week">Tuần này</SelectItem>
                   </SelectContent>

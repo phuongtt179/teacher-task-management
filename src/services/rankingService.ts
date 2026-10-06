@@ -1,6 +1,7 @@
 import { getDocs, query, where } from 'firebase/firestore';
 import { tenantCollection } from '../lib/tenantQuery';
-import { Task, Submission } from '../types';
+import { loadTasksAndSubmissions } from './analyticsService';
+import { schoolYearService } from './schoolYearService';
 import {
   computeRankingStats,
   getRankingStartDate,
@@ -26,20 +27,22 @@ export const rankingService = {
    * truy vấn riêng, 1 việc giao 80 người bị đọc lại 80 lần.
    */
   async getRankingStats(schoolId: string, period: RankingPeriod = 'all_time', semesterFilter?: SemesterParam): Promise<RankingStat[]> {
-    const cacheKey = `${schoolId}|${period}|${semesterFilter ?? 'all'}`;
-    const hit = statsCache.get(cacheKey);
-    if (hit && Date.now() - hit.at < STATS_TTL_MS) return hit.data;
-
     try {
-      const [teachersSnap, tasksSnap, submissionsSnap] = await Promise.all([
-        getDocs(query(tenantCollection('users', schoolId), where('role', '==', 'teacher'))),
-        getDocs(tenantCollection('tasks', schoolId)),
-        getDocs(tenantCollection('submissions', schoolId)),
-      ]);
+      // Xếp hạng tính riêng từng năm học ("năm nào dứt điểm năm đó"): chỉ tải việc +
+      // bài nộp của năm học hiện tại. "all_time" = cả năm học này. Chưa có năm học
+      // nào đang hoạt động thì mới tính trên toàn bộ dữ liệu.
+      const activeYear = await schoolYearService.getActiveSchoolYear(schoolId);
+      const yearId = activeYear?.id;
 
+      const cacheKey = `${schoolId}|${yearId ?? 'all'}|${period}|${semesterFilter ?? 'all'}`;
+      const hit = statsCache.get(cacheKey);
+      if (hit && Date.now() - hit.at < STATS_TTL_MS) return hit.data;
+
+      const [teachersSnap, { tasks, submissions }] = await Promise.all([
+        getDocs(query(tenantCollection('users', schoolId), where('role', '==', 'teacher'))),
+        loadTasksAndSubmissions(schoolId, yearId),
+      ]);
       const teachers = teachersSnap.docs.map(d => ({ uid: d.id, displayName: d.data().displayName }));
-      const tasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() } as Task));
-      const submissions = submissionsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Submission));
 
       const data = computeRankingStats(teachers, tasks, submissions, getRankingStartDate(period), semesterFilter);
       statsCache.set(cacheKey, { at: Date.now(), data });

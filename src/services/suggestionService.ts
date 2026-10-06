@@ -1,4 +1,5 @@
 import { analyticsService, TeacherStats } from './analyticsService';
+import { schoolYearService } from './schoolYearService';
 
 export interface TeacherSuggestion extends TeacherStats {
   score: number; // Suggestion score (0-100)
@@ -13,11 +14,15 @@ export interface TeacherSuggestion extends TeacherStats {
 const OVERVIEW_TTL_MS = 10 * 60 * 1000;
 const overviewCache = new Map<string, { at: number; data: Awaited<ReturnType<typeof analyticsService.getSchoolOverview>> }>();
 
+// Chỉ tính trên năm học hiện tại (khối lượng việc đang làm + điểm của năm nay);
+// dữ liệu các năm cũ không còn ý nghĩa cho việc giao việc bây giờ.
 async function getCachedOverview(schoolId: string) {
-  const hit = overviewCache.get(schoolId);
+  const activeYear = await schoolYearService.getActiveSchoolYear(schoolId);
+  const cacheKey = `${schoolId}|${activeYear?.id ?? 'all'}`;
+  const hit = overviewCache.get(cacheKey);
   if (hit && Date.now() - hit.at < OVERVIEW_TTL_MS) return hit.data;
-  const data = await analyticsService.getSchoolOverview(schoolId);
-  overviewCache.set(schoolId, { at: Date.now(), data });
+  const data = await analyticsService.getSchoolOverview(schoolId, undefined, activeYear?.id);
+  overviewCache.set(cacheKey, { at: Date.now(), data });
   return data;
 }
 

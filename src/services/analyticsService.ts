@@ -51,6 +51,18 @@ async function loadSubmissionsForTasks(schoolId: string, taskIds: string[]): Pro
 }
 
 /**
+ * Việc + bài nộp (mọi phiên bản) của trường. Có schoolYearId thì chỉ lấy việc
+ * của năm đó và bài nộp của đúng các việc đó; không có thì lấy toàn bộ.
+ */
+export async function loadTasksAndSubmissions(schoolId: string, schoolYearId?: string) {
+  const tasks = await loadSchoolTasks(schoolId, schoolYearId);
+  const submissions = isYearFilter(schoolYearId)
+    ? await loadSubmissionsForTasks(schoolId, tasks.map(t => t.id))
+    : await loadAllSubmissions(schoolId);
+  return { tasks, submissions };
+}
+
+/**
  * Tải dữ liệu của CẢ TRƯỜNG đúng 1 lần cho mọi thống kê theo giáo viên.
  *
  * Trước đây mỗi giáo viên tự gửi 3 truy vấn riêng (hồ sơ + mọi việc được giao,
@@ -62,13 +74,10 @@ async function loadSubmissionsForTasks(schoolId: string, taskIds: string[]): Pro
  * cả bài nộp cũ chưa có schoolYearId — logic đối chiếu taskId vẫn giữ nguyên).
  */
 async function loadSchoolData(schoolId: string, schoolYearId?: string) {
-  const [usersSnap, tasks] = await Promise.all([
+  const [usersSnap, { tasks, submissions }] = await Promise.all([
     getDocs(query(tenantCollection('users', schoolId), where('role', 'in', TEACHER_ROLES))),
-    loadSchoolTasks(schoolId, schoolYearId),
+    loadTasksAndSubmissions(schoolId, schoolYearId),
   ]);
-  const submissions = isYearFilter(schoolYearId)
-    ? await loadSubmissionsForTasks(schoolId, tasks.map(t => t.id))
-    : await loadAllSubmissions(schoolId);
 
   const teachers = usersSnap.docs.map(d => ({
     uid: d.id,
