@@ -1,5 +1,6 @@
-import { analyticsService, TeacherStats } from './analyticsService';
+import type { TeacherStats } from './analyticsService';
 import { schoolYearService } from './schoolYearService';
+import { statisticsService } from './statisticsService';
 
 export interface TeacherSuggestion extends TeacherStats {
   score: number; // Suggestion score (0-100)
@@ -8,31 +9,22 @@ export interface TeacherSuggestion extends TeacherStats {
   performanceStatus: 'excellent' | 'good' | 'average' | 'needs_improvement';
 }
 
-// Gợi ý chỉ mang tính tham khảo nên dùng lại kết quả trong 10 phút: màn "Tạo công
-// việc" được mở rất nhiều lần/ngày, mỗi lần trước đây đều tải lại toàn bộ dữ liệu
-// của trường để tính gợi ý.
-const OVERVIEW_TTL_MS = 10 * 60 * 1000;
-const overviewCache = new Map<string, { at: number; data: Awaited<ReturnType<typeof analyticsService.getSchoolOverview>> }>();
-
-// Chỉ tính trên năm học hiện tại (khối lượng việc đang làm + điểm của năm nay);
-// dữ liệu các năm cũ không còn ý nghĩa cho việc giao việc bây giờ.
-async function getCachedOverview(schoolId: string) {
+// Số liệu gợi ý (việc đang làm, điểm TB, tỷ lệ hoàn thành của năm học hiện tại) lấy
+// từ bản thống kê server đã tính sẵn mỗi ngày cho màn "Thống kê" — trùng khớp hoàn
+// toàn với số liệu trước đây trình duyệt tự tính, nhưng mỗi lần mở "Tạo công việc"
+// chỉ tốn vài lượt đọc thay vì đọc lại mọi bài nộp của năm (~11.000 lượt cuối năm).
+// Đổi lại: số liệu cập nhật 1 lần/ngày — gợi ý chỉ mang tính tham khảo.
+async function getSchoolStatistics(schoolId: string) {
   const activeYear = await schoolYearService.getActiveSchoolYear(schoolId);
-  const cacheKey = `${schoolId}|${activeYear?.id ?? 'all'}`;
-  const hit = overviewCache.get(cacheKey);
-  if (hit && Date.now() - hit.at < OVERVIEW_TTL_MS) return hit.data;
-  const data = await analyticsService.getSchoolOverview(schoolId, undefined, activeYear?.id);
-  overviewCache.set(cacheKey, { at: Date.now(), data });
-  return data;
+  const statistics = await statisticsService.getStatistics(activeYear?.id ?? 'all');
+  return statistics.bySemester.all;
 }
 
 export const suggestionService = {
   // Get smart assignment suggestions
   async getAssignmentSuggestions(schoolId: string): Promise<TeacherSuggestion[]> {
     try {
-      // Thống kê toàn trường + từng giáo viên trong 1 lần tải (trước đây gọi
-      // getAllTeachersStats rồi getSchoolStats — mỗi hàm tải toàn bộ trường 1 lần).
-      const { teachersStats, schoolStats } = await getCachedOverview(schoolId);
+      const { teachersStats, schoolStats } = await getSchoolStatistics(schoolId);
 
       // Calculate suggestion score for each teacher
       const suggestions = teachersStats.map(teacher => {
