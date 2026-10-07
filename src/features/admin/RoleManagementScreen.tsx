@@ -23,9 +23,10 @@ export const RoleManagementScreen = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   const load = async () => {
+    if (!user?.schoolId) return;
     setIsFetching(true);
     try {
-      const labels = await roleLabelService.getCustomLabels();
+      const labels = await roleLabelService.getCustomLabels(user.schoolId);
       setLocalCustomLabels(labels);
       setCustomRoleLabels(labels); // đồng bộ cache dùng chung
     } catch (error) {
@@ -38,7 +39,7 @@ export const RoleManagementScreen = () => {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [user?.schoolId]);
 
   const handleStartEdit = (role: UserRole) => {
     setEditingRole(role);
@@ -56,9 +57,10 @@ export const RoleManagementScreen = () => {
       toast({ variant: 'destructive', title: 'Lỗi', description: 'Tên không được để trống' });
       return;
     }
+    if (!user?.schoolId) return;
     setIsSaving(true);
     try {
-      await roleLabelService.setLabel(role, trimmed, user?.email || 'admin');
+      await roleLabelService.setLabel(user.schoolId, role, trimmed, user.email || 'admin');
       const updated = { ...getCustomRoleLabels(), [role]: trimmed };
       setCustomRoleLabels(updated);
       setLocalCustomLabels(updated);
@@ -73,10 +75,11 @@ export const RoleManagementScreen = () => {
   };
 
   const handleResetToDefault = async (role: UserRole) => {
+    if (!user?.schoolId) return;
     if (!confirm(`Đưa tên vai trò về mặc định "${DEFAULT_ROLE_LABELS[role]}"?`)) return;
     setIsSaving(true);
     try {
-      await roleLabelService.resetLabel(role, user?.email || 'admin');
+      await roleLabelService.resetLabel(user.schoolId, role, user.email || 'admin');
       const updated = { ...getCustomRoleLabels() };
       delete updated[role];
       setCustomRoleLabels(updated);

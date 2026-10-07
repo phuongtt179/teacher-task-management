@@ -69,6 +69,9 @@ async function verifyAuth(req, res, next) {
     req.role = userData.role;
     req.schoolId = userData.schoolId || null;
     req.isSuperAdmin = userData.isSuperAdmin === true;
+    // Tên người gọi lấy từ hồ sơ trên server — KHÔNG dùng displayName client gửi lên
+    // (tránh giả tên người khác, và tránh chèn lệnh vào câu dẫn của Trợ lý AI).
+    req.displayName = String(userData.displayName || userData.email || '').slice(0, 100);
 
     // "Ngắt/mở": Admin SDK bypasses firestore.rules, so this server must enforce
     // the same schools/{id}.isActive check the rules already apply to direct
@@ -98,11 +101,32 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+// Chỉ nhận các loại file hồ sơ/bài nộp thông dụng — chặn file chạy được (.exe,
+// .bat, .js...) và file trang web (.html, .svg) vì file trên Drive được chia sẻ qua link.
+const ALLOWED_UPLOAD_EXTENSIONS = new Set([
+  // Văn bản
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf', 'txt', 'csv',
+  // Hình ảnh
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'bmp',
+  // Âm thanh / video (minh chứng hoạt động)
+  'mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'm4a', 'wav',
+  // Nén
+  'zip', 'rar', '7z',
+]);
+
 // Configure multer for file uploads
 const upload = multer({
   dest: 'uploads/',
   limits: {
     fileSize: 100 * 1024 * 1024, // 100MB max file size
+  },
+  fileFilter: (req, file, cb) => {
+    const ext = String(file.originalname || '').split('.').pop().toLowerCase();
+    if (!ALLOWED_UPLOAD_EXTENSIONS.has(ext)) {
+      req.rejectedFileExt = ext || '(không có đuôi)';
+      return cb(null, false);
+    }
+    cb(null, true);
   },
 });
 
@@ -481,6 +505,13 @@ app.post('/api/upload', verifyAuth, upload.single('file'), async (req, res) => {
       });
     }
 
+    if (req.rejectedFileExt) {
+      return res.status(400).json({
+        error: 'file_type_not_allowed',
+        message: `Không nhận loại file .${req.rejectedFileExt}. Chỉ nhận văn bản (pdf, Word, Excel, PowerPoint...), hình ảnh, âm thanh/video hoặc file nén (zip, rar, 7z).`,
+      });
+    }
+
     if (!req.file) {
       return res.status(400).json({
         error: 'No file provided',
@@ -667,14 +698,62 @@ app.post('/api/schools', verifyAuth, requireSuperAdmin, express.json(), async (r
 });
 
 /**
+ * Giới hạn số lần gọi AI của MỖI người (bộ nhớ trong server — đủ cho 1 instance
+ * Render). Chặn 1 tài khoản gọi liên tục làm cạn hạn mức Gemini và lượt đọc
+ * Firestore của cả trường. Mức đặt rộng — người dùng bình thường không chạm tới.
+ */
+const AI_RATE_LIMITS = { perMinute: 10, perDay: 150 };
+const aiUsageByUid = new Map(); // uid -> { minuteStart, minuteCount, dayKey, dayCount }
+function checkAiRateLimit(uid) {
+  const now = Date.now();
+  const dayKey = new Date(now).toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+  let u = aiUsageByUid.get(uid);
+  if (!u || u.dayKey !== dayKey) {
+    u = { minuteStart: now, minuteCount: 0, dayKey, dayCount: 0 };
+    aiUsageByUid.set(uid, u);
+  }
+  if (now - u.minuteStart >= 60 * 1000) {
+    u.minuteStart = now;
+    u.minuteCount = 0;
+  }
+  if (u.dayCount >= AI_RATE_LIMITS.perDay) return 'day';
+  if (u.minuteCount >= AI_RATE_LIMITS.perMinute) return 'minute';
+  u.minuteCount += 1;
+  u.dayCount += 1;
+  return null;
+}
+// Dọn các mục của ngày cũ mỗi giờ để Map không phình mãi.
+setInterval(() => {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+  for (const [uid, u] of aiUsageByUid) if (u.dayKey !== today) aiUsageByUid.delete(uid);
+}, 60 * 60 * 1000).unref();
+
+const AI_RATE_LIMIT_MESSAGES = {
+  minute: 'Bạn gửi yêu cầu AI quá nhanh, vui lòng đợi 1 phút rồi thử lại.',
+  day: 'Bạn đã dùng hết lượt Trợ lý AI hôm nay, mai dùng lại nhé.',
+};
+const PARSE_TASKS_MAX_CHARS = 30000;
+
+/**
  * Parse tasks from text using Gemini AI
  */
-app.post('/api/parse-tasks', verifyAuth, express.json(), async (req, res) => {
+app.post('/api/parse-tasks', verifyAuth, express.json({ limit: '1mb' }), async (req, res) => {
   try {
-    const { text, teachers } = req.body;
+    const { text } = req.body || {};
+    const teachers = Array.isArray(req.body?.teachers) ? req.body.teachers.slice(0, 500) : [];
 
-    if (!text || !text.trim()) {
+    if (typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({ error: 'Vui lòng cung cấp văn bản cần phân tích' });
+    }
+    if (text.length > PARSE_TASKS_MAX_CHARS) {
+      return res.status(400).json({
+        error: 'text_too_long',
+        message: `Văn bản quá dài (tối đa ${PARSE_TASKS_MAX_CHARS.toLocaleString('vi-VN')} ký tự), hãy chia nhỏ để phân tích.`,
+      });
+    }
+    const limited = checkAiRateLimit(req.uid);
+    if (limited) {
+      return res.status(429).json({ error: 'rate_limited', message: AI_RATE_LIMIT_MESSAGES[limited] });
     }
 
     const keys = getGeminiKeys();
@@ -2356,13 +2435,19 @@ const APP_GUIDE = `HƯỚNG DẪN SỬ DỤNG APP (dùng để trả lời khi g
 app.post('/api/chat', verifyAuth, express.json(), async (req, res) => {
   try {
     const ctx = { uid: req.uid, schoolId: req.schoolId, role: req.role };
-    const { displayName, messages, channelId } = req.body || {};
+    // Bỏ xuống dòng/ngoặc kép: tên do chính người dùng đặt, không được phá câu dẫn.
+    const displayName = req.displayName.replace(/["\r\n]/g, ' ');
+    const { messages, channelId } = req.body || {};
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'no_message' });
     }
     // Công tắc "Trợ lý AI cho giáo viên" của trường — kiểm tra cả ở server (không chỉ ẩn nút).
     if (!(await isAiAllowed(ctx.schoolId, ctx.role))) {
       return res.status(403).json({ error: 'ai_disabled_for_role' });
+    }
+    const limited = checkAiRateLimit(ctx.uid);
+    if (limited) {
+      return res.status(429).json({ error: limited === 'day' ? 'rate_limited_day' : 'rate_limited', message: AI_RATE_LIMIT_MESSAGES[limited] });
     }
 
     const keys = getGeminiKeys();
@@ -2447,9 +2532,13 @@ ${isFirstMessage ? `Đây là tin nhắn ĐẦU TIÊN của phiên trò chuyện
 ${APP_GUIDE}
 Khi giáo viên hỏi CÁCH DÙNG app (không phải hỏi dữ liệu cụ thể), trả lời dựa vào phần HƯỚNG DẪN SỬ DỤNG APP ở trên — KHÔNG cần gọi hàm nào.`;
 
-    const contents = messages.map(m => ({
+    // Chỉ gửi 30 tin gần nhất, mỗi tin tối đa 8000 ký tự — bớt dữ liệu gửi ra ngoài
+    // và tránh 1 yêu cầu quá lớn.
+    const recent = messages.slice(-30);
+    while (recent.length > 1 && recent[0]?.role === 'model') recent.shift(); // hội thoại phải bắt đầu bằng lượt người dùng
+    const contents = recent.map(m => ({
       role: m.role === 'model' ? 'model' : 'user',
-      parts: [{ text: String(m.content || '') }],
+      parts: [{ text: String(m.content || '').slice(0, 8000) }],
     }));
 
     const tools = channelId === 'school-info' ? CHAT_TOOLS_WITH_SCHOOL_WRITE : CHAT_TOOLS;
@@ -2589,6 +2678,32 @@ Khi giáo viên hỏi CÁCH DÙNG app (không phải hỏi dữ liệu cụ th�
 });
 
 /**
+ * Tính lại trạng thái chung của 1 công việc từ các bài nộp mới nhất (giống
+ * taskService.updateTaskStatus phía client). Chạy ở server vì giáo viên không còn
+ * được đọc bài nộp của người khác (firestore.rules) nên không tự tính được.
+ */
+async function recomputeTaskStatus(taskRef, task) {
+  const latestSubsSnap = await adminDb.collection('submissions')
+    .where('taskId', '==', taskRef.id)
+    .where('isLatest', '==', true)
+    .get();
+  const latestSubs = latestSubsSnap.docs.map(d => d.data());
+  const deadline1 = task.deadline?.toDate ? task.deadline.toDate() : new Date(task.deadline);
+  let newStatus = task.status;
+  if (latestSubs.length === 0 && new Date() > deadline1) {
+    newStatus = 'overdue';
+  } else if (latestSubs.length === (task.assignedTo || []).length) {
+    const allGraded = latestSubs.every(s => s.score !== undefined);
+    newStatus = allGraded ? 'completed' : 'submitted';
+  } else if (latestSubs.length > 0) {
+    newStatus = 'submitted';
+  }
+  if (newStatus !== task.status) {
+    await taskRef.update({ status: newStatus });
+  }
+}
+
+/**
  * Hoàn thành công việc qua Chat AI — ghi y hệt logic taskService.submitReport
  * (tính điểm tự động theo deadline, versioning khi nộp lại, cập nhật trạng thái,
  * báo cho người giao việc) nhưng chạy ở server qua Admin SDK.
@@ -2597,7 +2712,8 @@ Khi giáo viên hỏi CÁCH DÙNG app (không phải hỏi dữ liệu cụ th�
 app.post('/api/chat/complete-task', verifyAuth, express.json(), async (req, res) => {
   try {
     const uid = req.uid;
-    const { displayName, taskId, content, fileUrls, fileNames } = req.body || {};
+    const displayName = req.displayName;
+    const { taskId, content, fileUrls, fileNames } = req.body || {};
     if (!taskId || !content || !content.trim()) {
       return res.status(400).json({ error: 'missing_fields' });
     }
@@ -2669,24 +2785,7 @@ app.post('/api/chat/complete-task', verifyAuth, express.json(), async (req, res)
 
     await taskRef.update({ status: 'submitted', updatedAt: admin.firestore.Timestamp.now() });
 
-    // Recompute aggregate task status (mirrors taskService.updateTaskStatus)
-    const latestSubsSnap = await adminDb.collection('submissions')
-      .where('taskId', '==', taskId)
-      .where('isLatest', '==', true)
-      .get();
-    const latestSubs = latestSubsSnap.docs.map(d => d.data());
-    let newStatus = task.status;
-    if (latestSubs.length === 0 && now > deadline1) {
-      newStatus = 'overdue';
-    } else if (latestSubs.length === (task.assignedTo || []).length) {
-      const allGraded = latestSubs.every(s => s.score !== undefined);
-      newStatus = allGraded ? 'completed' : 'submitted';
-    } else if (latestSubs.length > 0) {
-      newStatus = 'submitted';
-    }
-    if (newStatus !== task.status) {
-      await taskRef.update({ status: newStatus });
-    }
+    await recomputeTaskStatus(taskRef, { ...task, status: 'submitted' });
 
     if (task.createdBy) {
       await adminDb.collection('notifications').add({
@@ -2715,15 +2814,14 @@ app.post('/api/chat/complete-task', verifyAuth, express.json(), async (req, res)
 app.post('/api/chat/forward-task', verifyAuth, express.json(), async (req, res) => {
   try {
     const uid = req.uid;
-    const { displayName, title, description, priority, deadline, schoolYearId, targetUids, targetNames } = req.body || {};
+    const { title, description, priority, deadline, schoolYearId, targetUids, targetNames } = req.body || {};
     if (!title || !description || !deadline || !schoolYearId || !Array.isArray(targetUids) || targetUids.length === 0) {
       return res.status(400).json({ error: 'missing_fields' });
     }
 
-    const callerSnap = await adminDb.collection('users').doc(uid).get();
     if (req.role !== 'van_thu') return res.status(403).json({ error: 'not_authorized' });
 
-    const createdByName = displayName || callerSnap.data()?.displayName || 'Văn thư';
+    const createdByName = req.displayName || 'Văn thư';
     const taskData = {
       schoolId: req.schoolId,
       schoolYearId,
@@ -2776,7 +2874,7 @@ app.post('/api/chat/update-profile', verifyAuth, express.json(), async (req, res
   try {
     const uid = req.uid;
     const { displayName } = req.body || {};
-    const newName = String(displayName || '').trim();
+    const newName = String(displayName || '').trim().slice(0, 100);
     if (!newName) return res.status(400).json({ error: 'missing_fields' });
 
     await adminDb.collection('users').doc(uid).update({
@@ -2799,10 +2897,9 @@ app.post('/api/chat/update-profile', verifyAuth, express.json(), async (req, res
 app.post('/api/chat/add-school-info', verifyAuth, express.json(), async (req, res) => {
   try {
     const uid = req.uid;
-    const { displayName, topic, content, schoolYearId, existingId } = req.body || {};
+    const { topic, content, schoolYearId, existingId } = req.body || {};
     if (!topic || !content) return res.status(400).json({ error: 'missing_fields' });
 
-    const callerSnap = await adminDb.collection('users').doc(uid).get();
     if (!SCHOOL_INFO_EDITOR_ROLES.includes(req.role)) return res.status(403).json({ error: 'not_authorized' });
 
     const data = {
@@ -2811,7 +2908,7 @@ app.post('/api/chat/add-school-info', verifyAuth, express.json(), async (req, re
       content: String(content).trim(),
       schoolYearId: schoolYearId || null,
       createdBy: uid,
-      createdByName: displayName || callerSnap.data()?.displayName || '',
+      createdByName: req.displayName,
       updatedAt: admin.firestore.Timestamp.now(),
     };
 
@@ -2842,7 +2939,7 @@ app.post('/api/chat/add-school-info', verifyAuth, express.json(), async (req, re
 app.post('/api/chat/submit-document', verifyAuth, express.json(), async (req, res) => {
   try {
     const uid = req.uid;
-    const { displayName, schoolYearId, categoryId, subCategoryId, title, files } = req.body || {};
+    const { schoolYearId, categoryId, subCategoryId, title, files } = req.body || {};
     if (!schoolYearId || !categoryId || !title || !Array.isArray(files) || files.length === 0) {
       return res.status(400).json({ error: 'missing_fields' });
     }
@@ -2862,7 +2959,7 @@ app.post('/api/chat/submit-document', verifyAuth, express.json(), async (req, re
         driveFileUrl: f.driveFileUrl || '',
       })),
       uploadedBy: uid,
-      uploadedByName: displayName || '',
+      uploadedByName: req.displayName,
       uploadedAt: admin.firestore.Timestamp.now(),
       status,
       isPublic: false,
@@ -3023,6 +3120,64 @@ app.get('/api/statistics', verifyAuth, async (req, res) => {
   } catch (error) {
     console.error('Error getting statistics:', error);
     res.status(500).json({ error: 'statistics_failed' });
+  }
+});
+
+/**
+ * Cập nhật trạng thái chung của công việc sau khi giáo viên nộp bài trên web.
+ * Chỉ người được giao việc đó hoặc BGH/admin của đúng trường mới gọi được.
+ */
+app.post('/api/tasks/:taskId/refresh-status', verifyAuth, async (req, res) => {
+  try {
+    const taskRef = adminDb.collection('tasks').doc(String(req.params.taskId));
+    const taskSnap = await taskRef.get();
+    if (!taskSnap.exists) return res.status(404).json({ error: 'task_not_found' });
+    const task = taskSnap.data();
+    if (task.schoolId !== req.schoolId) return res.status(403).json({ error: 'not_authorized' });
+    const isAssignee = Array.isArray(task.assignedTo) && task.assignedTo.includes(req.uid);
+    if (!isAssignee && !TASK_MANAGER_ROLES.includes(req.role)) {
+      return res.status(403).json({ error: 'not_authorized' });
+    }
+    await recomputeTaskStatus(taskRef, task);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error refreshing task status:', error);
+    res.status(500).json({ error: 'refresh_status_failed' });
+  }
+});
+
+/**
+ * Điểm trung bình toàn trường (dashboard / "Điểm của tôi" của giáo viên). Tính ở
+ * server vì giáo viên không còn được đọc bài nộp của người khác. Dùng truy vấn tổng
+ * hợp average() (~1 lượt đọc/1000 bài nộp), nhớ tạm 10 phút cho mỗi bộ lọc.
+ * ?year=<schoolYearId|all>&semester=<HK1|HK2|all>
+ */
+const schoolAverageCache = new Map();
+const SCHOOL_AVERAGE_TTL_MS = 10 * 60 * 1000;
+app.get('/api/school-average', verifyAuth, async (req, res) => {
+  try {
+    if (!req.schoolId) return res.status(400).json({ error: 'no_school' });
+    const year = typeof req.query.year === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(req.query.year)
+      ? req.query.year
+      : 'all';
+    const semester = ['HK1', 'HK2'].includes(String(req.query.semester)) ? String(req.query.semester) : 'all';
+    const key = `${req.schoolId}|${year}|${semester}`;
+    const cached = schoolAverageCache.get(key);
+    if (cached && Date.now() - cached.at < SCHOOL_AVERAGE_TTL_MS) {
+      return res.json({ average: cached.average });
+    }
+
+    let q = adminDb.collection('submissions').where('schoolId', '==', req.schoolId);
+    if (year !== 'all') q = q.where('schoolYearId', '==', year);
+    if (semester !== 'all') q = q.where('semester', '==', semester);
+    const snap = await q.aggregate({ avgScore: admin.firestore.AggregateField.average('score') }).get();
+    const avg = snap.data().avgScore;
+    const average = avg == null ? 0 : Math.round(avg * 10) / 10;
+    schoolAverageCache.set(key, { average, at: Date.now() });
+    res.json({ average });
+  } catch (error) {
+    console.error('Error getting school average:', error);
+    res.status(500).json({ error: 'school_average_failed' });
   }
 });
 

@@ -105,13 +105,15 @@ service cloud.firestore {
     }
 
     // App-wide feature flags (e.g. chat UI beta rollout) — intentionally global,
-    // not tenant-scoped.
+    // not tenant-scoped. Vì dùng CHUNG cho mọi trường nên chỉ super-admin được sửa —
+    // admin của 1 trường không được đổi cấu hình của các trường khác.
     match /config/{configId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || isSuperAdmin();
+      allow write: if isSuperAdmin();
     }
 
-    // Cấu hình RIÊNG từng trường (vd công tắc Trợ lý AI cho giáo viên). Người trong trường
+    // Cấu hình RIÊNG từng trường (công tắc Trợ lý AI cho giáo viên, tên hiển thị vai trò
+    // roleLabels — trước đây nằm chung ở config/roleLabels). Người trong trường
     // đọc được; chỉ admin/hiệu trưởng CỦA CHÍNH TRƯỜNG ĐÓ sửa được.
     match /schoolSettings/{schoolId} {
       allow read: if isSuperAdmin() || (isSignedIn() && userSchoolId() == schoolId);
@@ -197,7 +199,13 @@ service cloud.firestore {
     // ==================== SUBMISSIONS ====================
 
     match /submissions/{submissionId} {
-      allow read: if sameSchool(resource.data);
+      // Bài nộp (nội dung, điểm, nhận xét) chỉ người nộp và BGH/admin đọc được — giáo
+      // viên KHÔNG xem được bài của đồng nghiệp. Truy vấn danh sách của giáo viên vì vậy
+      // phải có where('teacherId', '==', uid của chính mình); điểm TB toàn trường và
+      // trạng thái chung của công việc do server tính (Admin SDK).
+      allow read: if sameSchool(resource.data) &&
+                  (resource.data.teacherId == request.auth.uid ||
+                   isVicePrincipal() || isAdmin() || isPrincipal());
       // request.resource.data.teacherId phải khớp người đang tạo — tránh giả mạo bài nộp đứng tên người khác.
       allow create: if isSignedIn() &&
                     request.resource.data.teacherId == request.auth.uid &&

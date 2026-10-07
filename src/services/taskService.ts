@@ -17,7 +17,10 @@ import { tenantCollection } from '../lib/tenantQuery';
 import { notificationService } from './notificationService';
 import { googleDriveServiceBackend } from './googleDriveServiceBackend';
 import { schoolYearService } from './schoolYearService';
+import { authFetch } from '../lib/authFetch';
 import { Task, Submission, TaskStatus } from '../types';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 // ✅ HÀM HELPER: Loại bỏ dấu tiếng Việt và ký tự đặc biệt
 export const removeVietnameseTones = (str: string): string => {
@@ -290,8 +293,8 @@ export const taskService = {
       // else: Quá cả 2 deadline - điểm = 0, metDeadline = undefined
 
       // Check for existing submissions to handle version tracking
-      const existingSubmissions = await this.getSubmissionsForTask(schoolId, taskId);
-      const userExistingSubmission = existingSubmissions.find(s => s.teacherId === teacherId);
+      // Chỉ đọc bài nộp của CHÍNH người nộp — giáo viên không được đọc bài của người khác.
+      const userExistingSubmission = await this.getSubmission(schoolId, taskId, teacherId);
 
       let version = 1;
       let previousVersionId: string | undefined;
@@ -337,8 +340,14 @@ export const taskService = {
       // Update task status to submitted
       await this.updateTask(taskId, { status: 'submitted' });
 
-      // Update task status based on all submissions
-      await this.updateTaskStatus(schoolId, taskId);
+      // Trạng thái chung (dựa trên bài nộp của MỌI người) do server tính — giáo viên
+      // không đọc được bài nộp của người khác. Lỗi ở bước này không làm hỏng việc nộp.
+      try {
+        const response = await authFetch(`${API_BASE_URL}/tasks/${encodeURIComponent(taskId)}/refresh-status`, { method: 'POST' });
+        if (!response.ok) console.error('Refresh task status failed:', response.status);
+      } catch (statusError) {
+        console.error('Error refreshing task status:', statusError);
+      }
 
       // Notify VP
       await notificationService.notifyTaskSubmitted(

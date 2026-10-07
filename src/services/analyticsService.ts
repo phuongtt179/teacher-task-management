@@ -1,11 +1,10 @@
 import {
   getDocs,
-  getAggregateFromServer,
-  average,
   query,
   where,
 } from 'firebase/firestore';
 import { tenantCollection } from '../lib/tenantQuery';
+import { authFetch } from '../lib/authFetch';
 import { Task, Submission } from '../types';
 import {
   computeTeacherStats,
@@ -22,6 +21,8 @@ export type { TeacherStats, SchoolStats } from './statsCompute';
 const IN_QUERY_LIMIT = 30;
 
 const TEACHER_ROLES = ['teacher', 'department_head', 'deputy_department_head'];
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 const isYearFilter = (schoolYearId?: string): schoolYearId is string =>
   !!schoolYearId && schoolYearId !== 'all';
@@ -180,21 +181,21 @@ export const analyticsService = {
   /**
    * Điểm trung bình toàn trường cho dashboard/"Điểm của tôi" của giáo viên.
    *
-   * Dùng truy vấn tổng hợp average() phía server — tính phí ~1 lượt đọc cho mỗi
-   * 1000 bài nộp, thay vì tải toàn bộ dữ liệu cả trường chỉ để lấy 1 con số như
-   * trước (mỗi giáo viên mở dashboard từng tốn hàng chục nghìn lượt đọc).
-   * Khác biệt nhỏ so với cách tính cũ: lọc năm học theo trường schoolYearId của
-   * bài nộp (bài nộp rất cũ chưa có trường này sẽ không được tính khi lọc năm).
+   * Server tính bằng truy vấn tổng hợp average() (~1 lượt đọc/1000 bài nộp) — không
+   * tính ở trình duyệt nữa vì giáo viên không được đọc bài nộp của người khác
+   * (firestore.rules). Lọc năm học theo trường schoolYearId của bài nộp (bài nộp
+   * rất cũ chưa có trường này sẽ không được tính khi lọc năm).
    */
-  async getSchoolAverageScore(schoolId: string, semesterFilter?: SemesterParam, schoolYearId?: string): Promise<number> {
+  async getSchoolAverageScore(_schoolId: string, semesterFilter?: SemesterParam, schoolYearId?: string): Promise<number> {
     try {
-      let q = tenantCollection('submissions', schoolId);
-      if (isYearFilter(schoolYearId)) q = query(q, where('schoolYearId', '==', schoolYearId));
-      if (semesterFilter && semesterFilter !== 'all') q = query(q, where('semester', '==', semesterFilter));
-
-      const snap = await getAggregateFromServer(q, { avgScore: average('score') });
-      const avg = snap.data().avgScore;
-      return avg == null ? 0 : Math.round(avg * 10) / 10;
+      const params = new URLSearchParams({
+        year: isYearFilter(schoolYearId) ? schoolYearId : 'all',
+        semester: semesterFilter || 'all',
+      });
+      const response = await authFetch(`${API_BASE_URL}/school-average?${params}`);
+      if (!response.ok) throw new Error(`School average request failed: ${response.status}`);
+      const { average } = await response.json();
+      return typeof average === 'number' ? average : 0;
     } catch (error) {
       console.error('Error getting school average score:', error);
       return 0;

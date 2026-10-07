@@ -352,9 +352,11 @@ export function ChatScreen() {
       if (!res.ok || !data.answer) {
         if (res.status === 429) {
           toast({
-            title: data.error === 'quota_rpd'
-              ? 'Trợ lý AI đã hết lượt hôm nay, mai dùng lại nhé'
-              : 'Nhiều người đang hỏi cùng lúc, thử lại sau vài giây',
+            title: typeof data.message === 'string' && data.message
+              ? data.message
+              : data.error === 'quota_rpd'
+                ? 'Trợ lý AI đã hết lượt hôm nay, mai dùng lại nhé'
+                : 'Nhiều người đang hỏi cùng lúc, thử lại sau vài giây',
             variant: 'destructive',
           });
         } else {

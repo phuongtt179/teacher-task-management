@@ -123,9 +123,9 @@ function App() {
   // Nạp tên vai trò tùy chỉnh (nếu admin đã đổi) 1 lần lúc đăng nhập — dùng
   // chung cho mọi màn hình qua getRoleLabel(), xem src/lib/roleLabels.ts.
   useEffect(() => {
-    if (!firebaseUser) return;
-    roleLabelService.getCustomLabels().then(setCustomRoleLabels);
-  }, [firebaseUser]);
+    if (!firebaseUser || !user?.schoolId) return;
+    roleLabelService.getCustomLabels(user.schoolId).then(setCustomRoleLabels);
+  }, [firebaseUser, user?.schoolId]);
 
   if (isLoading) {
     return (
