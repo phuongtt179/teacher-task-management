@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { userService } from '@/services/userService';
-import { User } from '@/types';
+import { User, UserRole } from '@/types';
 import { departmentService } from '@/services/departmentService';
 import { campusService } from '@/services/campusService';
 import { getRoleLabel, MANAGEABLE_ROLES } from '@/lib/roleLabels';
@@ -118,6 +118,10 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (!MANAGEABLE_ROLES.includes(role as UserRole)) {
+      toast({ title: 'Lỗi', description: 'Vui lòng chọn vai trò', variant: 'destructive' });
+      return;
+    }
 
     setLoading(true);
     try {
@@ -275,7 +279,10 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
             {/* Role */}
             <div className="space-y-2">
               <Label>Vai trò</Label>
-              <Select value={role} onValueChange={(value: any) => setRole(value)}>
+              {/* Radix Select đôi khi tự gọi onValueChange('') (lỗi đã biết khi nằm trong
+                  <form>) — bỏ qua giá trị rỗng, nếu không vai trò bị lưu thành "" và người
+                  dùng đăng nhập vào chỉ thấy "Invalid role". */}
+              <Select value={role} onValueChange={(value: any) => { if (value) setRole(value); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

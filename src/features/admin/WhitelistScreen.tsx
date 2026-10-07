@@ -374,7 +374,7 @@ export const WhitelistScreen = () => {
               onChange={(e) => setNewEmail(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddEmail()}
             />
-            <Select value={newRole} onValueChange={(v) => setNewRole(v as UserRole)}>
+            <Select value={newRole} onValueChange={(v) => { if (v) setNewRole(v as UserRole); }}>
               <SelectTrigger className="w-40">
                 <SelectValue />
               </SelectTrigger>

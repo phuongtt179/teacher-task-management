@@ -73,6 +73,13 @@ service cloud.firestore {
       return isSignedIn() && userData().role == 'van_thu';
     }
 
+    // Vai trò mà admin trường được gán (users + whitelist). Đã từng có lỗi ô chọn ghi
+    // role = "" khiến người dùng đăng nhập chỉ thấy "Invalid role".
+    function isValidRole(role) {
+      return role in ['admin', 'principal', 'vice_principal', 'youth_leader',
+                      'department_head', 'deputy_department_head', 'teacher', 'staff', 'van_thu'];
+    }
+
     // ==================== SCHOOLS (tenants) ====================
 
     match /schools/{schoolId} {
@@ -100,8 +107,10 @@ service cloud.firestore {
                  (request.auth.token.email == email || isSuperAdmin() || sameSchool(resource.data));
       allow list: if isSuperAdmin() || sameSchool(resource.data);
       allow create: if isSignedIn() && email == request.resource.data.email &&
-                    (isSuperAdmin() || (isAdmin() && request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId())));
-      allow update, delete: if isSuperAdmin() || (isAdmin() && sameSchool(resource.data));
+                    (isSuperAdmin() || (isAdmin() && request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) &&
+                                        isValidRole(request.resource.data.role)));
+      allow update: if isSuperAdmin() || (isAdmin() && sameSchool(resource.data) && isValidRole(request.resource.data.role));
+      allow delete: if isSuperAdmin() || (isAdmin() && sameSchool(resource.data));
     }
 
     // App-wide feature flags (e.g. chat UI beta rollout) — intentionally global,
@@ -147,9 +156,12 @@ service cloud.firestore {
       // Self-update allowed but cannot touch role/schoolId/isSuperAdmin.
       // School admin can update anyone in their own school but cannot move them to
       // another school. Super-admin is unrestricted.
+      // Admin đổi vai trò: chỉ được đặt vai trò hợp lệ (đã từng có lỗi ô chọn ghi role = ""
+      // khiến người dùng đăng nhập chỉ thấy "Invalid role").
       allow update: if isSuperAdmin() ||
                     (isAdmin() && sameSchool(resource.data) &&
-                     request.resource.data.schoolId == resource.data.schoolId) ||
+                     request.resource.data.schoolId == resource.data.schoolId &&
+                     isValidRole(request.resource.data.role)) ||
                     (request.auth.uid == userId &&
                      !request.resource.data.diff(resource.data).affectedKeys()
                        .hasAny(['role', 'schoolId', 'isSuperAdmin',

@@ -13,6 +13,7 @@ import {
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { User, UserRole } from '@/types';
+import { MANAGEABLE_ROLES } from '@/lib/roleLabels';
 
 // Số điện thoại / FCM token KHÔNG còn nằm ở users/{uid} (cả trường đọc được) —
 // xem privateProfileService.
@@ -119,6 +120,7 @@ export const userService = {
     newRole: UserRole
   ): Promise<void> {
     try {
+      if (!MANAGEABLE_ROLES.includes(newRole)) throw new Error('Vai trò không hợp lệ');
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         role: newRole,
@@ -170,6 +172,10 @@ export const userService = {
     }>
   ): Promise<void> {
     try {
+      // Chặn ghi vai trò rỗng/không hợp lệ — người dùng sẽ bị "Invalid role" khi đăng nhập.
+      if ('role' in updates && !MANAGEABLE_ROLES.includes(updates.role as UserRole)) {
+        throw new Error('Vai trò không hợp lệ');
+      }
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         ...updates,
