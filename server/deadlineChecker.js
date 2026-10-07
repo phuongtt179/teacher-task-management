@@ -32,17 +32,20 @@ export async function checkDeadlinesAndNotify() {
       const assignedTo = Array.isArray(task.assignedTo) ? task.assignedTo : [];
       if (!schoolId || assignedTo.length === 0 || !task.deadline) continue;
 
-      // Mỗi người chỉ được nhắc 1 lần cho mỗi hạn chót. Trước đây job chạy 30
-      // phút/lần và lần nào cũng tạo thông báo mới → 1 người chưa nộp có thể nhận
-      // ~48 thông báo "sắp hết hạn" cho cùng 1 việc. Lưu mốc deadline + danh sách
-      // người đã nhắc trên task; hạn bị dời thì danh sách tự reset và nhắc lại.
+      // Mỗi người chỉ được nhắc 1 lần cho mỗi hạn chót. Lưu trên task mốc deadline +
+      // danh sách người ĐÃ XỬ LÝ = đã được nhắc HOẶC đã nộp bài; hạn bị dời thì danh
+      // sách tự reset và nhắc lại. Khi mọi người được giao đều đã xử lý thì bỏ qua
+      // luôn, không đọc bài nộp. (Trước đây chỉ lưu người đã nhắc, nên việc nào có ít
+      // nhất 1 người đã nộp thì 30 phút/lần lại đọc lại toàn bộ bài nộp vô ích —
+      // ~8.000–10.000 lượt đọc/ngày cuối năm học.)
       const deadlineMillis = task.deadline.toMillis();
-      const remindedSet = new Set(
-        task.deadlineReminderFor === deadlineMillis && Array.isArray(task.deadlineRemindedUids)
-          ? task.deadlineRemindedUids
-          : []
-      );
-      if (assignedTo.every((tid) => remindedSet.has(tid))) continue;
+      const sameDeadline = task.deadlineReminderFor === deadlineMillis;
+      const handledSet = new Set([
+        ...(sameDeadline && Array.isArray(task.deadlineHandledUids) ? task.deadlineHandledUids : []),
+        // tương thích dữ liệu ghi bởi phiên bản trước (chỉ có danh sách đã nhắc)
+        ...(sameDeadline && Array.isArray(task.deadlineRemindedUids) ? task.deadlineRemindedUids : []),
+      ]);
+      if (assignedTo.every((tid) => handledSet.has(tid))) continue;
 
       const subsSnap = await db
         .collection('submissions')
@@ -52,9 +55,18 @@ export async function checkDeadlinesAndNotify() {
       const submittedTeacherIds = new Set(subsSnap.docs.map((d) => d.data().teacherId));
 
       const teachersNotSubmitted = assignedTo.filter(
-        (tid) => !submittedTeacherIds.has(tid) && !remindedSet.has(tid)
+        (tid) => !submittedTeacherIds.has(tid) && !handledSet.has(tid)
       );
-      if (teachersNotSubmitted.length === 0) continue;
+      const newlySubmitted = assignedTo.filter((tid) => submittedTeacherIds.has(tid) && !handledSet.has(tid));
+      const updatedHandled = [...handledSet, ...newlySubmitted, ...teachersNotSubmitted];
+
+      if (teachersNotSubmitted.length === 0) {
+        // Không ai cần nhắc, nhưng ghi lại người đã nộp để lần sau khỏi đọc lại.
+        if (newlySubmitted.length > 0) {
+          await taskDoc.ref.update({ deadlineReminderFor: deadlineMillis, deadlineHandledUids: updatedHandled });
+        }
+        continue;
+      }
 
       const deadlineDate = task.deadline.toDate();
       const hoursLeft = Math.floor((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60));
@@ -78,7 +90,7 @@ export async function checkDeadlinesAndNotify() {
       });
       batch.update(taskDoc.ref, {
         deadlineReminderFor: deadlineMillis,
-        deadlineRemindedUids: [...remindedSet, ...teachersNotSubmitted],
+        deadlineHandledUids: updatedHandled,
       });
       await batch.commit();
 
