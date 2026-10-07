@@ -39,6 +39,7 @@ import { DocumentApprovalsScreen } from './features/documents/DocumentApprovalsS
 import { MyRequestsScreen } from './features/documents/MyRequestsScreen';
 import { TeacherProfileScreen } from './features/teacher/TeacherProfileScreen';
 import { roleLabelService } from './services/roleLabelService';
+import { canUseAi, useSchoolSettings } from './services/schoolSettingsService';
 import { setCustomRoleLabels } from './lib/roleLabels';
 import { RoleManagementScreen } from './features/admin/RoleManagementScreen';
 // Dashboard router based on role — trang chủ luôn là dashboard; Trợ lý AI truy cập
@@ -77,11 +78,25 @@ const HomeScreen = () => {
 
 // Trang Trợ lý AI (chat) — mở từ icon robot trên Header, dùng chung cho mọi vai trò.
 // hideSidebar để ChatScreen tự quản lý bố cục danh sách kênh + khung chat.
-const ChatPage = () => (
-  <AppLayout hideSidebar>
-    <ChatScreen />
-  </AppLayout>
-);
+const ChatPage = () => {
+  const { user } = useAuth();
+  const schoolSettings = useSchoolSettings(user?.schoolId);
+  if (schoolSettings && !canUseAi(user?.role, schoolSettings)) {
+    return (
+      <AppLayout>
+        <div className="max-w-xl mx-auto bg-white rounded-lg border p-8 text-center">
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Trợ lý AI đang tạm tắt</h2>
+          <p className="text-gray-600">Nhà trường hiện chỉ mở Trợ lý AI cho Ban giám hiệu. Vui lòng liên hệ quản trị nếu cần dùng.</p>
+        </div>
+      </AppLayout>
+    );
+  }
+  return (
+    <AppLayout hideSidebar>
+      <ChatScreen />
+    </AppLayout>
+  );
+};
 
 // Placeholder components
 const PlaceholderScreen = ({ title }: { title: string }) => (

@@ -2,6 +2,22 @@
   "indexes": [
     { "collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [
       { "fieldPath": "userId", "order": "ASCENDING" },
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "read", "order": "ASCENDING" },
+      { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "categoryId", "order": "ASCENDING" },
+      { "fieldPath": "status", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "documents", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "schoolId", "order": "ASCENDING" },
+      { "fieldPath": "uploadedBy", "order": "ASCENDING" },
+      { "fieldPath": "schoolYearId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "userId", "order": "ASCENDING" },
       { "fieldPath": "createdAt", "order": "ASCENDING" }
     ]},
     { "collectionGroup": "tasks", "queryScope": "COLLECTION", "fields": [

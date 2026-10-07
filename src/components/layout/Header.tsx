@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { notificationService, NOTIFICATIONS_CHANGED_EVENT } from '../../services/notificationService';
 import { getRoleLabel } from '../../lib/roleLabels';
+import { canUseAi, useSchoolSettings } from '../../services/schoolSettingsService';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -25,6 +26,8 @@ interface HeaderProps {
 
 export const Header = ({ hideSidebar }: HeaderProps) => {
   const { user, logout } = useAuth();
+  const schoolSettings = useSchoolSettings(user?.schoolId);
+  const aiAllowed = canUseAi(user?.role, schoolSettings);
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -91,17 +94,19 @@ export const Header = ({ hideSidebar }: HeaderProps) => {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Trợ lý AI — mở màn hình chat, dùng được cho mọi vai trò */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="relative text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-            onClick={() => navigate('/chat')}
-            title="Trợ lý AI"
-            aria-label="Trợ lý AI"
-          >
-            <Bot className="w-5 h-5" />
-          </Button>
+          {/* Trợ lý AI — BGH/admin luôn dùng được; giáo viên/nhân viên theo công tắc của trường */}
+          {aiAllowed && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="relative text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+              onClick={() => navigate('/chat')}
+              title="Trợ lý AI"
+              aria-label="Trợ lý AI"
+            >
+              <Bot className="w-5 h-5" />
+            </Button>
+          )}
 
           {/* Notifications Button */}
           <Button

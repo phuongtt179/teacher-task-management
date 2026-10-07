@@ -111,6 +111,15 @@ service cloud.firestore {
       allow write: if isAdmin() || isSuperAdmin();
     }
 
+    // Cấu hình RIÊNG từng trường (vd công tắc Trợ lý AI cho giáo viên). Người trong trường
+    // đọc được; chỉ admin/hiệu trưởng CỦA CHÍNH TRƯỜNG ĐÓ sửa được.
+    match /schoolSettings/{schoolId} {
+      allow read: if isSuperAdmin() || (isSignedIn() && userSchoolId() == schoolId);
+      allow create, update: if (isAdmin() || isPrincipal()) && userSchoolId() == schoolId &&
+                            request.resource.data.schoolId == schoolId && schoolIsActive(schoolId);
+      allow delete: if false;
+    }
+
     // Billing plans catalog (đọc để mọi trường tự so hạn mức gói mình đang dùng;
     // chỉ super-admin được tạo/sửa/xóa — đây là nơi ĐỔI GIÁ, không phải trong code).
     match /plans/{planId} {

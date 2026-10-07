@@ -1099,11 +1099,71 @@ function computeTeacherStatus(deadline, deadline2, submission) {
   return 'assigned';
 }
 
+// ==================== Công tắc Trợ lý AI theo trường ====================
+// schoolSettings/{schoolId}.aiForStaff: giáo viên/nhân viên có được dùng AI không (mặc
+// định BẬT). BGH/admin luôn dùng được. Nhớ 1 phút để không đọc lại ở mỗi tin nhắn.
+const AI_ALWAYS_ALLOWED_ROLES = ['admin', 'principal', 'vice_principal', 'youth_leader'];
+const schoolSettingsCache = new Map(); // schoolId -> { at, aiForStaff }
+
+async function isAiAllowed(schoolId, role) {
+  if (AI_ALWAYS_ALLOWED_ROLES.includes(role)) return true;
+  if (!schoolId) return false;
+  let hit = schoolSettingsCache.get(schoolId);
+  if (!hit || Date.now() - hit.at > 60 * 1000) {
+    const snap = await adminDb.collection('schoolSettings').doc(schoolId).get();
+    hit = { at: Date.now(), aiForStaff: snap.exists ? snap.data().aiForStaff !== false : true };
+    schoolSettingsCache.set(schoolId, hit);
+  }
+  return hit.aiForStaff;
+}
+
+// ==================== Giới hạn dữ liệu đọc của các công cụ AI ====================
+// Các công cụ của Trợ lý AI chỉ làm việc trên NĂM HỌC HIỆN TẠI ("năm nào dứt điểm năm
+// đó"). Trước đây nhiều công cụ đọc toàn bộ việc/bài nộp/hồ sơ của trường qua MỌI năm
+// học ở mỗi câu hỏi (5.000–15.000 lượt đọc/câu cuối năm, tăng dần theo năm).
+// Bài nộp có trường schoolYearId từ 15/04/2026 nên năm hiện tại lọc trực tiếp được.
+
+const ACTIVE_YEAR_TTL_MS = 10 * 60 * 1000;
+const activeYearCache = new Map(); // schoolId -> { at, id }
+
+async function getActiveYearId(schoolId) {
+  const hit = activeYearCache.get(schoolId);
+  if (hit && Date.now() - hit.at < ACTIVE_YEAR_TTL_MS) return hit.id;
+  const snap = await adminDb.collection('schoolYears')
+    .where('isActive', '==', true).where('schoolId', '==', schoolId).limit(1).get();
+  const id = snap.empty ? null : snap.docs[0].id;
+  activeYearCache.set(schoolId, { at: Date.now(), id });
+  return id;
+}
+
+/** Thêm điều kiện "chỉ năm học hiện tại" vào truy vấn (nếu trường có năm học đang hoạt động). */
+function onlyYear(query, yearId) {
+  return yearId ? query.where('schoolYearId', '==', yearId) : query;
+}
+
+/** Bài nộp (mọi phiên bản) của các việc cho trước — gộp 30 việc/truy vấn, chạy song song. */
+async function getSubmissionsForTaskIds(schoolId, taskIds) {
+  const chunks = [];
+  for (let i = 0; i < taskIds.length; i += 30) chunks.push(taskIds.slice(i, i + 30));
+  const snaps = await Promise.all(chunks.map((chunk) =>
+    adminDb.collection('submissions').where('taskId', 'in', chunk).where('schoolId', '==', schoolId).get()));
+  return snaps.flatMap((s) => s.docs);
+}
+
+/** Mục con của các danh mục cho trước (thay vì đọc mục con của mọi danh mục mọi năm). */
+async function getSubCategoriesForCategoryIds(schoolId, categoryIds) {
+  const chunks = [];
+  for (let i = 0; i < categoryIds.length; i += 30) chunks.push(categoryIds.slice(i, i + 30));
+  const snaps = await Promise.all(chunks.map((chunk) =>
+    adminDb.collection('documentSubCategories').where('categoryId', 'in', chunk).where('schoolId', '==', schoolId).get()));
+  return snaps.flatMap((s) => s.docs);
+}
+
 async function toolListMyTasks(ctx) {
+  const yearId = await getActiveYearId(ctx.schoolId);
   const [tasksSnap, subsSnap, updatesSnap] = await Promise.all([
-    // NOTE: may need a new composite index (schoolId + assignedTo array-contains) — Firestore will surface a console link on first query if missing
-    adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
-    adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    onlyYear(adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId), yearId).get(),
+    onlyYear(adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId), yearId).get(),
     adminDb.collection('taskUpdates').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
@@ -1149,7 +1209,8 @@ async function toolListMyTasks(ctx) {
 }
 
 async function toolGetMyScores(ctx) {
-  const subsSnap = await adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get();
+  const yearId = await getActiveYearId(ctx.schoolId);
+  const subsSnap = await onlyYear(adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId), yearId).get();
   const scored = subsSnap.docs
     .map(d => d.data())
     .filter(s => s.isLatest !== false && s.score !== undefined && s.score !== null);
@@ -1173,10 +1234,10 @@ async function toolGetMyScores(ctx) {
 // Tổng hợp số liệu công việc của CHÍNH giáo viên này: tỷ lệ hoàn thành, tỷ lệ nộp đúng hạn,
 // điểm trung bình — cả tổng chung lẫn tách theo từng học kỳ.
 async function toolGetMyTaskStats(ctx) {
+  const yearId = await getActiveYearId(ctx.schoolId);
   const [tasksSnap, subsSnap] = await Promise.all([
-    // NOTE: may need a new composite index (schoolId + assignedTo array-contains) — Firestore will surface a console link on first query if missing
-    adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
-    adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    onlyYear(adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId), yearId).get(),
+    onlyYear(adminDb.collection('submissions').where('teacherId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId), yearId).get(),
   ]);
 
   const latestSubByTask = new Map();
@@ -1272,10 +1333,11 @@ async function toolSearchPublicDocuments(ctx, keyword) {
   const kw = String(keyword || '').trim().toLowerCase();
   if (!kw) return { documents: [] };
 
-  const [categoriesSnap, typesSnap, documentsSnap] = await Promise.all([
-    adminDb.collection('documentCategories').where('schoolId', '==', ctx.schoolId).get(),
+  // Chỉ danh mục của năm học hiện tại (danh mục được tạo riêng theo từng năm học).
+  const yearId = await getActiveYearId(ctx.schoolId);
+  const [categoriesSnap, typesSnap] = await Promise.all([
+    onlyYear(adminDb.collection('documentCategories').where('schoolId', '==', ctx.schoolId), yearId).get(),
     adminDb.collection('documentTypes').where('schoolId', '==', ctx.schoolId).get(),
-    adminDb.collection('documents').where('status', '==', 'approved').where('schoolId', '==', ctx.schoolId).get(),
   ]);
 
   const typeById = new Map();
@@ -1288,11 +1350,25 @@ async function toolSearchPublicDocuments(ctx, keyword) {
     categoryById.set(d.id, c);
 
     const docType = c.documentTypeId ? typeById.get(c.documentTypeId) : null;
+    // Loại hồ sơ chế độ "cá nhân" (vd Kế hoạch bài dạy) KHÔNG phải công khai dù ai cũng
+    // xem được mục: mỗi người chỉ được thấy hồ sơ của chính mình. Trước đây bỏ sót điều
+    // kiện này nên AI trả cả link hồ sơ cá nhân của giáo viên khác khi tìm kiếm.
     const isPublic = docType
-      ? docType.viewPermissionType === 'everyone'
+      ? docType.viewPermissionType === 'everyone' && docType.viewMode !== 'personal'
       : (c.viewPermissions ? c.viewPermissions.type === 'everyone' : c.categoryType === 'public');
     if (isPublic) publicCategoryIds.add(d.id);
   });
+
+  // Chỉ đọc hồ sơ đã duyệt thuộc các danh mục CÔNG KHAI — trước đây đọc mọi hồ sơ đã
+  // duyệt của trường (gồm cả hồ sơ cá nhân/hạn chế của mọi người, mọi năm) rồi mới lọc.
+  const publicIds = [...publicCategoryIds];
+  const chunks = [];
+  for (let i = 0; i < publicIds.length; i += 30) chunks.push(publicIds.slice(i, i + 30));
+  const docSnaps = await Promise.all(chunks.map((chunk) =>
+    adminDb.collection('documents')
+      .where('categoryId', 'in', chunk).where('status', '==', 'approved').where('schoolId', '==', ctx.schoolId)
+      .get()));
+  const documentsSnap = { docs: docSnaps.flatMap((s) => s.docs) };
 
   // Khớp cả theo tên tài liệu (title) LẪN tên từng file bên trong — công văn hay được
   // gộp nhiều file (vd theo tháng) dưới 1 tài liệu, tên file mới là thứ giáo viên nhớ.
@@ -1326,9 +1402,9 @@ async function toolSearchEverything(ctx, keyword) {
   const kw = String(keyword || '').trim().toLowerCase();
   if (!kw) return { tasks: [], myDocuments: [], publicDocuments: [] };
 
+  const yearId = await getActiveYearId(ctx.schoolId);
   const [tasksSnap, myDocsResult, publicDocsResult] = await Promise.all([
-    // NOTE: may need a new composite index (schoolId + assignedTo array-contains) — Firestore will surface a console link on first query if missing
-    adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    onlyYear(adminDb.collection('tasks').where('assignedTo', 'array-contains', ctx.uid).where('schoolId', '==', ctx.schoolId), yearId).get(),
     toolListMyDocuments(ctx),
     toolSearchPublicDocuments(ctx, keyword),
   ]);
@@ -1387,13 +1463,16 @@ async function toolConfirmForwardTaskToBgh(ctx, args) {
   };
 }
 
-// Tài liệu mà ĐÚNG giáo viên này đã tự nộp (mọi trạng thái: chờ duyệt/đã duyệt/từ chối), mọi năm học.
+// Tài liệu mà ĐÚNG giáo viên này đã tự nộp (mọi trạng thái: chờ duyệt/đã duyệt/từ chối),
+// trong năm học hiện tại.
 async function toolListMyDocuments(ctx) {
-  const [documentsSnap, categoriesSnap, subsSnap] = await Promise.all([
-    adminDb.collection('documents').where('uploadedBy', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
-    adminDb.collection('documentCategories').where('schoolId', '==', ctx.schoolId).get(),
-    adminDb.collection('documentSubCategories').where('schoolId', '==', ctx.schoolId).get(),
+  const yearId = await getActiveYearId(ctx.schoolId);
+  const [documentsSnap, categoriesSnap] = await Promise.all([
+    onlyYear(adminDb.collection('documents').where('uploadedBy', '==', ctx.uid).where('schoolId', '==', ctx.schoolId), yearId).get(),
+    onlyYear(adminDb.collection('documentCategories').where('schoolId', '==', ctx.schoolId), yearId).get(),
   ]);
+  // Chỉ mục con của các danh mục năm nay (trước đây đọc mục con của mọi danh mục mọi năm).
+  const subsSnap = { docs: await getSubCategoriesForCategoryIds(ctx.schoolId, categoriesSnap.docs.map(d => d.id)) };
 
   const categoryById = new Map();
   categoriesSnap.docs.forEach(d => categoryById.set(d.id, d.data()));
@@ -1567,23 +1646,26 @@ async function toolGetSubmissionSummary(ctx) {
 async function toolGetTaskCompletionSummary(ctx, keyword) {
   if (!['principal', 'vice_principal', 'youth_leader'].includes(ctx.role)) return { error: 'not_authorized' };
 
-  const [tasksSnap, subsSnap, usersSnap] = await Promise.all([
-    adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get(),
-    adminDb.collection('submissions').where('schoolId', '==', ctx.schoolId).get(),
+  // Chỉ việc của năm học hiện tại, và chỉ đọc bài nộp của ĐÚNG những việc cần xem —
+  // trước đây đọc mọi việc + mọi bài nộp của trường qua mọi năm ở mỗi câu hỏi.
+  const yearId = await getActiveYearId(ctx.schoolId);
+  const [tasksSnap, usersSnap] = await Promise.all([
+    onlyYear(adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId), yearId).get(),
     adminDb.collection('users').where('schoolId', '==', ctx.schoolId).get(),
   ]);
+
+  const kw = String(keyword || '').trim().toLowerCase();
+  const taskDocs = kw ? tasksSnap.docs.filter(d => (d.data().title || '').toLowerCase().includes(kw)) : tasksSnap.docs;
+  const subDocs = await getSubmissionsForTaskIds(ctx.schoolId, taskDocs.map(d => d.id));
 
   const nameById = new Map(usersSnap.docs.map(d => [d.id, d.data().displayName || d.data().email || d.id]));
 
   const latestSubByKey = new Map();
-  subsSnap.docs.forEach(d => {
+  subDocs.forEach(d => {
     const s = d.data();
     if (s.isLatest === false) return;
     latestSubByKey.set(`${s.taskId}|${s.teacherId}`, s);
   });
-
-  const kw = String(keyword || '').trim().toLowerCase();
-  const taskDocs = kw ? tasksSnap.docs.filter(d => (d.data().title || '').toLowerCase().includes(kw)) : tasksSnap.docs;
 
   const tasks = taskDocs.map(d => {
     const t = d.data();
@@ -1769,7 +1851,8 @@ async function toolFindTasksToEdit(ctx, keyword) {
   const kw = String(keyword || '').trim().toLowerCase();
   if (!kw) return { tasks: [] };
 
-  const tasksSnap = await adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get();
+  const yearId = await getActiveYearId(ctx.schoolId);
+  const tasksSnap = await onlyYear(adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId), yearId).get();
   const matches = tasksSnap.docs
     .filter(d => (d.data().title || '').toLowerCase().includes(kw))
     .map(d => {
@@ -1839,7 +1922,8 @@ async function toolFindSubmissionsForGrading(ctx, taskKeyword, teacherName) {
   const kw = String(taskKeyword || '').trim().toLowerCase();
   if (!kw) return { submissions: [] };
 
-  const tasksSnap = await adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get();
+  const yearId = await getActiveYearId(ctx.schoolId);
+  const tasksSnap = await onlyYear(adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId), yearId).get();
   const matchingTasks = tasksSnap.docs.filter(d => (d.data().title || '').toLowerCase().includes(kw));
   if (matchingTasks.length === 0) return { submissions: [] };
 
@@ -1910,9 +1994,10 @@ async function toolGetScoreOverview(ctx, keyword) {
   if (!['principal', 'vice_principal', 'youth_leader'].includes(ctx.role)) return { error: 'not_authorized' };
 
   const kw = String(keyword || '').trim().toLowerCase();
+  const yearId = await getActiveYearId(ctx.schoolId);
 
   if (kw) {
-    const tasksSnap = await adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId).get();
+    const tasksSnap = await onlyYear(adminDb.collection('tasks').where('schoolId', '==', ctx.schoolId), yearId).get();
     const matchingTasks = tasksSnap.docs.filter(d => (d.data().title || '').toLowerCase().includes(kw));
     if (matchingTasks.length === 0) return { mode: 'task_detail', tasks: [] };
     const taskIds = matchingTasks.map(d => d.id).slice(0, 10);
@@ -1937,8 +2022,9 @@ async function toolGetScoreOverview(ctx, keyword) {
     return { mode: 'task_detail', tasks };
   }
 
+  // Chỉ bài nộp của năm học hiện tại (trước đây: mọi bài nộp của trường qua mọi năm).
   const [subsSnap, usersSnap] = await Promise.all([
-    adminDb.collection('submissions').where('schoolId', '==', ctx.schoolId).get(),
+    onlyYear(adminDb.collection('submissions').where('schoolId', '==', ctx.schoolId), yearId).get(),
     adminDb.collection('users').where('schoolId', '==', ctx.schoolId).get(),
   ]);
   const nameById = new Map(usersSnap.docs.map(d => [d.id, d.data().displayName || d.data().email || d.id]));
@@ -1967,15 +2053,15 @@ async function toolGetScoreOverview(ctx, keyword) {
 // Không tự so khớp tên ở đây — trả hết danh sách để AI tự suy luận ngữ nghĩa
 // (vd "giáo án" ứng với danh mục "Kế hoạch bài dạy" dù không trùng chữ nào).
 async function getAllowedUploadCategories(ctx) {
-  const yearsSnap = await adminDb.collection('schoolYears').where('isActive', '==', true).where('schoolId', '==', ctx.schoolId).limit(1).get();
-  if (yearsSnap.empty) return { schoolYearId: null, categories: [] };
-  const schoolYearId = yearsSnap.docs[0].id;
+  const schoolYearId = await getActiveYearId(ctx.schoolId);
+  if (!schoolYearId) return { schoolYearId: null, categories: [] };
 
-  const [categoriesSnap, typesSnap, subsSnap] = await Promise.all([
+  const [categoriesSnap, typesSnap] = await Promise.all([
     adminDb.collection('documentCategories').where('schoolYearId', '==', schoolYearId).where('schoolId', '==', ctx.schoolId).get(),
     adminDb.collection('documentTypes').where('schoolId', '==', ctx.schoolId).get(),
-    adminDb.collection('documentSubCategories').where('schoolId', '==', ctx.schoolId).get(),
   ]);
+  // Chỉ mục con của các danh mục năm nay (trước đây đọc mục con của mọi danh mục mọi năm).
+  const subsSnap = { docs: await getSubCategoriesForCategoryIds(ctx.schoolId, categoriesSnap.docs.map(d => d.id)) };
 
   const typeById = new Map();
   typesSnap.docs.forEach(d => typeById.set(d.id, d.data()));
@@ -2032,9 +2118,10 @@ async function toolListUploadCategories(ctx) {
 // Đối chiếu danh mục ĐƯỢC PHÉP nộp (kèm mục con, vd 36 tuần) với những gì CHÍNH giáo viên
 // này đã thực sự nộp, để chỉ ra rõ còn THIẾU mục con nào — vd "còn thiếu Tuần 5, Tuần 12".
 async function toolGetMyDocumentProgress(ctx) {
+  const yearId = await getActiveYearId(ctx.schoolId);
   const [{ categories }, documentsSnap] = await Promise.all([
     getAllowedUploadCategories(ctx),
-    adminDb.collection('documents').where('uploadedBy', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get(),
+    onlyYear(adminDb.collection('documents').where('uploadedBy', '==', ctx.uid).where('schoolId', '==', ctx.schoolId), yearId).get(),
   ]);
 
   const submittedByCategory = new Map(); // categoryId -> Set(subCategoryId hoặc 'x')
@@ -2088,12 +2175,13 @@ async function toolConfirmUploadTarget(ctx, categoryId, subCategoryId) {
 }
 
 async function toolGetRecentNotifications(ctx) {
-  // Chỉ lọc theo userId (equality đơn) để tránh cần composite index; lọc/sắp xếp còn lại làm ở JS.
-  const snap = await adminDb.collection('notifications').where('userId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).get();
-  const unreadDocs = snap.docs
-    .filter(d => d.data().read !== true)
-    .sort((a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0))
-    .slice(0, 5);
+  // Chỉ đọc đúng 5 thông báo chưa đọc mới nhất (trước đây đọc toàn bộ thông báo từ trước
+  // tới nay rồi mới lọc/sắp xếp ở đây — càng dùng lâu càng tốn).
+  const snap = await adminDb.collection('notifications')
+    .where('userId', '==', ctx.uid).where('schoolId', '==', ctx.schoolId).where('read', '==', false)
+    .orderBy('createdAt', 'desc').limit(5)
+    .get();
+  const unreadDocs = snap.docs;
 
   // Đã đưa cho AI đọc/tóm tắt cho giáo viên nghe = coi như đã đọc, giống mở màn hình Thông báo.
   if (unreadDocs.length > 0) {
@@ -2271,6 +2359,10 @@ app.post('/api/chat', verifyAuth, express.json(), async (req, res) => {
     const { displayName, messages, channelId } = req.body || {};
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'no_message' });
+    }
+    // Công tắc "Trợ lý AI cho giáo viên" của trường — kiểm tra cả ở server (không chỉ ẩn nút).
+    if (!(await isAiAllowed(ctx.schoolId, ctx.role))) {
+      return res.status(403).json({ error: 'ai_disabled_for_role' });
     }
 
     const keys = getGeminiKeys();
