@@ -16,7 +16,6 @@ import { CreateTaskScreen } from './features/vice-principal/CreateTaskScreen';
 import { ImportTasksScreen } from './features/vice-principal/ImportTasksScreen';
 import { TaskListScreen } from './features/vice-principal/TaskListScreen';
 import { TaskDetailScreen } from './features/vice-principal/TaskDetailScreen';
-import { SubmissionMatrixScreen } from './features/vice-principal/SubmissionMatrixScreen';
 import { TeacherDirectoryScreen } from './features/vice-principal/TeacherDirectoryScreen';
 import { StatisticsScreen } from './features/vice-principal/StatisticsScreen';
 import { TaskDetailStatisticsScreen } from './features/vice-principal/TaskDetailStatisticsScreen';
@@ -312,15 +311,12 @@ function App() {
             </ProtectedRoute>
           }
         />
+        {/* "Theo dõi nộp hồ sơ" TẠM KHÓA (tốn nhiều quota Firestore — xem navigation.ts).
+            Bật lại: thay <Navigate> bằng ProtectedRoute + AppLayout bọc <SubmissionMatrixScreen />
+            với allowedRoles admin/vice_principal/youth_leader/principal, và thêm lại mục menu. */}
         <Route
           path="/vp/submission-matrix"
-          element={
-            <ProtectedRoute allowedRoles={['admin', 'vice_principal', 'youth_leader', 'principal']}>
-              <AppLayout>
-                <SubmissionMatrixScreen />
-              </AppLayout>
-            </ProtectedRoute>
-          }
+          element={<Navigate to="/" replace />}
         />
         <Route
           path="/vp/teacher-directory"

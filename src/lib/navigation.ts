@@ -14,7 +14,6 @@ import {
     FileText,
     Cog,
     User,
-    Table,
     Building2,
     Tag,
   } from 'lucide-react';
@@ -101,13 +100,8 @@ import {
       icon: BarChart3,
       roles: ['vice_principal', 'youth_leader', 'principal'],
     },
-    {
-      label: 'Theo dõi nộp hồ sơ',
-      shortLabel: 'Nộp hồ sơ',
-      path: '/vp/submission-matrix',
-      icon: Table,
-      roles: ['admin', 'vice_principal', 'youth_leader', 'principal'],
-    },
+    // "Theo dõi nộp hồ sơ" (/vp/submission-matrix) TẠM KHÓA: mỗi lần mở đọc toàn bộ hồ
+    // sơ của danh mục (~3.500 lượt đọc cuối năm học) — bật lại khi cần dùng (xem App.tsx).
     {
       label: 'Bảng tổng hợp giáo viên',
       shortLabel: 'GV toàn trường',

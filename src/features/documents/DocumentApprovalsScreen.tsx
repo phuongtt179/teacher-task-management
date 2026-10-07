@@ -27,7 +27,21 @@ export function DocumentApprovalsScreen() {
 
   useEffect(() => {
     loadPendingItems();
-  }, [user, schoolId]);
+  }, [schoolId, user?.uid]);
+
+  // Sau khi duyệt/từ chối: bỏ đúng mục đó khỏi danh sách đang hiển thị thay vì tải
+  // lại toàn bộ danh sách chờ duyệt — trước đây duyệt lần lượt N hồ sơ là tải lại N
+  // lần (vd 80 hồ sơ ≈ 3.200 lượt đọc thay vì ~80).
+  const removeDocuments = (ids: string[]) => {
+    const idSet = new Set(ids);
+    setPendingDocuments(prev => prev.filter(d => !idSet.has(d.id)));
+    setSelectedDocIds(prev => new Set([...prev].filter(id => !idSet.has(id))));
+  };
+  const removeRequests = (ids: string[]) => {
+    const idSet = new Set(ids);
+    setPendingRequests(prev => prev.filter(r => !idSet.has(r.id)));
+    setSelectedReqIds(prev => new Set([...prev].filter(id => !idSet.has(id))));
+  };
 
   const loadPendingItems = async () => {
     if (!user || !schoolId) return;
@@ -70,7 +84,7 @@ export function DocumentApprovalsScreen() {
     try {
       await documentService.approveDocument(doc.id, user!.uid, user!.displayName);
       toast({ title: `Đã duyệt: ${doc.title}` });
-      loadPendingItems();
+      removeDocuments([doc.id]);
     } catch {
       toast({ title: 'Lỗi phê duyệt', variant: 'destructive' });
     } finally {
@@ -85,7 +99,7 @@ export function DocumentApprovalsScreen() {
     try {
       await documentService.rejectDocument(doc.id, user!.uid, user!.displayName, reason);
       toast({ title: `Đã từ chối: ${doc.title}` });
-      loadPendingItems();
+      removeDocuments([doc.id]);
     } catch {
       toast({ title: 'Lỗi từ chối', variant: 'destructive' });
     } finally {
@@ -98,7 +112,7 @@ export function DocumentApprovalsScreen() {
     try {
       await fileRequestService.approveRequest(req.id, user!.uid, user!.displayName, '');
       toast({ title: `Đã duyệt yêu cầu: ${req.documentName}` });
-      loadPendingItems();
+      removeRequests([req.id]);
     } catch {
       toast({ title: 'Lỗi phê duyệt', variant: 'destructive' });
     } finally {
@@ -113,7 +127,7 @@ export function DocumentApprovalsScreen() {
     try {
       await fileRequestService.rejectRequest(req.id, user!.uid, user!.displayName, note);
       toast({ title: `Đã từ chối yêu cầu: ${req.documentName}` });
-      loadPendingItems();
+      removeRequests([req.id]);
     } catch {
       toast({ title: 'Lỗi từ chối', variant: 'destructive' });
     } finally {
@@ -133,7 +147,8 @@ export function DocumentApprovalsScreen() {
     const fail = results.filter(r => r.status === 'rejected').length;
     toast({ title: `Duyệt hàng loạt: ${ok} thành công${fail > 0 ? `, ${fail} lỗi` : ''}` });
     setBulkProcessing(false);
-    loadPendingItems();
+    // Chỉ bỏ những mục duyệt thành công; mục lỗi vẫn ở lại để thử lại.
+    removeDocuments(ids.filter((_, i) => results[i].status === 'fulfilled'));
   };
 
   const handleBulkApproveRequests = async () => {
@@ -147,7 +162,7 @@ export function DocumentApprovalsScreen() {
     const fail = results.filter(r => r.status === 'rejected').length;
     toast({ title: `Duyệt hàng loạt: ${ok} thành công${fail > 0 ? `, ${fail} lỗi` : ''}` });
     setBulkProcessing(false);
-    loadPendingItems();
+    removeRequests(ids.filter((_, i) => results[i].status === 'fulfilled'));
   };
 
   // ── Selection helpers ───────────────────────────────────────
