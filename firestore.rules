@@ -152,9 +152,23 @@ service cloud.firestore {
                      request.resource.data.schoolId == resource.data.schoolId) ||
                     (request.auth.uid == userId &&
                      !request.resource.data.diff(resource.data).affectedKeys()
-                       .hasAny(['role', 'schoolId', 'isSuperAdmin']));
+                       .hasAny(['role', 'schoolId', 'isSuperAdmin',
+                                // riêng tư → users/{uid}/private/info (bản app cũ còn ghi vào đây)
+                                'phoneNumber', 'fcmToken', 'fcmTokenUpdatedAt']));
 
       allow delete: if isSuperAdmin() || (isAdmin() && sameSchool(resource.data));
+
+      // Thông tin RIÊNG TƯ (số điện thoại, FCM token) — tách khỏi users/{uid} vì doc
+      // đó cả trường đọc được. Chỉ chính chủ + admin/BGH cùng trường đọc; chỉ chính
+      // chủ ghi. request.auth.uid == userId ĐỨNG TRƯỚC: đọc doc chưa tồn tại của
+      // chính mình phải trả exists:false chứ không lỗi quyền.
+      match /private/{docId} {
+        allow read: if request.auth.uid == userId || isSuperAdmin() ||
+                    ((isAdmin() || isPrincipal() || isVicePrincipal()) && sameSchool(resource.data));
+        allow create, update: if isSignedIn() && request.auth.uid == userId &&
+                              request.resource.data.schoolId == userSchoolId();
+        allow delete: if request.auth.uid == userId || isSuperAdmin() || (isAdmin() && sameSchool(resource.data));
+      }
     }
 
     // ==================== TASKS ====================

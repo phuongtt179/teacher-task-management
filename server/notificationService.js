@@ -19,12 +19,15 @@ export async function sendPushNotification(userIds, title, body, data = {}) {
     const tokens = [];
     for (const userId of userIds) {
       try {
-        const userDoc = await db.collection('users').doc(userId).get();
-        const userData = userDoc.data();
-
-        if (userData?.fcmToken) {
-          tokens.push(userData.fcmToken);
+        // Token nằm ở phần riêng tư users/{uid}/private/info; doc cũ chưa chuyển
+        // (trước script migrate-private-profile.js) thì vẫn đọc ở users/{uid}.
+        const privateDoc = await db.collection('users').doc(userId).collection('private').doc('info').get();
+        let token = privateDoc.exists ? privateDoc.data()?.fcmToken : undefined;
+        if (!token && !privateDoc.exists) {
+          const userDoc = await db.collection('users').doc(userId).get();
+          token = userDoc.data()?.fcmToken;
         }
+        if (token) tokens.push(token);
       } catch (error) {
         console.error(`Error getting FCM token for user ${userId}:`, error);
       }

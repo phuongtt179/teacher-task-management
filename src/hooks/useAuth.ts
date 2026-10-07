@@ -81,7 +81,6 @@ export const useAuth = () => {
           role: data.role,
           schoolId: data.schoolId ?? null,
           isSuperAdmin: data.isSuperAdmin === true,
-          phoneNumber: data.phoneNumber,
           primaryCampusId: data.primaryCampusId ?? null,
           campusIds: data.campusIds || [],
           subject: data.subject,

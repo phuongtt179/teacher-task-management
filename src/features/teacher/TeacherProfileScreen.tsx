@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { userService } from '@/services/userService';
+import { privateProfileService } from '@/services/privateProfileService';
 import { departmentService } from '@/services/departmentService';
 import { campusService } from '@/services/campusService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,7 +33,9 @@ export function TeacherProfileScreen() {
     if (user && user.schoolId) {
       setDisplayName(user.displayName);
       setEmail(user.email);
-      setPhoneNumber(user.phoneNumber || '');
+      privateProfileService.get(user.uid)
+        .then((p) => setPhoneNumber(p.phoneNumber || ''))
+        .catch((error) => console.error('Error loading private profile:', error));
       setSubject(user.subject || '');
       setSelectedCampusIds(user.campusIds || []);
       loadDepartments();
@@ -115,17 +118,18 @@ export function TeacherProfileScreen() {
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !user.schoolId) return;
 
     setLoading(true);
     try {
       await userService.updateUser(user.uid, {
         displayName: displayName.trim(),
-        phoneNumber: phoneNumber.trim(),
         subject: subject.trim(),
         primaryCampusId: selectedCampusIds[0] || null,
         campusIds: selectedCampusIds,
       });
+      // Số điện thoại lưu ở phần riêng tư — đồng nghiệp không đọc được.
+      await privateProfileService.setPhoneNumber(user.uid, user.schoolId, phoneNumber.trim());
 
       toast({
         title: 'Thành công',

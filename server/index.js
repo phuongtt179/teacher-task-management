@@ -2421,6 +2421,33 @@ async function executeChatTool(name, ctx, args) {
   }
 }
 
+/**
+ * Bỏ mọi đường link (Drive, URL file...) khỏi dữ liệu trước khi gửi cho Gemini.
+ * Trường có tên chứa "url"/"link" → thay bằng cờ hasFile; chuỗi nào chứa http(s)://
+ * cũng bị thay thế. AI vẫn biết là CÓ file (tên file giữ nguyên) để nói "xem trong app".
+ */
+const LINK_KEY_RE = /url|link/i;
+const LINK_PLACEHOLDER = '[có file — xem trong app]';
+function stripLinksForAi(value) {
+  if (Array.isArray(value)) return value.map(stripLinksForAi);
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (LINK_KEY_RE.test(k)) {
+        const has = Array.isArray(v) ? v.length > 0 : !!v;
+        out[k] = Array.isArray(v) ? v.map(() => LINK_PLACEHOLDER) : (has ? LINK_PLACEHOLDER : null);
+      } else {
+        out[k] = stripLinksForAi(v);
+      }
+    }
+    return out;
+  }
+  if (typeof value === 'string' && /https?:\/\//i.test(value)) {
+    return value.replace(/https?:\/\/\S+/gi, LINK_PLACEHOLDER);
+  }
+  return value;
+}
+
 const APP_GUIDE = `HƯỚNG DẪN SỬ DỤNG APP (dùng để trả lời khi giáo viên hỏi "làm sao để...", "app này dùng thế nào", "sao tôi không thấy...", hoặc gặp lỗi khi thao tác):
 - Đây là app quản lý công việc + hồ sơ điện tử của trường, giao tiếp chủ yếu qua chat này (kiểu Zalo). Bên trái có các kênh: "Trợ lý AI" (hỏi đáp chung), "Công việc", "Điểm số", "Nộp hồ sơ", "Tìm tài liệu".
 - Xem/hoàn thành công việc: hỏi trực tiếp trong chat (vd "việc của tôi", "việc nào gấp") — AI liệt kê kèm nút "Hoàn thành" ngay dưới từng việc, bấm vào đó để nộp nội dung/điểm hoàn thành, không cần vào màn hình riêng.
@@ -2506,7 +2533,8 @@ Khi admin/hiệu phó/hiệu trưởng muốn CHẤM ĐIỂM/phản hồi 1 bài
 2. Gọi confirm_grade_submission(submissionId, score, feedback) với đúng submissionId lấy được — điểm phải hợp lệ trong khoảng maxScore đã biết, nếu không hợp lệ báo lại người dùng.
 3. Sau khi trả về confirmed=true, xác nhận lại bằng lời (tên giáo viên, việc, điểm cũ nếu có → điểm mới) và mời bấm nút xác nhận — KHÔNG tự nói "đã chấm xong".
 Khi hiệu trưởng/hiệu phó hỏi về ĐIỂM SỐ của người khác (khác hẳn get_task_completion_summary là theo dõi hoàn thành việc, không phải điểm): gọi get_score_overview. Không truyền keyword khi hỏi tổng quát ("điểm trung bình toàn trường", "ai điểm thấp cần lưu ý") — trình bày theo thứ tự thấp→cao sẵn có trong kết quả. Có truyền keyword khi hỏi điểm 1 việc cụ thể.
-Khi giáo viên hỏi về NỘI DUNG chi tiết 1 công việc cụ thể (không chỉ tên), hãy đọc trường "description" (và "descriptionPdfUrl" nếu có) trong dữ liệu list_my_tasks đã có sẵn để trả lời — KHÔNG cần gọi thêm hàm nào.
+Khi giáo viên hỏi về NỘI DUNG chi tiết 1 công việc cụ thể (không chỉ tên), hãy đọc trường "description" trong dữ liệu list_my_tasks đã có sẵn để trả lời — KHÔNG cần gọi thêm hàm nào. Nếu "descriptionPdfUrl" khác null thì việc có file mô tả đính kèm: nói người dùng mở file đó trong app (màn hình công việc).
+Bạn KHÔNG có đường link file nào (dữ liệu chỉ ghi "${LINK_PLACEHOLDER}") — TUYỆT ĐỐI không bịa link; khi nhắc tới file, nêu tên file và hướng dẫn xem/tải trong app (thẻ hiện ngay dưới câu trả lời, hoặc màn hình tương ứng).
 Khi giáo viên hỏi đã nộp NỘI DUNG/FILE gì cho 1 công việc, hoặc đã nộp lại mấy lần: gọi list_my_tasks trước (nếu chưa có) để xác định đúng taskId, rồi gọi get_my_submission(taskId).
 Khi giáo viên hỏi số liệu tổng hợp CỦA CHÍNH MÌNH (tỷ lệ hoàn thành, tỷ lệ đúng hạn, điểm trung bình): gọi get_my_task_stats.
 Khi giáo viên hỏi CÒN THIẾU hồ sơ gì chưa nộp (khác với "đã nộp gì" — đây là hỏi phần TRỐNG): gọi get_my_document_progress, nêu rõ tên các mục con còn thiếu.
@@ -2631,7 +2659,9 @@ Khi giáo viên hỏi CÁCH DÙNG app (không phải hỏi dữ liệu cụ th�
         ) {
           reportUpdateCandidateForUI = result;
         }
-        responseParts.push({ functionResponse: { name: fc.name, response: result } });
+        // Gemini nhận bản ĐÃ BỎ link Drive (file chia sẻ "ai có link đều xem được" —
+        // link không được đi ra ngoài); thẻ hiển thị trong app vẫn dùng `result` gốc có link.
+        responseParts.push({ functionResponse: { name: fc.name, response: stripLinksForAi(result) } });
       }
       contents.push({ role: 'function', parts: responseParts });
 

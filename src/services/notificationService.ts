@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { db, app } from '../lib/firebase';
+import { privateProfileService } from './privateProfileService';
 // ✅ FIXED: Import Notification từ types (custom type)
 import type { Notification, NotificationType } from '../types';
 
@@ -119,14 +120,11 @@ export const notificationService = {
     }
   },
 
-  // Save FCM token to user document
-  async saveFCMToken(userId: string, token: string): Promise<void> {
+  // Lưu FCM token vào phần riêng tư users/{uid}/private/info (không để ở users/{uid}
+  // mà cả trường đọc được).
+  async saveFCMToken(userId: string, schoolId: string, token: string): Promise<void> {
     try {
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, {
-        fcmToken: token,
-        fcmTokenUpdatedAt: Timestamp.fromDate(new Date()),
-      });
+      await privateProfileService.setFcmToken(userId, schoolId, token);
     } catch (error) {
       console.error('Error saving FCM token:', error);
     }

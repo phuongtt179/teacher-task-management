@@ -14,6 +14,8 @@ import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { User, UserRole } from '@/types';
 
+// Số điện thoại / FCM token KHÔNG còn nằm ở users/{uid} (cả trường đọc được) —
+// xem privateProfileService.
 export const userService = {
   // Get all users in a school
   async getAllUsers(schoolId: string): Promise<User[]> {
@@ -34,11 +36,9 @@ export const userService = {
           primaryCampusId: data.primaryCampusId ?? null,
           campusIds: data.campusIds || [],
           subject: data.subject,
-          phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
-          isActive: data.isActive !== false, // Default true
-          fcmToken: data.fcmToken
+          isActive: data.isActive !== false // Default true
         };
       });
     } catch (error) {
@@ -70,11 +70,9 @@ export const userService = {
           primaryCampusId: data.primaryCampusId ?? null,
           campusIds: data.campusIds || [],
           subject: data.subject,
-          phoneNumber: data.phoneNumber,
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
-          isActive: data.isActive !== false,
-          fcmToken: data.fcmToken
+          isActive: data.isActive !== false
         };
       });
     } catch (error) {
@@ -105,11 +103,9 @@ export const userService = {
         primaryCampusId: data.primaryCampusId ?? null,
         campusIds: data.campusIds || [],
         subject: data.subject,
-        phoneNumber: data.phoneNumber,
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
-        isActive: data.isActive !== false,
-        fcmToken: data.fcmToken
+        isActive: data.isActive !== false
       };
     } catch (error) {
       console.error('Error getting user:', error);
@@ -168,7 +164,6 @@ export const userService = {
       displayName: string;
       role: UserRole;
       isActive: boolean;
-      phoneNumber: string;
       primaryCampusId: string | null;
       campusIds: string[];
       subject: string;

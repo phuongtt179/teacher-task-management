@@ -25,10 +25,9 @@ export const useFCM = () => {
 
         // Initialize FCM and get token
         const token = await notificationService.initializeFCM();
-        if (token) {
-          console.log('✅ FCM token obtained, saving to user document');
-          // Save token to user document
-          await notificationService.saveFCMToken(user.uid, token);
+        if (token && user.schoolId) {
+          console.log('✅ FCM token obtained, saving to private profile');
+          await notificationService.saveFCMToken(user.uid, user.schoolId, token);
         }
         // If no token, silently continue - FCM is optional
 

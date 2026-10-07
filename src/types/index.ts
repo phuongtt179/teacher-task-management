@@ -71,11 +71,11 @@ export interface User {
   // Dùng để lọc "ai thuộc cơ sở X" (array-contains) khi giao việc/xem dữ liệu.
   campusIds?: string[];
   subject?: string; // Môn dạy (tự do, VD "Toán", "Chủ nhiệm lớp 1A") — hiển thị ở bảng tổng hợp giáo viên
-  phoneNumber?: string; // Số điện thoại liên hệ (tùy chọn)
+  // Số điện thoại, FCM token: KHÔNG ở đây — nằm ở users/{uid}/private/info
+  // (chỉ chính chủ + admin/BGH đọc được), xem privateProfileService.
   createdAt: Date;
   updatedAt: Date;
   isActive?: boolean;
-  fcmToken?: string;
 }
 
 // Whitelist model
