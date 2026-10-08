@@ -15,15 +15,76 @@ import {
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { Department } from '@/types';
+import { cached, invalidateCache } from '@/lib/localCache';
 
 export const departmentService = {
   // Get all departments
   async getAllDepartments(schoolId: string): Promise<Department[]> {
-    try {
-      const q = query(tenantCollection('departments', schoolId), orderBy('name', 'asc'));
-      const snapshot = await getDocs(q);
+    return cached(`departments:${schoolId}:all`, async () => {
+      try {
+        const q = query(tenantCollection('departments', schoolId), orderBy('name', 'asc'));
+        const snapshot = await getDocs(q);
 
-      return snapshot.docs.map(doc => {
+        return snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            schoolId: data.schoolId,
+            name: data.name,
+            headTeacherId: data.headTeacherId,
+            headTeacherName: data.headTeacherName,
+            memberIds: data.memberIds || [],
+            subCategoryId: data.subCategoryId,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          };
+        });
+      } catch (error) {
+        console.error('Error getting departments:', error);
+        throw error;
+      }
+    });
+  },
+
+  // Get department by ID
+  async getDepartment(id: string): Promise<Department | null> {
+    return cached(`departments:id:${id}`, async () => {
+      try {
+        const deptDoc = await getDoc(doc(db, 'departments', id));
+        if (!deptDoc.exists()) return null;
+
+        const data = deptDoc.data();
+        return {
+          id: deptDoc.id,
+          schoolId: data.schoolId,
+          name: data.name,
+          headTeacherId: data.headTeacherId,
+          headTeacherName: data.headTeacherName,
+          memberIds: data.memberIds || [],
+          subCategoryId: data.subCategoryId,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+        };
+      } catch (error) {
+        console.error('Error getting department:', error);
+        throw error;
+      }
+    });
+  },
+
+  // Get department by user ID (find which department a teacher belongs to)
+  async getDepartmentByUserId(schoolId: string, userId: string): Promise<Department | null> {
+    return cached(`departments:${schoolId}:user:${userId}`, async () => {
+      try {
+        const q = query(
+          tenantCollection('departments', schoolId),
+          where('memberIds', 'array-contains', userId)
+        );
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) return null;
+
+        const doc = snapshot.docs[0];
         const data = doc.data();
         return {
           id: doc.id,
@@ -36,65 +97,11 @@ export const departmentService = {
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
         };
-      });
-    } catch (error) {
-      console.error('Error getting departments:', error);
-      throw error;
-    }
-  },
-
-  // Get department by ID
-  async getDepartment(id: string): Promise<Department | null> {
-    try {
-      const deptDoc = await getDoc(doc(db, 'departments', id));
-      if (!deptDoc.exists()) return null;
-
-      const data = deptDoc.data();
-      return {
-        id: deptDoc.id,
-        schoolId: data.schoolId,
-        name: data.name,
-        headTeacherId: data.headTeacherId,
-        headTeacherName: data.headTeacherName,
-        memberIds: data.memberIds || [],
-        subCategoryId: data.subCategoryId,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-      };
-    } catch (error) {
-      console.error('Error getting department:', error);
-      throw error;
-    }
-  },
-
-  // Get department by user ID (find which department a teacher belongs to)
-  async getDepartmentByUserId(schoolId: string, userId: string): Promise<Department | null> {
-    try {
-      const q = query(
-        tenantCollection('departments', schoolId),
-        where('memberIds', 'array-contains', userId)
-      );
-      const snapshot = await getDocs(q);
-
-      if (snapshot.empty) return null;
-
-      const doc = snapshot.docs[0];
-      const data = doc.data();
-      return {
-        id: doc.id,
-        schoolId: data.schoolId,
-        name: data.name,
-        headTeacherId: data.headTeacherId,
-        headTeacherName: data.headTeacherName,
-        memberIds: data.memberIds || [],
-        subCategoryId: data.subCategoryId,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-      };
-    } catch (error) {
-      console.error('Error getting department by user:', error);
-      throw error;
-    }
+      } catch (error) {
+        console.error('Error getting department by user:', error);
+        throw error;
+      }
+    });
   },
 
   // Create department
@@ -127,6 +134,7 @@ export const departmentService = {
 
       const deptDoc = await addDoc(collection(db, 'departments'), deptData);
 
+      invalidateCache('departments');
       return deptDoc.id;
     } catch (error) {
       console.error('Error creating department:', error);
@@ -154,6 +162,7 @@ export const departmentService = {
       if (data.subCategoryId !== undefined) updateData.subCategoryId = data.subCategoryId;
 
       await updateDoc(doc(db, 'departments', id), updateData);
+      invalidateCache('departments');
     } catch (error) {
       console.error('Error updating department:', error);
       throw error;
@@ -171,6 +180,7 @@ export const departmentService = {
         memberIds.push(userId);
         await this.updateDepartment(departmentId, { memberIds });
       }
+      invalidateCache('departments');
     } catch (error) {
       console.error('Error adding member:', error);
       throw error;
@@ -185,6 +195,7 @@ export const departmentService = {
 
       const memberIds = dept.memberIds.filter(id => id !== userId);
       await this.updateDepartment(departmentId, { memberIds });
+      invalidateCache('departments');
     } catch (error) {
       console.error('Error removing member:', error);
       throw error;
@@ -195,6 +206,7 @@ export const departmentService = {
   async deleteDepartment(id: string): Promise<void> {
     try {
       await deleteDoc(doc(db, 'departments', id));
+      invalidateCache('departments');
     } catch (error) {
       console.error('Error deleting department:', error);
       throw error;
@@ -225,6 +237,7 @@ export const departmentService = {
         headTeacherName: deleteField(),
         updatedAt: Timestamp.now(),
       });
+      invalidateCache('departments');
     } catch (error) {
       console.error('Error clearing department head:', error);
       throw error;
@@ -245,6 +258,7 @@ export const departmentService = {
         headTeacherName: userName,
         updatedAt: Timestamp.now(),
       });
+      invalidateCache('departments');
     } catch (error) {
       console.error('Error setting department head:', error);
       throw error;

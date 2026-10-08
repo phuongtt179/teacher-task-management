@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
+import { cached, invalidateCache } from '../lib/localCache';
 import type { UserRole } from '../types';
 
 /**
@@ -27,8 +28,12 @@ export const schoolSettingsService = {
   get(schoolId: string): Promise<SchoolSettings> {
     let hit = cache.get(schoolId);
     if (!hit) {
-      hit = getDoc(doc(db, 'schoolSettings', schoolId))
-        .then((snap) => ({ ...DEFAULTS, ...(snap.exists() ? (snap.data() as Partial<SchoolSettings>) : {}) }))
+      // Nhớ tạm thêm 3 giờ trên máy (lib/localCache.ts) — tải lại trang không đọc lại.
+      // Công tắc AI vẫn được server kiểm tra ở mỗi lần gọi nên chậm cập nhật ở đây chỉ ảnh hưởng nút hiển thị.
+      hit = cached(`schoolSettings:${schoolId}:doc`, async () => {
+        const snap = await getDoc(doc(db, 'schoolSettings', schoolId));
+        return { ...DEFAULTS, ...(snap.exists() ? (snap.data() as Partial<SchoolSettings>) : {}) };
+      })
         .catch((error) => {
           console.error('Error loading school settings:', error);
           cache.delete(schoolId);
@@ -45,6 +50,7 @@ export const schoolSettingsService = {
       { schoolId, aiForStaff: enabled, updatedBy, updatedAt: Timestamp.now() },
       { merge: true }
     );
+    invalidateCache('schoolSettings');
     cache.set(schoolId, Promise.resolve({ ...(await this.get(schoolId)), aiForStaff: enabled }));
     listeners.forEach((notify) => notify());
   },

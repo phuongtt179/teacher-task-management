@@ -4,6 +4,7 @@ import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../lib/firebase';
 import { useAuthStore } from '../stores/authStore';
 import { departmentService } from '../services/departmentService';
+import { clearAllCache } from '../lib/localCache';
 import { User, WhitelistEmail } from '../types';
 
 export const useAuth = () => {
@@ -179,6 +180,8 @@ export const useAuth = () => {
     try {
       await signOut(auth);
       clearAuth();
+      // Máy dùng chung (phòng giáo viên): không để lại dữ liệu nhớ tạm của người trước.
+      clearAllCache();
     } catch (error) {
       console.error('Logout error:', error);
     }

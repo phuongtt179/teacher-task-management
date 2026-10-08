@@ -14,6 +14,7 @@ import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { User, UserRole } from '@/types';
 import { MANAGEABLE_ROLES } from '@/lib/roleLabels';
+import { cached, invalidateCache } from '@/lib/localCache';
 
 // Số điện thoại / FCM token KHÔNG còn nằm ở users/{uid} (cả trường đọc được) —
 // xem privateProfileService.
@@ -46,6 +47,15 @@ export const userService = {
       console.error('Error getting all users:', error);
       throw error;
     }
+  },
+
+  /**
+   * Danh sách người dùng cho Ô CHỌN NGƯỜI (màn Hồ sơ, Trợ lý AI...) — nhớ tạm 3 giờ trên
+   * máy (lib/localCache.ts), tải lại trang không đọc lại cả trường. Màn quản trị (Quản lý
+   * Users, Whitelist...) vẫn dùng getAllUsers() để luôn thấy người mới đăng nhập.
+   */
+  async getAllUsersCached(schoolId: string): Promise<User[]> {
+    return cached(`users:${schoolId}:all`, () => this.getAllUsers(schoolId));
   },
 
   // Get users by role within a school
@@ -139,6 +149,7 @@ export const userService = {
           });
         }
       }
+      invalidateCache('users');
     } catch (error) {
       console.error('Error updating user role:', error);
       throw error;
@@ -153,6 +164,7 @@ export const userService = {
         isActive,
         updatedAt: Timestamp.now()
       });
+      invalidateCache('users');
     } catch (error) {
       console.error('Error updating user status:', error);
       throw error;
@@ -196,6 +208,7 @@ export const userService = {
           }
         }
       }
+      invalidateCache('users');
     } catch (error) {
       console.error('Error updating user:', error);
       throw error;
@@ -221,6 +234,7 @@ export const userService = {
           await deleteDoc(whitelistRef);
         }
       }
+      invalidateCache('users');
     } catch (error) {
       console.error('Error deleting user:', error);
       throw error;

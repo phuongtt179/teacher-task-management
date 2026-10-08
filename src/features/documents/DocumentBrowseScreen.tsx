@@ -256,7 +256,7 @@ export function DocumentBrowseScreen() {
   const loadAllUsers = async () => {
     if (!schoolId) return;
     try {
-      const users = await userService.getAllUsers(schoolId);
+      const users = await userService.getAllUsersCached(schoolId);
       setAllUsers(users);
     } catch (error) {
       console.error('Error loading users:', error);

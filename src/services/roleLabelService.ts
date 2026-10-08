@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { UserRole } from '@/types';
+import { cached, invalidateCache } from '@/lib/localCache';
 
 // Tên hiển thị tùy chỉnh cho từng vai trò — lưu RIÊNG từng trường ở
 // schoolSettings/{schoolId}.roleLabels (admin/hiệu trưởng của chính trường đó ghi
@@ -16,16 +17,19 @@ const SCHOOL_REF = (schoolId: string) => doc(db, 'schoolSettings', schoolId);
 const LEGACY_REF = () => doc(db, 'config', 'roleLabels');
 
 export const roleLabelService = {
+  // Nhớ tạm 3 giờ trên máy (lib/localCache.ts); lưu tên mới thì xóa bộ nhớ tạm.
   async getCustomLabels(schoolId: string): Promise<Labels> {
     try {
-      const snap = await getDoc(SCHOOL_REF(schoolId));
-      const own = snap.exists() ? snap.data().roleLabels : undefined;
-      if (own && typeof own === 'object') return own as Labels;
+      return await cached(`schoolSettings:${schoolId}:roleLabels`, async () => {
+        const snap = await getDoc(SCHOOL_REF(schoolId));
+        const own = snap.exists() ? snap.data().roleLabels : undefined;
+        if (own && typeof own === 'object') return own as Labels;
 
-      const legacy = await getDoc(LEGACY_REF());
-      if (!legacy.exists()) return {};
-      const { updatedAt, updatedBy, ...labels } = legacy.data();
-      return labels as Labels;
+        const legacy = await getDoc(LEGACY_REF());
+        if (!legacy.exists()) return {};
+        const { updatedAt, updatedBy, ...labels } = legacy.data();
+        return labels as Labels;
+      });
     } catch (error) {
       console.error('Error loading role labels:', error);
       return {};
@@ -40,14 +44,17 @@ export const roleLabelService = {
       { schoolId, roleLabels: labels, updatedAt: Timestamp.now(), updatedBy },
       { mergeFields: ['schoolId', 'roleLabels', 'updatedAt', 'updatedBy'] }
     );
+    invalidateCache('schoolSettings');
   },
 
   async setLabel(schoolId: string, role: UserRole, label: string, updatedBy: string): Promise<void> {
+    invalidateCache('schoolSettings'); // ghi dựa trên bản MỚI NHẤT, không dùng bản nhớ tạm
     const current = await this.getCustomLabels(schoolId);
     await this.saveLabels(schoolId, { ...current, [role]: label }, updatedBy);
   },
 
   async resetLabel(schoolId: string, role: UserRole, updatedBy: string): Promise<void> {
+    invalidateCache('schoolSettings');
     const { [role]: _removed, ...rest } = await this.getCustomLabels(schoolId);
     await this.saveLabels(schoolId, rest, updatedBy);
   },

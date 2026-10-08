@@ -1,5 +1,6 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { cached } from '@/lib/localCache';
 
 interface FeatureFlags {
   chatUIEnabled: boolean;
@@ -15,15 +16,18 @@ export const featureFlagService = {
   // Reads config/featureFlags. Fails safe: any error/missing doc returns the
   // default (chat UI OFF) so a Firestore hiccup never accidentally exposes
   // the beta UI to everyone.
+  // Nhớ tạm 3 giờ trên máy (lib/localCache.ts) — lỗi thì KHÔNG lưu lại, lần sau đọc tiếp.
   async getFlags(): Promise<FeatureFlags> {
     try {
-      const snap = await getDoc(doc(db, 'config', 'featureFlags'));
-      if (!snap.exists()) return DEFAULT_FLAGS;
-      const data = snap.data();
-      return {
-        chatUIEnabled: data.chatUIEnabled === true,
-        chatUIBetaEmails: Array.isArray(data.chatUIBetaEmails) ? data.chatUIBetaEmails : [],
-      };
+      return await cached('config:featureFlags', async () => {
+        const snap = await getDoc(doc(db, 'config', 'featureFlags'));
+        if (!snap.exists()) return DEFAULT_FLAGS;
+        const data = snap.data();
+        return {
+          chatUIEnabled: data.chatUIEnabled === true,
+          chatUIBetaEmails: Array.isArray(data.chatUIBetaEmails) ? data.chatUIBetaEmails : [],
+        };
+      });
     } catch (error) {
       console.error('Error loading feature flags:', error);
       return DEFAULT_FLAGS;

@@ -14,53 +14,93 @@ import {
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { DocumentType, UserRole } from '@/types';
+import { cached, invalidateCache } from '@/lib/localCache';
 
 export const documentTypeService = {
   // Get all document types
   async getAllDocumentTypes(schoolId: string): Promise<DocumentType[]> {
-    try {
-      const q = query(tenantCollection('documentTypes', schoolId), orderBy('order', 'asc'));
-      const snapshot = await getDocs(q);
+    return cached(`documentTypes:${schoolId}:all`, async () => {
+      try {
+        const q = query(tenantCollection('documentTypes', schoolId), orderBy('order', 'asc'));
+        const snapshot = await getDocs(q);
 
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          schoolId: data.schoolId,
-          name: data.name,
-          description: data.description,
-          icon: data.icon,
-          viewPermissionType: data.viewPermissionType || 'everyone',
-          allowedViewerUserIds: data.allowedViewerUserIds || [],
-          allowedUploaderUserIds: data.allowedUploaderUserIds || [],
-          viewMode: data.viewMode || 'personal',
-          order: data.order || 0,
-          isActive: data.isActive !== false, // Default to true for backward compatibility
-          createdBy: data.createdBy,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-        };
-      });
-    } catch (error) {
-      console.error('Error getting document types:', error);
-      throw error;
-    }
+        return snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            schoolId: data.schoolId,
+            name: data.name,
+            description: data.description,
+            icon: data.icon,
+            viewPermissionType: data.viewPermissionType || 'everyone',
+            allowedViewerUserIds: data.allowedViewerUserIds || [],
+            allowedUploaderUserIds: data.allowedUploaderUserIds || [],
+            viewMode: data.viewMode || 'personal',
+            order: data.order || 0,
+            isActive: data.isActive !== false, // Default to true for backward compatibility
+            createdBy: data.createdBy,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          };
+        });
+      } catch (error) {
+        console.error('Error getting document types:', error);
+        throw error;
+      }
+    });
   },
 
   // Get active document types only
   async getActiveDocumentTypes(schoolId: string): Promise<DocumentType[]> {
-    try {
-      const q = query(
-        tenantCollection('documentTypes', schoolId),
-        where('isActive', '==', true),
-        orderBy('order', 'asc')
-      );
-      const snapshot = await getDocs(q);
+    return cached(`documentTypes:${schoolId}:active`, async () => {
+      try {
+        const q = query(
+          tenantCollection('documentTypes', schoolId),
+          where('isActive', '==', true),
+          orderBy('order', 'asc')
+        );
+        const snapshot = await getDocs(q);
 
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
+        return snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            schoolId: data.schoolId,
+            name: data.name,
+            description: data.description,
+            icon: data.icon,
+            viewPermissionType: data.viewPermissionType || 'everyone',
+            allowedViewerUserIds: data.allowedViewerUserIds || [],
+            allowedUploaderUserIds: data.allowedUploaderUserIds || [],
+            viewMode: data.viewMode || 'personal',
+            order: data.order || 0,
+            isActive: data.isActive !== false,
+            createdBy: data.createdBy,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          };
+        });
+      } catch (error) {
+        console.error('Error getting active document types:', error);
+        throw error;
+      }
+    });
+  },
+
+  // Get document type by ID
+  async getDocumentTypeById(id: string): Promise<DocumentType | null> {
+    return cached(`documentTypes:id:${id}`, async () => {
+      try {
+        const docRef = doc(db, 'documentTypes', id);
+        const docSnap = await getDoc(docRef);
+
+        if (!docSnap.exists()) {
+          return null;
+        }
+
+        const data = docSnap.data();
         return {
-          id: doc.id,
+          id: docSnap.id,
           schoolId: data.schoolId,
           name: data.name,
           description: data.description,
@@ -75,44 +115,11 @@ export const documentTypeService = {
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
         };
-      });
-    } catch (error) {
-      console.error('Error getting active document types:', error);
-      throw error;
-    }
-  },
-
-  // Get document type by ID
-  async getDocumentTypeById(id: string): Promise<DocumentType | null> {
-    try {
-      const docRef = doc(db, 'documentTypes', id);
-      const docSnap = await getDoc(docRef);
-
-      if (!docSnap.exists()) {
-        return null;
+      } catch (error) {
+        console.error('Error getting document type:', error);
+        throw error;
       }
-
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        schoolId: data.schoolId,
-        name: data.name,
-        description: data.description,
-        icon: data.icon,
-        viewPermissionType: data.viewPermissionType || 'everyone',
-        allowedViewerUserIds: data.allowedViewerUserIds || [],
-        allowedUploaderUserIds: data.allowedUploaderUserIds || [],
-        viewMode: data.viewMode || 'personal',
-        order: data.order || 0,
-        isActive: data.isActive !== false,
-        createdBy: data.createdBy,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-      };
-    } catch (error) {
-      console.error('Error getting document type:', error);
-      throw error;
-    }
+    });
   },
 
   // Create document type
@@ -159,6 +166,7 @@ export const documentTypeService = {
         updatedAt: Timestamp.now(),
       });
 
+      invalidateCache('documentTypes');
       return typeDoc.id;
     } catch (error) {
       console.error('Error creating document type:', error);
@@ -221,6 +229,7 @@ export const documentTypeService = {
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
       await updateDoc(doc(db, 'documentTypes', id), updateData);
+      invalidateCache('documentTypes');
     } catch (error) {
       console.error('Error updating document type:', error);
       throw error;
@@ -232,6 +241,7 @@ export const documentTypeService = {
     try {
       // Note: Should check if any categories are using this type before deleting
       await deleteDoc(doc(db, 'documentTypes', id));
+      invalidateCache('documentTypes');
     } catch (error) {
       console.error('Error deleting document type:', error);
       throw error;
@@ -307,6 +317,7 @@ export const documentTypeService = {
 
       console.log('Default document types initialized successfully');
       console.log('NOTE: Please configure allowed uploaders for each document type in the admin panel');
+      invalidateCache('documentTypes');
     } catch (error) {
       console.error('Error initializing default document types:', error);
       throw error;

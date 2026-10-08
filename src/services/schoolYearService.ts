@@ -14,18 +14,77 @@ import {
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { SchoolYear } from '@/types';
+import { cached, invalidateCache } from '@/lib/localCache';
 
+// Các hàm đọc dùng bộ nhớ tạm 3 giờ (xem lib/localCache.ts); hàm ghi tự xóa bộ nhớ tạm.
 export const schoolYearService = {
   // Get all school years
   async getAllSchoolYears(schoolId: string): Promise<SchoolYear[]> {
-    try {
-      const q = query(tenantCollection('schoolYears', schoolId), orderBy('startDate', 'desc'));
-      const snapshot = await getDocs(q);
+    return cached(`schoolYears:${schoolId}:all`, async () => {
+      try {
+        const q = query(tenantCollection('schoolYears', schoolId), orderBy('startDate', 'desc'));
+        const snapshot = await getDocs(q);
 
-      return snapshot.docs.map(doc => {
+        return snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            schoolId: data.schoolId,
+            name: data.name,
+            startDate: data.startDate?.toDate() || new Date(),
+            endDate: data.endDate?.toDate() || new Date(),
+            isActive: data.isActive !== false,
+            createdBy: data.createdBy,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          };
+        });
+      } catch (error) {
+        console.error('Error getting school years:', error);
+        throw error;
+      }
+    });
+  },
+
+  // Get active school year
+  async getActiveSchoolYear(schoolId: string): Promise<SchoolYear | null> {
+    return cached(`schoolYears:${schoolId}:active`, async () => {
+      try {
+        const q = query(tenantCollection('schoolYears', schoolId), where('isActive', '==', true));
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) return null;
+
+        const doc = snapshot.docs[0];
         const data = doc.data();
         return {
           id: doc.id,
+          schoolId: data.schoolId,
+          name: data.name,
+          startDate: data.startDate?.toDate() || new Date(),
+          endDate: data.endDate?.toDate() || new Date(),
+          isActive: data.isActive,
+          createdBy: data.createdBy,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+        };
+      } catch (error) {
+        console.error('Error getting active school year:', error);
+        throw error;
+      }
+    });
+  },
+
+  // Get school year by ID
+  async getSchoolYear(id: string): Promise<SchoolYear | null> {
+    return cached(`schoolYears:id:${id}`, async () => {
+      try {
+        const yearDoc = await getDoc(doc(db, 'schoolYears', id));
+        if (!yearDoc.exists()) return null;
+
+        const data = yearDoc.data();
+        return {
+          id: yearDoc.id,
           schoolId: data.schoolId,
           name: data.name,
           startDate: data.startDate?.toDate() || new Date(),
@@ -35,62 +94,11 @@ export const schoolYearService = {
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
         };
-      });
-    } catch (error) {
-      console.error('Error getting school years:', error);
-      throw error;
-    }
-  },
-
-  // Get active school year
-  async getActiveSchoolYear(schoolId: string): Promise<SchoolYear | null> {
-    try {
-      const q = query(tenantCollection('schoolYears', schoolId), where('isActive', '==', true));
-      const snapshot = await getDocs(q);
-
-      if (snapshot.empty) return null;
-
-      const doc = snapshot.docs[0];
-      const data = doc.data();
-      return {
-        id: doc.id,
-        schoolId: data.schoolId,
-        name: data.name,
-        startDate: data.startDate?.toDate() || new Date(),
-        endDate: data.endDate?.toDate() || new Date(),
-        isActive: data.isActive,
-        createdBy: data.createdBy,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-      };
-    } catch (error) {
-      console.error('Error getting active school year:', error);
-      throw error;
-    }
-  },
-
-  // Get school year by ID
-  async getSchoolYear(id: string): Promise<SchoolYear | null> {
-    try {
-      const yearDoc = await getDoc(doc(db, 'schoolYears', id));
-      if (!yearDoc.exists()) return null;
-
-      const data = yearDoc.data();
-      return {
-        id: yearDoc.id,
-        schoolId: data.schoolId,
-        name: data.name,
-        startDate: data.startDate?.toDate() || new Date(),
-        endDate: data.endDate?.toDate() || new Date(),
-        isActive: data.isActive !== false,
-        createdBy: data.createdBy,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-      };
-    } catch (error) {
-      console.error('Error getting school year:', error);
-      throw error;
-    }
+      } catch (error) {
+        console.error('Error getting school year:', error);
+        throw error;
+      }
+    });
   },
 
   // Create school year
@@ -125,6 +133,7 @@ export const schoolYearService = {
 
       const yearDoc = await addDoc(collection(db, 'schoolYears'), yearData);
 
+      invalidateCache('schoolYears');
       return yearDoc.id;
     } catch (error) {
       console.error('Error creating school year:', error);
@@ -157,6 +166,7 @@ export const schoolYearService = {
       if (data.activeSemester !== undefined) updateData.activeSemester = data.activeSemester;
 
       await updateDoc(doc(db, 'schoolYears', id), updateData);
+      invalidateCache('schoolYears');
     } catch (error) {
       console.error('Error updating school year:', error);
       throw error;
@@ -168,6 +178,7 @@ export const schoolYearService = {
     try {
       // TODO: Check if school year has documents before deleting
       await deleteDoc(doc(db, 'schoolYears', id));
+      invalidateCache('schoolYears');
     } catch (error) {
       console.error('Error deleting school year:', error);
       throw error;
@@ -185,6 +196,7 @@ export const schoolYearService = {
       );
 
       await Promise.all(updates);
+      invalidateCache('schoolYears');
     } catch (error) {
       console.error('Error deactivating school years:', error);
       throw error;

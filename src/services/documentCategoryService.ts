@@ -14,43 +14,46 @@ import {
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { DocumentCategory, DocumentSubCategory } from '@/types';
+import { cached, invalidateCache } from '@/lib/localCache';
 
 export const documentCategoryService = {
   // ============ CATEGORIES ============
 
   // Get all categories for a school year
   async getCategoriesBySchoolYear(schoolId: string, schoolYearId: string): Promise<DocumentCategory[]> {
-    try {
-      const q = query(
-        tenantCollection('documentCategories', schoolId),
-        where('schoolYearId', '==', schoolYearId),
-        orderBy('order', 'asc')
-      );
-      const snapshot = await getDocs(q);
+    return cached(`documentCategories:${schoolId}:year:${schoolYearId}`, async () => {
+      try {
+        const q = query(
+          tenantCollection('documentCategories', schoolId),
+          where('schoolYearId', '==', schoolYearId),
+          orderBy('order', 'asc')
+        );
+        const snapshot = await getDocs(q);
 
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          schoolId: data.schoolId,
-          schoolYearId: data.schoolYearId,
-          documentTypeId: data.documentTypeId || '', // NEW: Load documentTypeId
-          name: data.name,
-          categoryType: data.categoryType || 'personal', // Default to personal for backward compatibility
-          hasSubCategories: data.hasSubCategories || false,
-          order: data.order || 0,
-          driveFolderId: data.driveFolderId,
-          allowedUploaders: data.allowedUploaders || [], // Default to empty array for backward compatibility
-          viewPermissions: data.viewPermissions, // Load view permissions
-          createdBy: data.createdBy,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-        };
-      });
-    } catch (error) {
-      console.error('Error getting categories:', error);
-      throw error;
-    }
+        return snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            schoolId: data.schoolId,
+            schoolYearId: data.schoolYearId,
+            documentTypeId: data.documentTypeId || '', // NEW: Load documentTypeId
+            name: data.name,
+            categoryType: data.categoryType || 'personal', // Default to personal for backward compatibility
+            hasSubCategories: data.hasSubCategories || false,
+            order: data.order || 0,
+            driveFolderId: data.driveFolderId,
+            allowedUploaders: data.allowedUploaders || [], // Default to empty array for backward compatibility
+            viewPermissions: data.viewPermissions, // Load view permissions
+            createdBy: data.createdBy,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          };
+        });
+      } catch (error) {
+        console.error('Error getting categories:', error);
+        throw error;
+      }
+    });
   },
 
   // Create category
@@ -93,6 +96,7 @@ export const documentCategoryService = {
 
       const categoryDoc = await addDoc(collection(db, 'documentCategories'), categoryDocData);
 
+      invalidateCache('documentCategories');
       return categoryDoc.id;
     } catch (error) {
       console.error('Error creating category:', error);
@@ -138,6 +142,7 @@ export const documentCategoryService = {
       }
 
       await updateDoc(doc(db, 'documentCategories', id), updateData);
+      invalidateCache('documentCategories');
     } catch (error) {
       console.error('Error updating category:', error);
       throw error;
@@ -196,6 +201,7 @@ export const documentCategoryService = {
         }
       }
 
+      invalidateCache('documentCategories');
       return sourceCategories.length;
     } catch (error) {
       console.error('Error copying categories:', error);
@@ -208,6 +214,7 @@ export const documentCategoryService = {
     try {
       // TODO: Delete all subcategories first
       await deleteDoc(doc(db, 'documentCategories', id));
+      invalidateCache('documentCategories');
     } catch (error) {
       console.error('Error deleting category:', error);
       throw error;
@@ -218,31 +225,33 @@ export const documentCategoryService = {
 
   // Get subcategories for a category
   async getSubCategories(schoolId: string, categoryId: string): Promise<DocumentSubCategory[]> {
-    try {
-      const q = query(
-        tenantCollection('documentSubCategories', schoolId),
-        where('categoryId', '==', categoryId),
-        orderBy('order', 'asc')
-      );
-      const snapshot = await getDocs(q);
+    return cached(`documentCategories:${schoolId}:subs:${categoryId}`, async () => {
+      try {
+        const q = query(
+          tenantCollection('documentSubCategories', schoolId),
+          where('categoryId', '==', categoryId),
+          orderBy('order', 'asc')
+        );
+        const snapshot = await getDocs(q);
 
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          schoolId: data.schoolId,
-          categoryId: data.categoryId,
-          name: data.name,
-          order: data.order || 0,
-          driveFolderId: data.driveFolderId,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-        };
-      });
-    } catch (error) {
-      console.error('Error getting subcategories:', error);
-      throw error;
-    }
+        return snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            schoolId: data.schoolId,
+            categoryId: data.categoryId,
+            name: data.name,
+            order: data.order || 0,
+            driveFolderId: data.driveFolderId,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          };
+        });
+      } catch (error) {
+        console.error('Error getting subcategories:', error);
+        throw error;
+      }
+    });
   },
 
   // Create subcategory
@@ -261,6 +270,7 @@ export const documentCategoryService = {
         updatedAt: Timestamp.now(),
       });
 
+      invalidateCache('documentCategories');
       return subCategoryDoc.id;
     } catch (error) {
       console.error('Error creating subcategory:', error);
@@ -282,6 +292,7 @@ export const documentCategoryService = {
       if (data.order !== undefined) updateData.order = data.order;
 
       await updateDoc(doc(db, 'documentSubCategories', id), updateData);
+      invalidateCache('documentCategories');
     } catch (error) {
       console.error('Error updating subcategory:', error);
       throw error;
@@ -292,6 +303,7 @@ export const documentCategoryService = {
   async deleteSubCategory(id: string): Promise<void> {
     try {
       await deleteDoc(doc(db, 'documentSubCategories', id));
+      invalidateCache('documentCategories');
     } catch (error) {
       console.error('Error deleting subcategory:', error);
       throw error;
