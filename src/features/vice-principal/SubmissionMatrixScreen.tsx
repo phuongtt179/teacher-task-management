@@ -15,14 +15,15 @@ import {
 import { DocumentCategory, DocumentSubCategory, Department, DocumentType, User } from '../../types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Check, X, Minus, Table as TableIcon } from 'lucide-react';
+import { cellStatus, shortDate, weekNumberOf, type SubmissionCellStatus } from '@/lib/submissionDeadline';
 
 // Khi loại hồ sơ không giới hạn người nộp: coi giáo viên/tổ trưởng/tổ phó là người phải nộp.
 const DEFAULT_SUBMITTER_ROLES = ['teacher', 'department_head', 'deputy_department_head'];
 // Lựa chọn "Kế hoạch tổ chuyên môn" (bảng theo tổ) trong ô chọn — không phải id danh mục thật.
 const DEPARTMENT_VIEW = '__department_plans__';
 
-interface Column { key: string; name: string }
-interface TeacherRow { uid: string; name: string; done: Set<string>; count: number }
+interface Column { key: string; name: string; deadline?: string | null }
+interface TeacherRow { uid: string; name: string; cells: Record<string, SubmissionCellStatus>; count: number; late: number }
 // Bảng theo tổ: mỗi ô — 'done' đã nộp, 'missing' chưa nộp, 'none' tổ chưa tạo mục con này.
 type DeptCell = 'done' | 'missing' | 'none';
 interface DeptRow { categoryId: string; name: string; cells: Record<string, DeptCell>; count: number; total: number }
@@ -125,7 +126,9 @@ export const SubmissionMatrixScreen = () => {
             submissionSummaryService.get(selectedView),
           ]);
           if (!active) return;
-          setSubCategories([...subs].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+          // Mục con dạng "Tuần N" xếp theo số tuần (trường order cũ không đáng tin).
+          const rank = (x: DocumentSubCategory) => weekNumberOf(x.name) ?? 10000 + (x.order ?? 0);
+          setSubCategories([...subs].sort((a, b) => rank(a) - rank(b)));
           setSummary(sum);
         }
       } catch (e) {
@@ -144,8 +147,8 @@ export const SubmissionMatrixScreen = () => {
 
   // ---------- Bảng theo giáo viên ----------
   const teacherColumns: Column[] = useMemo(() => {
-    if (selectedCategory?.hasSubCategories) return subCategories.map(s => ({ key: s.id, name: s.name }));
-    return [{ key: NO_SUBCATEGORY_KEY, name: 'Đã nộp' }];
+    if (selectedCategory?.hasSubCategories) return subCategories.map(s => ({ key: s.id, name: s.name, deadline: s.deadline }));
+    return [{ key: NO_SUBCATEGORY_KEY, name: 'Đã nộp', deadline: selectedCategory?.deadline }];
   }, [selectedCategory, subCategories]);
 
   // Tổ trưởng/tổ phó: chỉ các tổ mình phụ trách (server trả về departmentIds).
@@ -172,12 +175,21 @@ export const SubmissionMatrixScreen = () => {
       const memberSet = membersOf(departments.find(d => d.id === selectedDeptId));
       scoped = scoped.filter(u => memberSet.has(u.uid));
     }
-    const columnKeys = new Set(teacherColumns.map(c => c.key));
+    const now = Date.now();
     return scoped
       .map(u => {
-        // Chỉ tính các mục con còn tồn tại (mục con đã xóa không còn được tính).
-        const done = new Set((summary.byTeacher[u.uid] || []).filter(k => columnKeys.has(k)));
-        return { uid: u.uid, name: u.displayName || u.email, done, count: done.size };
+        // Chỉ xét các mục con còn tồn tại (mục con đã xóa không còn được tính).
+        const times = summary.byTeacher[u.uid] || {};
+        const cells: Record<string, SubmissionCellStatus> = {};
+        let count = 0;
+        let late = 0;
+        teacherColumns.forEach(col => {
+          const status = cellStatus(times[col.key], col.deadline, now);
+          cells[col.key] = status;
+          if (status === 'ontime' || status === 'late') count++;
+          if (status === 'late') late++;
+        });
+        return { uid: u.uid, name: u.displayName || u.email, cells, count, late };
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
   }, [isDeptView, summary, selectedCategory, documentTypes, users, visibleDepartments, selectedDeptId, departments, teacherColumns]);
@@ -197,7 +209,7 @@ export const SubmissionMatrixScreen = () => {
   const deptRows: DeptRow[] = useMemo(() => {
     if (!deptData) return [];
     return deptData.map(({ category, subs, summary: sum }) => {
-      const submitted = new Set(Object.values(sum.byTeacher).flat());
+      const submitted = new Set(Object.values(sum.byTeacher).flatMap(times => Object.keys(times)));
       const cells: Record<string, DeptCell> = {};
       let count = 0;
       let total = 0;
@@ -233,6 +245,20 @@ export const SubmissionMatrixScreen = () => {
     state === 'done' ? <Check className="w-4 h-4 text-green-600 mx-auto" />
       : state === 'missing' ? <X className="w-4 h-4 text-gray-300 mx-auto" />
         : <Minus className="w-4 h-4 text-gray-200 mx-auto" />;
+
+  // ✓ xanh đúng hạn · ✓ đỏ nộp trễ · ✗ đỏ quá hạn chưa nộp · ✗ xám chưa nộp (chưa tới hạn/không có hạn)
+  const STATUS_TITLE: Record<SubmissionCellStatus, string> = {
+    ontime: 'Đã nộp đúng hạn', late: 'Nộp trễ', overdue: 'Quá hạn, chưa nộp', pending: 'Chưa nộp',
+  };
+  const renderStatus = (status: SubmissionCellStatus) => (
+    <span title={STATUS_TITLE[status]}>
+      {status === 'ontime' ? <Check className="w-4 h-4 text-green-600 mx-auto" />
+        : status === 'late' ? <Check className="w-4 h-4 text-red-600 mx-auto" strokeWidth={3} />
+          : status === 'overdue' ? <X className="w-4 h-4 text-red-500 mx-auto" />
+            : <X className="w-4 h-4 text-gray-300 mx-auto" />}
+    </span>
+  );
+  const hasDeadlines = teacherColumns.some(c => !!c.deadline);
 
   const spinner = (
     <div className="text-center py-12">
@@ -292,7 +318,13 @@ export const SubmissionMatrixScreen = () => {
 
       {/* Chú thích + thời điểm cập nhật */}
       <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
-        <span className="flex items-center gap-1"><Check className="w-4 h-4 text-green-600" /> Đã nộp</span>
+        <span className="flex items-center gap-1"><Check className="w-4 h-4 text-green-600" /> {!isDeptView && hasDeadlines ? 'Đúng hạn' : 'Đã nộp'}</span>
+        {!isDeptView && hasDeadlines && (
+          <>
+            <span className="flex items-center gap-1"><Check className="w-4 h-4 text-red-600" strokeWidth={3} /> Nộp trễ</span>
+            <span className="flex items-center gap-1"><X className="w-4 h-4 text-red-500" /> Quá hạn chưa nộp</span>
+          </>
+        )}
         <span className="flex items-center gap-1"><X className="w-4 h-4 text-gray-300" /> Chưa nộp</span>
         {isDeptView && <span className="flex items-center gap-1"><Minus className="w-4 h-4 text-gray-300" /> Tổ chưa tạo mục này</span>}
         {!isDeptView && teacherRows.length > 0 && (
@@ -349,7 +381,10 @@ export const SubmissionMatrixScreen = () => {
                     <th className="px-2 py-2 border-b border-r font-semibold text-gray-700 text-center whitespace-nowrap">Đã nộp</th>
                   )}
                   {teacherColumns.map(c => (
-                    <th key={c.key} className="px-2 py-2 border-b border-r font-medium text-gray-600 text-center whitespace-nowrap">{c.name}</th>
+                    <th key={c.key} className="px-2 py-2 border-b border-r font-medium text-gray-600 text-center whitespace-nowrap">
+                      {c.name}
+                      {c.deadline && <div className="text-[10px] font-normal text-gray-400">hạn {shortDate(c.deadline)}</div>}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -364,13 +399,14 @@ export const SubmissionMatrixScreen = () => {
                       <td className="sticky left-0 z-10 bg-white px-3 py-2 border-b border-r font-medium text-gray-900 min-w-[180px]">{row.name}</td>
                       {teacherColumns.length > 1 && (
                         <td className="px-2 py-2 border-b border-r text-center whitespace-nowrap">
-                          <span className={row.count === teacherColumns.length ? 'text-green-600 font-semibold' : 'text-gray-600'}>
+                          <span className={row.count === teacherColumns.length && row.late === 0 ? 'text-green-600 font-semibold' : 'text-gray-600'}>
                             {row.count}/{teacherColumns.length}
                           </span>
+                          {row.late > 0 && <span className="text-red-600 text-xs ml-1">(trễ {row.late})</span>}
                         </td>
                       )}
                       {teacherColumns.map(c => (
-                        <td key={c.key} className="px-2 py-2 border-b border-r text-center">{renderMark(row.done.has(c.key) ? 'done' : 'missing')}</td>
+                        <td key={c.key} className="px-2 py-2 border-b border-r text-center">{renderStatus(row.cells[c.key])}</td>
                       ))}
                     </tr>
                   ))

@@ -1,4 +1,5 @@
 import {
+  writeBatch,
   collection,
   query,
   getDocs,
@@ -45,6 +46,7 @@ export const documentCategoryService = {
             driveFolderId: data.driveFolderId,
             allowedUploaders: data.allowedUploaders || [], // Default to empty array for backward compatibility
             viewPermissions: data.viewPermissions, // Load view permissions
+            deadline: data.deadline || null,
             createdBy: data.createdBy,
             createdAt: data.createdAt?.toDate() || new Date(),
             updatedAt: data.updatedAt?.toDate() || new Date(),
@@ -113,11 +115,14 @@ export const documentCategoryService = {
     order?: number;
     allowedUploaders?: string[];
     documentTypeId?: string; // NEW: Optional DocumentType reference
+    deadline?: string | null; // 'YYYY-MM-DD' | null (bỏ hạn)
   }): Promise<void> {
     try {
       const updateData: any = {
         updatedAt: Timestamp.now(),
       };
+
+      if (data.deadline !== undefined) updateData.deadline = data.deadline || null;
 
       if (data.name !== undefined) updateData.name = data.name;
       if (data.categoryType !== undefined) updateData.categoryType = data.categoryType;
@@ -246,6 +251,7 @@ export const documentCategoryService = {
             name: data.name,
             order: data.order || 0,
             driveFolderId: data.driveFolderId,
+            deadline: data.deadline || null,
             createdAt: data.createdAt?.toDate() || new Date(),
             updatedAt: data.updatedAt?.toDate() || new Date(),
           };
@@ -285,11 +291,14 @@ export const documentCategoryService = {
   async updateSubCategory(id: string, data: {
     name?: string;
     order?: number;
+    deadline?: string | null; // 'YYYY-MM-DD' | null (bỏ hạn)
   }): Promise<void> {
     try {
       const updateData: any = {
         updatedAt: Timestamp.now(),
       };
+
+      if (data.deadline !== undefined) updateData.deadline = data.deadline || null;
 
       if (data.name !== undefined) updateData.name = data.name;
       if (data.order !== undefined) updateData.order = data.order;
@@ -303,6 +312,18 @@ export const documentCategoryService = {
   },
 
   // Delete subcategory
+  /** Lưu hạn nộp của nhiều mục con cùng lúc (vd 36 tuần sau khi "Tự điền theo tuần"). */
+  async setSubCategoryDeadlines(updates: Array<{ id: string; deadline: string | null }>): Promise<void> {
+    for (let i = 0; i < updates.length; i += 400) {
+      const batch = writeBatch(db);
+      updates.slice(i, i + 400).forEach(u =>
+        batch.update(doc(db, 'documentSubCategories', u.id), { deadline: u.deadline || null, updatedAt: Timestamp.now() })
+      );
+      await batch.commit();
+    }
+    invalidateCache('documentCategories');
+  },
+
   async deleteSubCategory(id: string): Promise<void> {
     try {
       await deleteDoc(doc(db, 'documentSubCategories', id));

@@ -293,6 +293,9 @@ export interface DocumentCategory {
   driveFolderId?: string; // Google Drive folder ID
   allowedUploaders?: string[]; // Array of user UIDs who can upload to public categories
   viewPermissions?: ViewPermissions; // Control who can view this category
+  // Hạn nộp chung cho cả danh mục (danh mục KHÔNG chia mục con, vd Kế hoạch môn học) —
+  // 'YYYY-MM-DD', hết ngày đó (giờ VN) còn là đúng hạn. null/không có = không theo dõi trễ.
+  deadline?: string | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -306,6 +309,9 @@ export interface DocumentSubCategory {
   name: string; // "Tổ 1 - Toán Lý"
   order: number;
   driveFolderId?: string;
+  // Hạn nộp của mục con (vd "Tuần 6" → thứ Sáu của tuần 6) — 'YYYY-MM-DD', hết ngày đó (giờ VN)
+  // còn là đúng hạn; từ hôm sau là TRỄ. null/không có = không theo dõi trễ.
+  deadline?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

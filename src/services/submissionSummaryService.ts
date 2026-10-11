@@ -11,8 +11,11 @@ export interface SubmissionSummary {
   scope: 'school' | 'department';
   /** Tổ mà tổ trưởng/tổ phó phụ trách (null khi scope = 'school'). */
   departmentIds: string[] | null;
-  /** uid → các mục con đã nộp (hoặc ['x'] nếu danh mục không có mục con). */
-  byTeacher: Record<string, string[]>;
+  /**
+   * uid → { mục con đã nộp (hoặc 'x' nếu danh mục không có mục con): thời điểm nộp sớm nhất (ms) }.
+   * Thời điểm 0 = không rõ (hồ sơ rất cũ) — coi như đúng hạn.
+   */
+  byTeacher: Record<string, Record<string, number>>;
   updatedAt: number | null;
 }
 

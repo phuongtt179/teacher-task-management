@@ -4,8 +4,12 @@ import { db } from './firebase-config.js';
 /**
  * Bảng tổng hợp NỘP HỒ SƠ (màn "Theo dõi nộp hồ sơ") — lưu sẵn ở
  * submissionSummaries/{schoolId}__{categoryId}:
- *   { schoolId, schoolYearId, categoryId, byTeacher: { uid: [subCategoryId | 'x'] }, updatedAt, rebuiltAt }
- * ('x' = hồ sơ của danh mục không có mục con).
+ *   { schoolId, schoolYearId, categoryId, format: 2,
+ *     byTeacher: { uid: { subCategoryId | 'x': thời điểm nộp sớm nhất (ms) } }, updatedAt, rebuiltAt }
+ * ('x' = hồ sơ của danh mục không có mục con). Thời điểm nộp dùng để đánh dấu NỘP TRỄ
+ * (so với hạn của mục con/danh mục — app tự so, server chỉ lưu thời điểm). Sửa/thêm file
+ * không đổi uploadedAt nên không thành trễ; xóa hẳn rồi nộp lại thì tính theo lần nộp mới.
+ * Bản cũ (format 1, chỉ lưu danh sách mục) được tự dựng lại ở lần xem kế tiếp.
  *
  * Trước đây mỗi lần mở màn theo dõi đọc TOÀN BỘ hồ sơ của danh mục (cuối năm vài
  * nghìn lượt/lần). Giờ:
@@ -23,12 +27,22 @@ import { db } from './firebase-config.js';
 const COLLECTION = 'submissionSummaries';
 const FULL_REBUILD_MS = 7 * 24 * 60 * 60 * 1000;
 const NO_SUB = 'x';
+const FORMAT = 2;
 
 const summaryRef = (schoolId, categoryId) => db.collection(COLLECTION).doc(`${schoolId}__${categoryId}`);
 
-const submittedKeys = (docs) => [
-  ...new Set(docs.filter((d) => d.status !== 'rejected').map((d) => d.subCategoryId || NO_SUB)),
-].sort();
+const uploadedMs = (d) => (d.uploadedAt?.toMillis ? d.uploadedAt.toMillis() : 0); // không rõ → 0 (coi như đúng hạn)
+
+/** { mục: thời điểm nộp sớm nhất } của 1 người — bỏ hồ sơ bị từ chối. */
+const submittedTimes = (docs) => {
+  const out = {};
+  docs.filter((d) => d.status !== 'rejected').forEach((d) => {
+    const key = d.subCategoryId || NO_SUB;
+    const ms = uploadedMs(d);
+    if (out[key] === undefined || ms < out[key]) out[key] = ms;
+  });
+  return out;
+};
 
 /** Danh mục của đúng trường (null nếu không có / đã xóa / trường khác). */
 export async function getCategory(schoolId, categoryId) {
@@ -55,15 +69,17 @@ export async function refreshSubmissionSummary(schoolId, categoryId, uid) {
     .where('categoryId', '==', categoryId)
     .where('uploadedBy', '==', uid)
     .get();
-  const keys = submittedKeys(snap.docs.map((d) => d.data()));
+  const times = submittedTimes(snap.docs.map((d) => d.data()));
 
+  // mergeFields: thay TRỌN phần của người này (merge thường sẽ trộn map, giữ lại mục đã xóa).
+  const teacherPath = new admin.firestore.FieldPath('byTeacher', uid);
   await summaryRef(schoolId, categoryId).set({
     schoolId,
     categoryId,
     schoolYearId: category.schoolYearId || null,
-    byTeacher: { [uid]: keys.length ? keys : admin.firestore.FieldValue.delete() },
+    byTeacher: { [uid]: Object.keys(times).length ? times : admin.firestore.FieldValue.delete() },
     updatedAt: admin.firestore.Timestamp.now(),
-  }, { merge: true });
+  }, { mergeFields: ['schoolId', 'categoryId', 'schoolYearId', teacherPath, 'updatedAt'] });
 }
 
 const inflight = new Map(); // tránh nhiều người cùng mở → dựng lại nhiều lần cùng lúc
@@ -82,14 +98,15 @@ async function rebuildCategory(schoolId, categoryId, category) {
   });
   const byTeacher = {};
   byUploader.forEach((docs, uid) => {
-    const keys = submittedKeys(docs);
-    if (keys.length) byTeacher[uid] = keys;
+    const times = submittedTimes(docs);
+    if (Object.keys(times).length) byTeacher[uid] = times;
   });
   const now = admin.firestore.Timestamp.now();
   const summary = {
     schoolId,
     categoryId,
     schoolYearId: category.schoolYearId || null,
+    format: FORMAT,
     byTeacher,
     updatedAt: now,
     rebuiltAt: now,
@@ -106,7 +123,7 @@ export async function getSubmissionSummary(schoolId, categoryId, preloadedCatego
   const snap = await summaryRef(schoolId, categoryId).get();
   const data = snap.exists ? snap.data() : null;
   const rebuiltMs = data?.rebuiltAt?.toMillis?.() || 0;
-  if (data && Date.now() - rebuiltMs < FULL_REBUILD_MS) return data;
+  if (data && data.format === FORMAT && Date.now() - rebuiltMs < FULL_REBUILD_MS) return data;
 
   const key = `${schoolId}__${categoryId}`;
   if (!inflight.has(key)) {

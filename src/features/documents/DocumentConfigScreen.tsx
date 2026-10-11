@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, List } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { fridayOfWeek, weekNumberOf, weekdayOf, isDateString, shortDate } from '@/lib/submissionDeadline';
 import { DocumentTypesScreen } from '@/features/admin/DocumentTypesScreen';
 
 export function DocumentConfigScreen() {
@@ -40,6 +41,12 @@ export function DocumentConfigScreen() {
   const [categoryType, setCategoryType] = useState<'public' | 'personal'>('personal');
   const [categoryDocumentTypeId, setCategoryDocumentTypeId] = useState<string>(''); // NEW: DocumentType selection
   const [categoryHasSubCats, setCategoryHasSubCats] = useState(false);
+  // Hạn nộp chung (danh mục không chia mục con, vd Kế hoạch môn học) — 'YYYY-MM-DD' hoặc ''.
+  const [categoryDeadline, setCategoryDeadline] = useState('');
+  // Hạn nộp từng mục con đang sửa (subId → 'YYYY-MM-DD' | '') + ngày thứ Hai của Tuần 1 để tự điền.
+  const [subDeadlines, setSubDeadlines] = useState<Record<string, string>>({});
+  const [week1Monday, setWeek1Monday] = useState('');
+  const [savingDeadlines, setSavingDeadlines] = useState(false);
   const [categoryAllowedUploaders, setCategoryAllowedUploaders] = useState<string[]>([]);
   const [categoryViewPermissionType, setCategoryViewPermissionType] = useState<'everyone' | 'specific_users'>('everyone');
   const [categoryViewUserIds, setCategoryViewUserIds] = useState<string[]>([]);
@@ -303,12 +310,14 @@ export function DocumentConfigScreen() {
       setCategoryName(category.name);
       setCategoryDocumentTypeId(category.documentTypeId || '');
       setCategoryHasSubCats(category.hasSubCategories ?? false);
+      setCategoryDeadline(category.deadline || '');
     } else {
       // Create mode
       setEditingCategoryId(null);
       setCategoryName('');
       setCategoryDocumentTypeId('');
       setCategoryHasSubCats(false);
+      setCategoryDeadline('');
     }
 
     setShowCategoryDialog(true);
@@ -340,6 +349,8 @@ export function DocumentConfigScreen() {
           name: categoryName,
           documentTypeId: categoryDocumentTypeId,
           hasSubCategories: categoryHasSubCats,
+          // Hạn chung chỉ dùng cho danh mục không chia mục con (có mục con thì hạn đặt theo từng mục).
+          deadline: !categoryHasSubCats && isDateString(categoryDeadline) ? categoryDeadline : null,
         };
 
         await documentCategoryService.updateCategory(editingCategoryId, updateData);
@@ -355,7 +366,10 @@ export function DocumentConfigScreen() {
           createdBy: user!.uid,
         };
 
-        await documentCategoryService.createCategory(schoolId, createData);
+        const newCategoryId = await documentCategoryService.createCategory(schoolId, createData);
+        if (!categoryHasSubCats && isDateString(categoryDeadline)) {
+          await documentCategoryService.updateCategory(newCategoryId, { deadline: categoryDeadline });
+        }
         toast({ title: 'Thành công', description: 'Đã tạo danh mục mới' });
       }
 
@@ -428,7 +442,11 @@ export function DocumentConfigScreen() {
     if (!schoolId) return;
     try {
       const subs = await documentCategoryService.getSubCategories(schoolId, categoryId);
-      setSubCategories(subs);
+      // Mục con dạng "Tuần N" xếp theo số tuần (trường order cũ không đáng tin).
+      const rank = (x: DocumentSubCategory) => weekNumberOf(x.name) ?? 10000 + (x.order ?? 0);
+      setSubCategories([...subs].sort((a, b) => rank(a) - rank(b)));
+      setSubDeadlines(Object.fromEntries(subs.map(x => [x.id, x.deadline || ''])));
+      setWeek1Monday('');
     } catch (error) {
       console.error('Error loading subcategories:', error);
       toast({
@@ -446,6 +464,45 @@ export function DocumentConfigScreen() {
     } else {
       setExpandedCategoryId(categoryId);
       await loadSubCategories(categoryId);
+    }
+  };
+
+  // Tự điền hạn nộp: mục con "Tuần N" → thứ Sáu của tuần N (tính từ thứ Hai của Tuần 1).
+  // Chỉ điền vào ô, chưa lưu — sửa tay các tuần nghỉ (Tết...) rồi bấm "Lưu hạn nộp".
+  const handleAutoFillDeadlines = () => {
+    if (!isDateString(week1Monday)) {
+      toast({ title: 'Chọn ngày thứ Hai của Tuần 1 trước', variant: 'destructive' });
+      return;
+    }
+    if (weekdayOf(week1Monday) !== 1) {
+      toast({ title: 'Ngày đã chọn không phải thứ Hai', description: 'Hạn vẫn được tính = ngày đó + 4 ngày, mỗi tuần cộng 7 ngày.' });
+    }
+    let filled = 0;
+    const next = { ...subDeadlines };
+    subCategories.forEach(sub => {
+      const week = weekNumberOf(sub.name);
+      if (week) { next[sub.id] = fridayOfWeek(week1Monday, week); filled++; }
+    });
+    setSubDeadlines(next);
+    toast({ title: 'Đã điền hạn cho ' + filled + ' mục con', description: 'Kiểm tra lại các tuần nghỉ rồi bấm "Lưu hạn nộp".' });
+  };
+
+  const changedSubDeadlines = subCategories.filter(sub => (subDeadlines[sub.id] || '') !== (sub.deadline || ''));
+
+  const handleSaveSubDeadlines = async () => {
+    if (changedSubDeadlines.length === 0) return;
+    try {
+      setSavingDeadlines(true);
+      await documentCategoryService.setSubCategoryDeadlines(
+        changedSubDeadlines.map(sub => ({ id: sub.id, deadline: isDateString(subDeadlines[sub.id]) ? subDeadlines[sub.id] : null }))
+      );
+      toast({ title: 'Đã lưu hạn nộp cho ' + changedSubDeadlines.length + ' mục con' });
+      if (expandedCategoryId) await loadSubCategories(expandedCategoryId);
+    } catch (error) {
+      console.error('Error saving deadlines:', error);
+      toast({ title: 'Không lưu được hạn nộp', variant: 'destructive' });
+    } finally {
+      setSavingDeadlines(false);
     }
   };
 
@@ -770,6 +827,7 @@ export function DocumentConfigScreen() {
                             </div>
                             <p className="text-xs md:text-sm text-gray-600">
                               {category.hasSubCategories ? 'Có mục con' : 'Không có mục con'}
+                              {!category.hasSubCategories && category.deadline ? ' · Hạn nộp ' + shortDate(category.deadline) + '/' + category.deadline.slice(0, 4) : ''}
                             </p>
                           </div>
                         </div>
@@ -808,6 +866,35 @@ export function DocumentConfigScreen() {
                       {/* SubCategories (when expanded) */}
                       {category.hasSubCategories && expandedCategoryId === category.id && (
                         <div className="border-t bg-gray-50 p-4">
+                          {subCategories.length > 0 && (
+                            <div className="mb-3 p-3 bg-white border rounded space-y-2">
+                              <p className="text-sm font-medium">Hạn nộp theo tuần</p>
+                              <p className="text-xs text-gray-500">
+                                Hạn mỗi mục = ngày ghi bên cạnh (vd Tuần 6 → thứ Sáu của tuần 6); nộp từ hôm sau là TRỄ.
+                                Bỏ trống = không theo dõi trễ.
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm text-gray-600">Thứ Hai của Tuần 1:</span>
+                                <input
+                                  type="date"
+                                  value={week1Monday}
+                                  onChange={(e) => setWeek1Monday(e.target.value)}
+                                  className="border rounded px-2 py-1 text-sm"
+                                />
+                                <Button type="button" variant="outline" size="sm" onClick={handleAutoFillDeadlines}>
+                                  Tự điền theo tuần
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={handleSaveSubDeadlines}
+                                  disabled={changedSubDeadlines.length === 0 || savingDeadlines}
+                                >
+                                  {savingDeadlines ? 'Đang lưu...' : 'Lưu hạn nộp' + (changedSubDeadlines.length ? ' (' + changedSubDeadlines.length + ')' : '')}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                           {subCategories.length === 0 ? (
                             <p className="text-sm text-gray-500 text-center py-4">
                               Chưa có mục con nào
@@ -823,7 +910,14 @@ export function DocumentConfigScreen() {
                                     <List className="h-4 w-4 text-gray-400" />
                                     <span className="font-medium">{sub.name}</span>
                                   </div>
-                                  <div className="flex gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-xs text-gray-500 hidden sm:inline">Hạn</label>
+                                    <input
+                                      type="date"
+                                      value={subDeadlines[sub.id] || ''}
+                                      onChange={(e) => setSubDeadlines(prev => ({ ...prev, [sub.id]: e.target.value }))}
+                                      className={'border rounded px-2 py-1 text-sm ' + ((subDeadlines[sub.id] || '') !== (sub.deadline || '') ? 'border-amber-400 bg-amber-50' : '')}
+                                    />
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -1079,6 +1173,26 @@ export function DocumentConfigScreen() {
                   Có mục con
                 </label>
               </div>
+
+              {!categoryHasSubCats && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Hạn nộp (tùy chọn)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={categoryDeadline}
+                      onChange={(e) => setCategoryDeadline(e.target.value)}
+                      className="flex-1 border rounded px-3 py-2"
+                    />
+                    {categoryDeadline && (
+                      <Button type="button" variant="outline" onClick={() => setCategoryDeadline('')}>Bỏ hạn</Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Nộp sau ngày này bị đánh dấu TRỄ ở màn "Theo dõi nộp hồ sơ". Danh mục có mục con thì đặt hạn theo từng mục con.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2 mt-6">
