@@ -5,6 +5,7 @@ import { auth, googleProvider, db } from '../lib/firebase';
 import { useAuthStore } from '../stores/authStore';
 import { departmentService } from '../services/departmentService';
 import { clearAllCache } from '../lib/localCache';
+import { syncLocalCacheWithSchool } from '../services/schoolSettingsService';
 import { User, WhitelistEmail } from '../types';
 
 export const useAuth = () => {
@@ -163,6 +164,8 @@ export const useAuth = () => {
       setSuspendedSchoolName(null);
 
       if (userData) {
+        // Xóa bộ nhớ tạm trên máy nếu admin/BGH đã sửa danh mục/năm học... từ lần trước.
+        await syncLocalCacheWithSchool(userData.schoolId);
         setUser(userData);
       }
 
@@ -211,6 +214,8 @@ export const useAuth = () => {
               setUser(null);
             } else {
               setSuspendedSchoolName(null);
+              // Xóa bộ nhớ tạm trên máy nếu admin/BGH đã sửa danh mục/năm học... từ lần trước.
+              await syncLocalCacheWithSchool(userData?.schoolId);
               setUser(userData);
             }
           } else {

@@ -1,7 +1,8 @@
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { invalidateCache } from '../lib/localCache';
+import { invalidateCache, onInvalidate, syncCacheVersion, rememberCacheVersion } from '../lib/localCache';
+import { useAuthStore } from '../stores/authStore';
 import type { UserRole } from '../types';
 
 /**
@@ -18,6 +19,8 @@ import type { UserRole } from '../types';
 export interface SchoolSettings {
   aiForStaff: boolean;
   requireDocumentApproval: boolean;
+  /** Đổi mỗi khi admin/BGH sửa dữ liệu dùng chung đang nhớ tạm trên máy (xem lib/localCache.ts). */
+  configVersion?: string;
 }
 
 const DEFAULTS: SchoolSettings = { aiForStaff: true, requireDocumentApproval: false };
@@ -89,4 +92,36 @@ export function useSchoolSettings(schoolId: string | null | undefined): SchoolSe
     return () => { active = false; listeners.delete(load); };
   }, [schoolId]);
   return settings;
+}
+
+// ==================== Đồng bộ bộ nhớ tạm giữa các máy ====================
+// Nhóm dữ liệu dùng chung đang nhớ tạm trên máy (lib/localCache.ts). Ai được sửa các
+// dữ liệu này (admin/BGH) thì sau khi sửa ghi phiên bản cấu hình mới → máy khác thấy
+// khác phiên bản ở lần tải trang kế tiếp và xóa bộ nhớ tạm. Không tốn thêm lượt đọc:
+// lúc tải trang app vốn đã đọc schoolSettings.
+const SHARED_CACHE_GROUPS = ['schoolYears', 'documentCategories', 'campuses', 'users', 'schoolSettings'];
+const CONFIG_EDITOR_ROLES: UserRole[] = ['admin', 'principal', 'vice_principal', 'youth_leader'];
+
+onInvalidate((groups) => {
+  if (!groups.some((g) => SHARED_CACHE_GROUPS.includes(g))) return;
+  const user = useAuthStore.getState().user;
+  if (!user?.schoolId || !CONFIG_EDITOR_ROLES.includes(user.role)) return;
+  const version = String(Date.now());
+  rememberCacheVersion(version);
+  setDoc(doc(db, 'schoolSettings', user.schoolId), { schoolId: user.schoolId, configVersion: version }, { merge: true })
+    .catch((error) => console.error('Error bumping config version:', error));
+});
+
+/**
+ * Gọi lúc đăng nhập/tải trang, TRƯỚC khi hiện giao diện: đọc cài đặt trường (dùng lại cho
+ * cả phiên) và xóa bộ nhớ tạm trên máy nếu admin/BGH đã sửa dữ liệu dùng chung từ lần trước.
+ */
+export async function syncLocalCacheWithSchool(schoolId: string | null | undefined): Promise<void> {
+  if (!schoolId) return;
+  try {
+    const settings = await schoolSettingsService.get(schoolId);
+    syncCacheVersion(settings.configVersion);
+  } catch {
+    // không chặn đăng nhập
+  }
 }

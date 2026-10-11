@@ -126,8 +126,16 @@ service cloud.firestore {
     // đọc được; chỉ admin/hiệu trưởng CỦA CHÍNH TRƯỜNG ĐÓ sửa được.
     match /schoolSettings/{schoolId} {
       allow read: if isSuperAdmin() || (isSignedIn() && userSchoolId() == schoolId);
-      allow create, update: if (isAdmin() || isPrincipal()) && userSchoolId() == schoolId &&
-                            request.resource.data.schoolId == schoolId && schoolIsActive(schoolId);
+      // Hiệu phó/TPT Đội (sửa được danh mục, năm học) chỉ được ghi configVersion — "phiên bản
+      // cấu hình" báo máy khác xóa bộ nhớ tạm (src/lib/localCache.ts), không đổi được cài đặt khác.
+      function onlyConfigVersion() {
+        return resource == null
+          ? request.resource.data.keys().hasOnly(['schoolId', 'configVersion'])
+          : request.resource.data.diff(resource.data).affectedKeys().hasOnly(['configVersion']);
+      }
+      allow create, update: if userSchoolId() == schoolId &&
+                            request.resource.data.schoolId == schoolId && schoolIsActive(schoolId) &&
+                            ((isAdmin() || isPrincipal()) || (isVicePrincipal() && onlyConfigVersion()));
       allow delete: if false;
     }
 

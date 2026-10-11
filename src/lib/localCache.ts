@@ -5,9 +5,10 @@
  * Mỗi lần tải lại trang (F5) trước đây đều đọc lại toàn bộ từ Firestore, tốn quota.
  * Giờ đọc 1 lần, giữ CACHE_TTL_MS (3 giờ) rồi mới đọc lại.
  *
- * Đánh đổi: người SỬA dữ liệu thấy ngay (các hàm ghi gọi invalidateCache), nhưng máy
- * người KHÁC chỉ thấy thay đổi sau tối đa 3 giờ, hoặc khi đăng xuất/đăng nhập lại
- * (clearAllCache lúc đăng xuất).
+ * Máy người KHÁC cũng thấy thay đổi ngay ở lần tải trang kế tiếp: mỗi lần admin/BGH sửa
+ * dữ liệu dùng chung, app ghi "phiên bản cấu hình" mới vào schoolSettings/{schoolId}
+ * (onInvalidate → schoolSettingsService); lúc đăng nhập/tải trang app đọc phiên bản đó
+ * (vốn đã đọc cài đặt trường, không tốn thêm) và xóa bộ nhớ tạm nếu khác (syncCacheVersion).
  *
  * KHÔNG dùng cho dữ liệu đổi thường xuyên (việc được giao, bài nộp, thông báo, hồ sơ
  * chờ duyệt) hay dữ liệu quyết định quyền (users/{uid} của chính mình, trạng thái trường).
@@ -15,6 +16,35 @@
 export const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 
 const PREFIX = 'ttm-cache:v1:';
+const VERSION_KEY = `${PREFIX}__configVersion`;
+
+// Gọi sau mỗi invalidateCache (đăng ký bởi schoolSettingsService) để báo máy khác.
+let invalidateHook: ((groups: string[]) => void) | null = null;
+export function onInvalidate(hook: (groups: string[]) => void) {
+  invalidateHook = hook;
+}
+
+/** Phiên bản cấu hình của trường khác bản máy đang giữ → xóa hết bộ nhớ tạm. */
+export function syncCacheVersion(version: string | undefined | null) {
+  if (!version) return;
+  try {
+    if (localStorage.getItem(VERSION_KEY) !== version) {
+      clearAllCache();
+      localStorage.setItem(VERSION_KEY, version);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/** Máy vừa tự ghi phiên bản mới (bộ nhớ tạm của máy này đã được xóa đúng chỗ) — nhớ lại, khỏi xóa lần nữa. */
+export function rememberCacheVersion(version: string) {
+  try {
+    localStorage.setItem(VERSION_KEY, version);
+  } catch {
+    // ignore
+  }
+}
 // Gộp các lời gọi trùng nhau lúc tải trang (nhiều component cùng xin 1 dữ liệu) — chỉ đọc Firestore 1 lần.
 const inflight = new Map<string, Promise<unknown>>();
 
@@ -84,6 +114,7 @@ export function invalidateCache(...groups: string[]) {
     // ignore
   }
   for (const k of [...inflight.keys()]) if (groups.some((g) => k.startsWith(`${g}:`))) inflight.delete(k);
+  invalidateHook?.(groups);
 }
 
 /** Xóa toàn bộ bộ nhớ tạm — lúc đăng xuất (máy dùng chung không để lại dữ liệu người trước). */
