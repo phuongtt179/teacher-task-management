@@ -15,76 +15,19 @@ import {
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { Department } from '@/types';
-import { cached, invalidateCache } from '@/lib/localCache';
+// KHÔNG nhớ tạm danh sách tổ: ai là tổ trưởng / ai thuộc tổ nào quyết định QUYỀN xem hồ sơ —
+// admin đổi trên máy admin thì máy giáo viên phải thấy ngay (tổ chỉ vài bản ghi, đọc rẻ).
+// invalidateCache('departments') ở các hàm ghi giữ lại cho dữ liệu nhớ tạm cũ còn trên máy.
+import { invalidateCache } from '@/lib/localCache';
 
 export const departmentService = {
   // Get all departments
   async getAllDepartments(schoolId: string): Promise<Department[]> {
-    return cached(`departments:${schoolId}:all`, async () => {
-      try {
-        const q = query(tenantCollection('departments', schoolId), orderBy('name', 'asc'));
-        const snapshot = await getDocs(q);
+    try {
+      const q = query(tenantCollection('departments', schoolId), orderBy('name', 'asc'));
+      const snapshot = await getDocs(q);
 
-        return snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            schoolId: data.schoolId,
-            name: data.name,
-            headTeacherId: data.headTeacherId,
-            headTeacherName: data.headTeacherName,
-            memberIds: data.memberIds || [],
-            subCategoryId: data.subCategoryId,
-            createdAt: data.createdAt?.toDate() || new Date(),
-            updatedAt: data.updatedAt?.toDate() || new Date(),
-          };
-        });
-      } catch (error) {
-        console.error('Error getting departments:', error);
-        throw error;
-      }
-    });
-  },
-
-  // Get department by ID
-  async getDepartment(id: string): Promise<Department | null> {
-    return cached(`departments:id:${id}`, async () => {
-      try {
-        const deptDoc = await getDoc(doc(db, 'departments', id));
-        if (!deptDoc.exists()) return null;
-
-        const data = deptDoc.data();
-        return {
-          id: deptDoc.id,
-          schoolId: data.schoolId,
-          name: data.name,
-          headTeacherId: data.headTeacherId,
-          headTeacherName: data.headTeacherName,
-          memberIds: data.memberIds || [],
-          subCategoryId: data.subCategoryId,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-        };
-      } catch (error) {
-        console.error('Error getting department:', error);
-        throw error;
-      }
-    });
-  },
-
-  // Get department by user ID (find which department a teacher belongs to)
-  async getDepartmentByUserId(schoolId: string, userId: string): Promise<Department | null> {
-    return cached(`departments:${schoolId}:user:${userId}`, async () => {
-      try {
-        const q = query(
-          tenantCollection('departments', schoolId),
-          where('memberIds', 'array-contains', userId)
-        );
-        const snapshot = await getDocs(q);
-
-        if (snapshot.empty) return null;
-
-        const doc = snapshot.docs[0];
+      return snapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -97,11 +40,65 @@ export const departmentService = {
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
         };
-      } catch (error) {
-        console.error('Error getting department by user:', error);
-        throw error;
-      }
-    });
+      });
+    } catch (error) {
+      console.error('Error getting departments:', error);
+      throw error;
+    }
+  },
+
+  // Get department by ID
+  async getDepartment(id: string): Promise<Department | null> {
+    try {
+      const deptDoc = await getDoc(doc(db, 'departments', id));
+      if (!deptDoc.exists()) return null;
+
+      const data = deptDoc.data();
+      return {
+        id: deptDoc.id,
+        schoolId: data.schoolId,
+        name: data.name,
+        headTeacherId: data.headTeacherId,
+        headTeacherName: data.headTeacherName,
+        memberIds: data.memberIds || [],
+        subCategoryId: data.subCategoryId,
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      };
+    } catch (error) {
+      console.error('Error getting department:', error);
+      throw error;
+    }
+  },
+
+  // Get department by user ID (find which department a teacher belongs to)
+  async getDepartmentByUserId(schoolId: string, userId: string): Promise<Department | null> {
+    try {
+      const q = query(
+        tenantCollection('departments', schoolId),
+        where('memberIds', 'array-contains', userId)
+      );
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) return null;
+
+      const doc = snapshot.docs[0];
+      const data = doc.data();
+      return {
+        id: doc.id,
+        schoolId: data.schoolId,
+        name: data.name,
+        headTeacherId: data.headTeacherId,
+        headTeacherName: data.headTeacherName,
+        memberIds: data.memberIds || [],
+        subCategoryId: data.subCategoryId,
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      };
+    } catch (error) {
+      console.error('Error getting department by user:', error);
+      throw error;
+    }
   },
 
   // Create department
@@ -170,6 +167,29 @@ export const departmentService = {
   },
 
   // Add member to department
+  /**
+   * Đặt 1 người vào ĐÚNG 1 tổ (departmentId = null: không thuộc tổ nào): gỡ khỏi MỌI tổ
+   * khác đang chứa người đó rồi thêm vào tổ mới. Trước đây chỉ gỡ khỏi 1 tổ (tổ đầu tiên
+   * tìm thấy) nên người từng nằm ở 2 tổ bị sót lại ở tổ cũ — tổ trưởng tổ cũ vẫn thấy họ.
+   * clearHeadOfOthers (chỉ admin): nếu người này là tổ trưởng của tổ bị gỡ thì bỏ luôn.
+   */
+  async setUserDepartment(
+    schoolId: string,
+    userId: string,
+    departmentId: string | null,
+    opts?: { clearHeadOfOthers?: boolean }
+  ): Promise<void> {
+    const snapshot = await getDocs(query(tenantCollection('departments', schoolId), where('memberIds', 'array-contains', userId)));
+    for (const d of snapshot.docs) {
+      if (d.id === departmentId) continue;
+      await this.removeMember(d.id, userId);
+      if (opts?.clearHeadOfOthers && d.data().headTeacherId === userId) {
+        await this.clearDepartmentHead(d.id);
+      }
+    }
+    if (departmentId) await this.addMember(departmentId, userId);
+  },
+
   async addMember(departmentId: string, userId: string): Promise<void> {
     try {
       const dept = await this.getDepartment(departmentId);

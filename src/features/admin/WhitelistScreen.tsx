@@ -253,7 +253,8 @@ export const WhitelistScreen = () => {
             profileUpdateCount++;
           }
           if (row.departmentId) {
-            await departmentService.addMember(row.departmentId, existingUserAccount.uid);
+            // Mỗi người chỉ thuộc 1 tổ: gỡ khỏi tổ cũ (nếu có) rồi thêm vào tổ mới.
+            await departmentService.setUserDepartment(schoolId!, existingUserAccount.uid, row.departmentId, { clearHeadOfOthers: true });
           }
         }
 

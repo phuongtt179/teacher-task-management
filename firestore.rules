@@ -306,9 +306,14 @@ service cloud.firestore {
       }
 
       allow read: if sameSchool(resource.data);
+      // Tổ trưởng (headTeacherId) CHỈ admin đặt/đổi — ở "Quản lý người dùng", đổi luôn vai trò
+      // của người đó cho khớp. Hiệu trưởng/hiệu phó vẫn tạo tổ, sửa tên, sửa thành viên.
       allow create: if (isAdmin() || isVicePrincipal() || isPrincipal()) &&
-                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
-      allow update: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data) ||
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) &&
+                    (isAdmin() || !('headTeacherId' in request.resource.data));
+      allow update: if (isAdmin() && sameSchool(resource.data)) ||
+                    ((isVicePrincipal() || isPrincipal()) && sameSchool(resource.data) &&
+                     !request.resource.data.diff(resource.data).affectedKeys().hasAny(['headTeacherId', 'headTeacherName'])) ||
                     (isSignedIn() && sameSchool(resource.data) && isSelfMembershipToggle());
       allow delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
     }

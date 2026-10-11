@@ -87,14 +87,9 @@ export function TeacherProfileScreen() {
 
     setLoading(true);
     try {
-      // Remove from old department if exists
-      if (department) {
-        await departmentService.removeMember(department.id, user.uid);
-      }
-
-      // Add to new department
-      if (newDepartmentId) {
-        await departmentService.addMember(newDepartmentId, user.uid);
+      // Gỡ khỏi MỌI tổ khác rồi thêm vào tổ mới (không để sót ở tổ cũ).
+      if (user.schoolId) {
+        await departmentService.setUserDepartment(user.schoolId, user.uid, newDepartmentId || null);
       }
 
       // Reload department info

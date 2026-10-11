@@ -564,32 +564,32 @@ export function DocumentConfigScreen() {
     }
 
     try {
-      // Get head teacher info if selected
-      let headTeacherName: string | undefined;
-      if (selectedHeadTeacherId) {
-        const headTeacher = availableUsers.find(u => u.uid === selectedHeadTeacherId);
-        headTeacherName = headTeacher?.displayName;
-      }
-
+      // Tổ trưởng KHÔNG đổi ở đây — chỉ admin đổi ở "Quản lý người dùng" (đổi luôn vai trò của
+      // người đó cho khớp). Trước đây đặt tổ trưởng ở đây chỉ ghi vào tổ, tài khoản vẫn là
+      // giáo viên nên không có quyền tổ trưởng.
+      const previousMembers = editingDepartmentId
+        ? departments.find(d => d.id === editingDepartmentId)?.memberIds || []
+        : [];
+      let departmentId = editingDepartmentId;
       if (editingDepartmentId) {
-        // Update existing department
         await departmentService.updateDepartment(editingDepartmentId, {
           name: departmentName,
           memberIds: selectedMemberIds,
-          headTeacherId: selectedHeadTeacherId || undefined,
-          headTeacherName: headTeacherName,
         });
-        toast({ title: 'Thành công', description: 'Đã cập nhật tổ chuyên môn' });
       } else {
-        // Create new department
-        await departmentService.createDepartment(schoolId, {
+        departmentId = await departmentService.createDepartment(schoolId, {
           name: departmentName,
           memberIds: selectedMemberIds,
-          headTeacherId: selectedHeadTeacherId || undefined,
-          headTeacherName: headTeacherName,
         });
-        toast({ title: 'Thành công', description: 'Đã tạo tổ chuyên môn' });
       }
+
+      // Người vừa được thêm vào tổ này → gỡ khỏi tổ cũ (mỗi người chỉ thuộc 1 tổ). Trước đây
+      // không gỡ nên người chuyển tổ vẫn còn ở tổ cũ, tổ trưởng tổ cũ vẫn thấy họ.
+      const added = selectedMemberIds.filter(uid => !previousMembers.includes(uid));
+      for (const uid of added) {
+        await departmentService.setUserDepartment(schoolId, uid, departmentId, { clearHeadOfOthers: user?.role === 'admin' });
+      }
+      toast({ title: 'Thành công', description: editingDepartmentId ? 'Đã cập nhật tổ chuyên môn' : 'Đã tạo tổ chuyên môn' });
 
       // Close dialog first, then reload
       setShowDepartmentDialog(false);
@@ -1242,18 +1242,12 @@ export function DocumentConfigScreen() {
                 <label className="block text-sm font-medium mb-1">
                   Tổ trưởng
                 </label>
-                <select
-                  value={selectedHeadTeacherId}
-                  onChange={(e) => setSelectedHeadTeacherId(e.target.value)}
-                  className="w-full border rounded px-3 py-2"
-                >
-                  <option value="">Chọn tổ trưởng</option>
-                  {availableUsers.map(u => (
-                    <option key={u.uid} value={u.uid}>
-                      {u.displayName} ({u.email})
-                    </option>
-                  ))}
-                </select>
+                <div className="w-full border rounded px-3 py-2 bg-gray-50 text-gray-700">
+                  {availableUsers.find(u => u.uid === selectedHeadTeacherId)?.displayName || 'Chưa có'}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Chỉ admin đổi tổ trưởng, ở mục "Quản lý người dùng" (chọn vai trò Tổ trưởng và tổ).
+                </p>
               </div>
 
               <div>

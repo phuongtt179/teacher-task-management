@@ -197,21 +197,10 @@ const EditUserDialog = ({ user, isOpen, onClose, onSuccess }: EditUserDialogProp
         subject: subject.trim(),
       });
 
-      // Update department if changed
-      if (selectedDepartmentId !== currentDepartment?.id) {
-        // Remove from old department
-        if (currentDepartment) {
-          await departmentService.removeMember(currentDepartment.id, user.uid);
-
-          // If user was head of old department, clear it
-          if (currentDepartment.headTeacherId === user.uid) {
-            await departmentService.clearDepartmentHead(currentDepartment.id);
-          }
-        }
-        // Add to new department
-        if (selectedDepartmentId) {
-          await departmentService.addMember(selectedDepartmentId, user.uid);
-        }
+      // Đặt đúng 1 tổ: gỡ khỏi MỌI tổ khác (kể cả tổ cũ bị sót do từng nằm ở 2 tổ) rồi thêm
+      // vào tổ đã chọn; người này là tổ trưởng của tổ bị gỡ thì bỏ luôn vai trò ở tổ đó.
+      if (schoolId) {
+        await departmentService.setUserDepartment(schoolId, user.uid, selectedDepartmentId || null, { clearHeadOfOthers: true });
       }
 
       // 🎯 SET HEAD: If role is department_head, update the department document
