@@ -10,12 +10,17 @@ import type { UserRole } from '../types';
  *
  * aiForStaff: giáo viên/nhân viên (không phải BGH) có được dùng Trợ lý AI không.
  * Mặc định BẬT (giữ nguyên như trước khi có công tắc). BGH và admin luôn dùng được.
+ *
+ * requireDocumentApproval: hồ sơ giáo viên nộp có phải chờ BGH/tổ trưởng duyệt không.
+ * Mặc định TẮT — nộp là có hiệu lực ngay, sửa không quay về "chờ duyệt", người nộp tự
+ * xóa được hồ sơ của mình (không cần gửi yêu cầu xóa), ẩn mục "Phê duyệt hồ sơ".
  */
 export interface SchoolSettings {
   aiForStaff: boolean;
+  requireDocumentApproval: boolean;
 }
 
-const DEFAULTS: SchoolSettings = { aiForStaff: true };
+const DEFAULTS: SchoolSettings = { aiForStaff: true, requireDocumentApproval: false };
 
 /** Vai trò luôn được dùng Trợ lý AI, bất kể công tắc. */
 export const AI_ALWAYS_ALLOWED_ROLES: UserRole[] = ['admin', 'principal', 'vice_principal', 'youth_leader'];
@@ -44,6 +49,17 @@ export const schoolSettingsService = {
     return hit;
   },
 
+  async setRequireDocumentApproval(schoolId: string, enabled: boolean, updatedBy: string): Promise<void> {
+    await setDoc(
+      doc(db, 'schoolSettings', schoolId),
+      { schoolId, requireDocumentApproval: enabled, updatedBy, updatedAt: Timestamp.now() },
+      { merge: true }
+    );
+    invalidateCache('schoolSettings');
+    cache.set(schoolId, Promise.resolve({ ...(await this.get(schoolId)), requireDocumentApproval: enabled }));
+    listeners.forEach((notify) => notify());
+  },
+
   async setAiForStaff(schoolId: string, enabled: boolean, updatedBy: string): Promise<void> {
     await setDoc(
       doc(db, 'schoolSettings', schoolId),
@@ -55,6 +71,10 @@ export const schoolSettingsService = {
     listeners.forEach((notify) => notify());
   },
 };
+
+/** Hồ sơ mới nộp: 'approved' ngay khi trường tắt duyệt; khi bật duyệt thì theo quy tắc cũ (fallback). */
+export const documentStatusOnCreate = (settings: SchoolSettings | null, fallback: 'pending' | 'approved'): 'pending' | 'approved' =>
+  settings?.requireDocumentApproval ? fallback : 'approved';
 
 export const canUseAi = (role: UserRole | undefined, settings: SchoolSettings | null) =>
   !!role && (AI_ALWAYS_ALLOWED_ROLES.includes(role) || settings?.aiForStaff !== false);

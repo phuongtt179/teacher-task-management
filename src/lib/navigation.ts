@@ -16,6 +16,7 @@ import {
     User,
     Building2,
     Tag,
+    Table as TableIcon,
   } from 'lucide-react';
   import { User as AppUser, UserRole } from '../types';
 
@@ -28,6 +29,8 @@ import {
     // Orthogonal to `roles` — a school's own admin can also carry this flag
     // (see the User type), so it can't be expressed as a `roles` entry.
     requiresSuperAdmin?: boolean;
+    // Chỉ hiện khi trường BẬT tính năng duyệt hồ sơ (schoolSettings.requireDocumentApproval).
+    requiresDocumentApproval?: boolean;
   }
 
   export const navigationItems: NavItem[] = [
@@ -100,8 +103,14 @@ import {
       icon: BarChart3,
       roles: ['vice_principal', 'youth_leader', 'principal'],
     },
-    // "Theo dõi nộp hồ sơ" (/vp/submission-matrix) TẠM KHÓA: mỗi lần mở đọc toàn bộ hồ
-    // sơ của danh mục (~3.500 lượt đọc cuối năm học) — bật lại khi cần dùng (xem App.tsx).
+    // Đọc bảng tổng hợp server lưu sẵn (~1 lượt đọc/danh mục) — tổ trưởng/tổ phó chỉ thấy tổ mình.
+    {
+      label: 'Theo dõi nộp hồ sơ',
+      shortLabel: 'Nộp hồ sơ',
+      path: '/vp/submission-matrix',
+      icon: TableIcon,
+      roles: ['admin', 'vice_principal', 'youth_leader', 'principal', 'department_head', 'deputy_department_head'],
+    },
     {
       label: 'Bảng tổng hợp giáo viên',
       shortLabel: 'GV toàn trường',
@@ -154,6 +163,7 @@ import {
       label: 'Phê duyệt hồ sơ',
       path: '/documents/approvals',
       icon: FileCheck,
+      requiresDocumentApproval: true,
       roles: ['admin', 'vice_principal', 'youth_leader', 'principal', 'department_head', 'deputy_department_head'],
     },
 
@@ -162,6 +172,7 @@ import {
       label: 'Yêu cầu của tôi',
       path: '/documents/my-requests',
       icon: FileText,
+      requiresDocumentApproval: true,
       roles: ['teacher', 'department_head', 'deputy_department_head', 'staff'],
     },
 
@@ -180,8 +191,12 @@ import {
 
   // Preferred over getNavigationForRole now that some items gate on the
   // orthogonal isSuperAdmin flag instead of (or in addition to) role.
-  export const getNavigationForUser = (user: Pick<AppUser, 'role' | 'isSuperAdmin'>): NavItem[] => {
+  export const getNavigationForUser = (
+    user: Pick<AppUser, 'role' | 'isSuperAdmin'>,
+    settings?: { requireDocumentApproval?: boolean } | null
+  ): NavItem[] => {
     return navigationItems.filter(item => {
+      if (item.requiresDocumentApproval && !settings?.requireDocumentApproval) return false;
       if (item.requiresSuperAdmin) return user.isSuperAdmin === true;
       return item.roles.includes(user.role);
     });

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { fileRequestService } from '@/services/fileRequestService';
+import { schoolSettingsService, useSchoolSettings } from '@/services/schoolSettingsService';
 
 interface DepartmentDocumentsTreeViewProps {
   subCategoryId: string;
@@ -49,6 +50,7 @@ export function DepartmentDocumentsTreeView({
 
   const [loading, setLoading] = useState(true);
   const schoolId = user?.schoolId;
+  const schoolSettings = useSchoolSettings(schoolId);
 
   useEffect(() => {
     loadDepartments();
@@ -178,8 +180,25 @@ export function DepartmentDocumentsTreeView({
   };
 
   const handleDeleteRequest = async (doc: Document) => {
+    if (!schoolId) return;
+    // Trường TẮT duyệt hồ sơ → người nộp tự xóa hẳn, không cần gửi yêu cầu cho BGH.
+    const settings = await schoolSettingsService.get(schoolId);
+    if (!settings.requireDocumentApproval) {
+      if (!confirm(`Xóa hồ sơ "${doc.title}"?
+Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục được.`)) return;
+      try {
+        await documentService.deleteDocumentWithFiles(doc);
+        toast({ title: 'Đã xóa hồ sơ' });
+        await reloadCurrentUserDocuments();
+      } catch (error) {
+        console.error('Error deleting document:', error);
+        toast({ title: 'Lỗi', description: 'Không thể xóa hồ sơ', variant: 'destructive' });
+      }
+      return;
+    }
+
     const reason = prompt('Lý do xóa hồ sơ:');
-    if (!reason || !schoolId) return;
+    if (!reason) return;
 
     try {
       await fileRequestService.createDeleteRequest(schoolId, {
@@ -433,7 +452,7 @@ export function DepartmentDocumentsTreeView({
                                         className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
                                       >
                                         <Trash2 className="h-3.5 w-3.5 mr-2" />
-                                        Yêu cầu xóa hồ sơ
+                                        {schoolSettings?.requireDocumentApproval ? 'Yêu cầu xóa hồ sơ' : 'Xóa hồ sơ'}
                                       </Button>
                                     </div>
                                   )}

@@ -359,8 +359,17 @@ service cloud.firestore {
                     (isAdmin() || isVicePrincipal() || isPrincipal() ||
                      resource.data.uploadedBy == request.auth.uid);
 
-      // DELETE permissions: admin, VP, or Principal
-      allow delete: if (isAdmin() || isVicePrincipal() || isPrincipal()) && sameSchool(resource.data);
+      // Trường đang BẬT tính năng duyệt hồ sơ? (mặc định TẮT — schoolSettings chưa có/không có field)
+      function documentApprovalRequired() {
+        let path = /databases/$(database)/documents/schoolSettings/$(userSchoolId());
+        return exists(path) && get(path).data.get('requireDocumentApproval', false) == true;
+      }
+
+      // DELETE permissions: admin, VP, or Principal — hoặc chính người nộp khi trường TẮT duyệt
+      // hồ sơ (bật duyệt thì người nộp phải gửi yêu cầu xóa như trước).
+      allow delete: if sameSchool(resource.data) &&
+                    ((isAdmin() || isVicePrincipal() || isPrincipal()) ||
+                     (resource.data.uploadedBy == request.auth.uid && !documentApprovalRequired()));
     }
 
     // File Requests (delete/edit requests)

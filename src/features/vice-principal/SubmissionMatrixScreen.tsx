@@ -2,44 +2,45 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { schoolYearService } from '../../services/schoolYearService';
 import { documentCategoryService } from '../../services/documentCategoryService';
-import { documentService } from '../../services/documentService';
+import { documentTypeService } from '../../services/documentTypeService';
 import { departmentService } from '../../services/departmentService';
 import { userService } from '../../services/userService';
-import { DocumentCategory, DocumentSubCategory, Department, DocumentStatus } from '../../types';
+import { submissionSummaryService, NO_SUBCATEGORY_KEY, type SubmissionSummary } from '../../services/submissionSummaryService';
+import { DocumentCategory, DocumentSubCategory, Department, DocumentType, User } from '../../types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Check, Clock, X, Table as TableIcon } from 'lucide-react';
+import { Check, X, Table as TableIcon } from 'lucide-react';
 
-type CellState = 'approved' | 'pending' | 'none';
+// Khi loại hồ sơ không giới hạn người nộp: coi giáo viên/tổ trưởng/tổ phó là người phải nộp.
+const DEFAULT_SUBMITTER_ROLES = ['teacher', 'department_head', 'deputy_department_head'];
 
-interface Row {
-  uid: string;
-  name: string;
-  cells: Record<string, CellState>; // subCategoryId -> state
-  approved: number;
-}
+interface Column { key: string; name: string }
+interface Row { uid: string; name: string; done: Set<string>; count: number }
 
-// Ưu tiên trạng thái tốt nhất khi 1 người có nhiều tài liệu cho cùng 1 mục con
-const rank: Record<CellState, number> = { none: 0, pending: 1, approved: 2 };
-const better = (a: CellState, b: CellState): CellState => (rank[b] > rank[a] ? b : a);
-const toState = (s: DocumentStatus): CellState =>
-  s === 'approved' ? 'approved' : s === 'pending' ? 'pending' : 'none'; // rejected coi như chưa nộp
-
+/**
+ * Theo dõi nộp hồ sơ — ✓/✗ theo từng người, từng mục con (tuần) của 1 danh mục.
+ *
+ * Dữ liệu nộp lấy từ bảng tổng hợp server lưu sẵn (submissionSummaryService, ~1 lượt
+ * đọc/danh mục); danh mục, mục con, tổ, người dùng lấy từ bộ nhớ tạm 3 giờ trên máy.
+ * BGH/admin thấy cả trường; tổ trưởng/tổ phó chỉ thấy thành viên tổ mình (server lọc).
+ */
 export const SubmissionMatrixScreen = () => {
   const { user } = useAuth();
   const schoolId = user?.schoolId;
-  const [schoolYearId, setSchoolYearId] = useState<string>('');
+  const [schoolYearId, setSchoolYearId] = useState('');
   const [categories, setCategories] = useState<DocumentCategory[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [selectedDeptId, setSelectedDeptId] = useState<string>('all');
-  const [teachers, setTeachers] = useState<Array<{ uid: string; name: string }>>([]);
+  const [selectedDeptId, setSelectedDeptId] = useState('all');
+  const [users, setUsers] = useState<User[]>([]);
 
   const [subCategories, setSubCategories] = useState<DocumentSubCategory[]>([]);
-  const [cellMap, setCellMap] = useState<Map<string, CellState>>(new Map()); // `${uid}|${subId}` -> state
+  const [summary, setSummary] = useState<SubmissionSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMatrix, setLoadingMatrix] = useState(false);
+  const [error, setError] = useState('');
 
-  // Tải dữ liệu nền: năm học active, danh mục (có mục con), tổ, giáo viên
+  // Dữ liệu nền: năm học hiện tại, danh mục, loại hồ sơ, tổ, người dùng (đều từ bộ nhớ tạm).
   useEffect(() => {
     if (!schoolId) {
       setLoading(false);
@@ -49,34 +50,27 @@ export const SubmissionMatrixScreen = () => {
       try {
         setLoading(true);
         const activeYear = await schoolYearService.getActiveSchoolYear(schoolId);
-        if (!activeYear) {
-          setLoading(false);
-          return;
-        }
+        if (!activeYear) return;
         setSchoolYearId(activeYear.id);
 
-        const [cats, depts, users] = await Promise.all([
+        const [cats, types, depts, allUsers] = await Promise.all([
           documentCategoryService.getCategoriesBySchoolYear(schoolId, activeYear.id),
+          documentTypeService.getAllDocumentTypes(schoolId),
           departmentService.getAllDepartments(schoolId),
-          userService.getAllUsers(schoolId),
+          userService.getAllUsersCached(schoolId),
         ]);
-
-        const withSubs = cats.filter(c => c.hasSubCategories);
-        setCategories(withSubs);
+        const sorted = [...cats].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name, 'vi'));
+        setCategories(sorted);
+        setDocumentTypes(types);
         setDepartments(depts);
-        setTeachers(
-          users
-            .filter(u => u.role === 'teacher' || u.role === 'department_head' || u.role === 'deputy_department_head')
-            .map(u => ({ uid: u.uid, name: u.displayName || u.email }))
-            .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
-        );
+        setUsers(allUsers.filter(u => u.isActive !== false));
 
-        // Mặc định chọn "Kế hoạch bài dạy" nếu có, không thì danh mục đầu tiên
-        const prefer = withSubs.find(c => c.name.toLowerCase().includes('kế hoạch bài dạy'))
-          || withSubs.find(c => c.name.toLowerCase().includes('giáo án'));
-        setSelectedCategoryId((prefer || withSubs[0])?.id || '');
+        const prefer = sorted.find(c => c.name.toLowerCase().includes('kế hoạch bài dạy'))
+          || sorted.find(c => c.name.toLowerCase().includes('giáo án'));
+        setSelectedCategoryId((prefer || sorted[0])?.id || '');
       } catch (e) {
         console.error('Error loading matrix base data:', e);
+        setError('Không tải được dữ liệu. Vui lòng thử lại.');
       } finally {
         setLoading(false);
       }
@@ -84,68 +78,82 @@ export const SubmissionMatrixScreen = () => {
     load();
   }, [schoolId]);
 
-  // Tải ma trận khi đổi danh mục
+  // Đổi danh mục → mục con (bộ nhớ tạm) + bảng tổng hợp (server).
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId || !selectedCategoryId) {
+      setSubCategories([]);
+      setSummary(null);
+      return;
+    }
+    let active = true;
     const loadMatrix = async () => {
-      if (!selectedCategoryId) {
-        setSubCategories([]);
-        setCellMap(new Map());
-        return;
-      }
       try {
         setLoadingMatrix(true);
-        const [subs, cells] = await Promise.all([
-          documentCategoryService.getSubCategories(schoolId, selectedCategoryId),
-          documentService.getSubmissionCells(schoolId, selectedCategoryId),
+        setError('');
+        const category = categories.find(c => c.id === selectedCategoryId);
+        const [subs, sum] = await Promise.all([
+          category?.hasSubCategories ? documentCategoryService.getSubCategories(schoolId, selectedCategoryId) : Promise.resolve([]),
+          submissionSummaryService.get(selectedCategoryId),
         ]);
-        setSubCategories(subs);
-
-        const map = new Map<string, CellState>();
-        cells.forEach(c => {
-          if (!c.subCategoryId) return;
-          const key = `${c.uploadedBy}|${c.subCategoryId}`;
-          map.set(key, better(map.get(key) || 'none', toState(c.status)));
-        });
-        setCellMap(map);
+        if (!active) return;
+        setSubCategories([...subs].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+        setSummary(sum);
       } catch (e) {
         console.error('Error loading matrix:', e);
+        if (active) setError('Không tải được bảng theo dõi. Vui lòng thử lại.');
       } finally {
-        setLoadingMatrix(false);
+        if (active) setLoadingMatrix(false);
       }
     };
     loadMatrix();
-  }, [schoolId, selectedCategoryId]);
+    return () => { active = false; };
+  }, [schoolId, selectedCategoryId, categories]);
 
-  // Danh sách giáo viên theo bộ lọc tổ
-  const visibleTeachers = useMemo(() => {
-    if (selectedDeptId === 'all') return teachers;
-    const dept = departments.find(d => d.id === selectedDeptId);
-    const memberSet = new Set(dept?.memberIds || []);
-    return teachers.filter(t => memberSet.has(t.uid));
-  }, [teachers, departments, selectedDeptId]);
+  const selectedCategory = categories.find(c => c.id === selectedCategoryId);
 
-  // Dựng các hàng có sẵn ô + đếm đã duyệt
+  // Cột: các mục con (tuần) — danh mục không có mục con thì 1 cột "Đã nộp".
+  const columns: Column[] = useMemo(() => {
+    if (selectedCategory?.hasSubCategories) return subCategories.map(s => ({ key: s.id, name: s.name }));
+    return [{ key: NO_SUBCATEGORY_KEY, name: 'Đã nộp' }];
+  }, [selectedCategory, subCategories]);
+
+  // Tổ trưởng/tổ phó: chỉ các tổ mình phụ trách (server trả về departmentIds).
+  const visibleDepartments = useMemo(() => {
+    if (summary?.scope !== 'department') return departments;
+    const mine = new Set(summary.departmentIds || []);
+    return departments.filter(d => mine.has(d.id));
+  }, [departments, summary]);
+
   const rows: Row[] = useMemo(() => {
-    return visibleTeachers.map(t => {
-      const cells: Record<string, CellState> = {};
-      let approved = 0;
-      subCategories.forEach(s => {
-        const state = cellMap.get(`${t.uid}|${s.id}`) || 'none';
-        cells[s.id] = state;
-        if (state === 'approved') approved++;
-      });
-      return { uid: t.uid, name: t.name, cells, approved };
-    });
-  }, [visibleTeachers, subCategories, cellMap]);
+    if (!summary || !selectedCategory) return [];
+    const docType = documentTypes.find(t => t.id === selectedCategory.documentTypeId);
+    const uploaderIds = new Set(docType?.allowedUploaderUserIds || []);
+    // Người phải nộp: người được phép nộp loại hồ sơ này (nếu có cấu hình), cộng thêm ai đã nộp.
+    const expected = users.filter(u =>
+      (uploaderIds.size > 0 ? uploaderIds.has(u.uid) : DEFAULT_SUBMITTER_ROLES.includes(u.role)) || summary.byTeacher[u.uid]
+    );
 
-  const totalCols = subCategories.length;
+    // Phạm vi: tổ trưởng/tổ phó chỉ thành viên tổ mình; lọc thêm theo ô "Tổ chuyên môn".
+    let scoped = expected;
+    if (summary.scope === 'department') {
+      const memberSet = new Set(visibleDepartments.flatMap(d => [...d.memberIds, ...(d.headTeacherId ? [d.headTeacherId] : [])]));
+      scoped = scoped.filter(u => memberSet.has(u.uid));
+    }
+    if (selectedDeptId !== 'all') {
+      const dept = departments.find(d => d.id === selectedDeptId);
+      const memberSet = new Set([...(dept?.memberIds || []), ...(dept?.headTeacherId ? [dept.headTeacherId] : [])]);
+      scoped = scoped.filter(u => memberSet.has(u.uid));
+    }
 
-  const renderCell = (state: CellState) => {
-    if (state === 'approved') return <Check className="w-4 h-4 text-green-600 mx-auto" />;
-    if (state === 'pending') return <Clock className="w-4 h-4 text-amber-500 mx-auto" />;
-    return <X className="w-4 h-4 text-gray-300 mx-auto" />;
-  };
+    const columnKeys = new Set(columns.map(c => c.key));
+    return scoped
+      .map(u => {
+        // Chỉ tính các mục con còn tồn tại (mục con đã xóa không còn được tính).
+        const done = new Set((summary.byTeacher[u.uid] || []).filter(k => columnKeys.has(k)));
+        return { uid: u.uid, name: u.displayName || u.email, done, count: done.size };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [summary, selectedCategory, documentTypes, users, visibleDepartments, selectedDeptId, departments, columns]);
 
   if (loading) {
     return (
@@ -157,8 +165,11 @@ export const SubmissionMatrixScreen = () => {
   }
 
   if (!schoolYearId) {
-    return <div className="text-center py-12 text-gray-600">Chưa có năm học nào đang hoạt động.</div>;
+    return <div className="text-center py-12 text-gray-600">{error || 'Chưa có năm học nào đang hoạt động.'}</div>;
   }
+
+  const totalCols = columns.length;
+  const doneAll = rows.filter(r => r.count === totalCols).length;
 
   return (
     <div className="max-w-full mx-auto space-y-6">
@@ -166,14 +177,16 @@ export const SubmissionMatrixScreen = () => {
         <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <TableIcon className="w-6 h-6" /> Theo dõi nộp hồ sơ
         </h2>
-        <p className="text-gray-600">Bảng ✓/✗ tiến độ nộp theo từng mục con (tuần)</p>
+        <p className="text-gray-600">
+          {summary?.scope === 'department' ? 'Tiến độ nộp hồ sơ của tổ bạn' : 'Tiến độ nộp hồ sơ toàn trường'} — năm học hiện tại
+        </p>
       </div>
 
       {/* Bộ lọc */}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="flex-1">
           <label className="text-sm text-gray-600 mb-1 block">Danh mục hồ sơ</label>
-          <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
+          <Select value={selectedCategoryId} onValueChange={(v) => { if (v) setSelectedCategoryId(v); }}>
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Chọn danh mục" />
             </SelectTrigger>
@@ -186,13 +199,13 @@ export const SubmissionMatrixScreen = () => {
         </div>
         <div className="flex-1">
           <label className="text-sm text-gray-600 mb-1 block">Tổ chuyên môn</label>
-          <Select value={selectedDeptId} onValueChange={setSelectedDeptId}>
+          <Select value={selectedDeptId} onValueChange={(v) => { if (v) setSelectedDeptId(v); }}>
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Tất cả tổ" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả tổ</SelectItem>
-              {departments.map(d => (
+              <SelectItem value="all">{summary?.scope === 'department' ? 'Tất cả tổ của tôi' : 'Tất cả tổ'}</SelectItem>
+              {visibleDepartments.map(d => (
                 <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
               ))}
             </SelectContent>
@@ -200,22 +213,29 @@ export const SubmissionMatrixScreen = () => {
         </div>
       </div>
 
-      {/* Chú thích */}
+      {/* Chú thích + thời điểm cập nhật */}
       <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
-        <span className="flex items-center gap-1"><Check className="w-4 h-4 text-green-600" /> Đã duyệt</span>
-        <span className="flex items-center gap-1"><Clock className="w-4 h-4 text-amber-500" /> Chờ duyệt</span>
+        <span className="flex items-center gap-1"><Check className="w-4 h-4 text-green-600" /> Đã nộp</span>
         <span className="flex items-center gap-1"><X className="w-4 h-4 text-gray-300" /> Chưa nộp</span>
+        {rows.length > 0 && (
+          <span>Nộp đủ: <b className="text-gray-900">{doneAll}/{rows.length}</b> người</span>
+        )}
+        {summary?.updatedAt && (
+          <span className="text-gray-400">Cập nhật lúc {new Date(summary.updatedAt).toLocaleString('vi-VN')}</span>
+        )}
       </div>
 
-      {categories.length === 0 ? (
+      {error ? (
+        <div className="text-center py-12 bg-white rounded-lg border text-red-600">{error}</div>
+      ) : categories.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border text-gray-600">
-          Chưa có danh mục hồ sơ nào có mục con (tuần) trong năm học này.
+          Năm học này chưa có danh mục hồ sơ nào.
         </div>
-      ) : loadingMatrix ? (
+      ) : loadingMatrix || !summary ? (
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto"></div>
         </div>
-      ) : totalCols === 0 ? (
+      ) : selectedCategory?.hasSubCategories && totalCols === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border text-gray-600">
           Danh mục này chưa có mục con nào.
         </div>
@@ -225,14 +245,16 @@ export const SubmissionMatrixScreen = () => {
             <thead>
               <tr className="bg-gray-50">
                 <th className="sticky left-0 z-10 bg-gray-50 text-left px-3 py-2 border-b border-r font-semibold text-gray-700 min-w-[180px]">
-                  Giáo viên
+                  Họ và tên
                 </th>
-                <th className="px-2 py-2 border-b border-r font-semibold text-gray-700 text-center whitespace-nowrap">
-                  Đã duyệt
-                </th>
-                {subCategories.map(s => (
-                  <th key={s.id} className="px-2 py-2 border-b border-r font-medium text-gray-600 text-center whitespace-nowrap">
-                    {s.name}
+                {totalCols > 1 && (
+                  <th className="px-2 py-2 border-b border-r font-semibold text-gray-700 text-center whitespace-nowrap">
+                    Đã nộp
+                  </th>
+                )}
+                {columns.map(c => (
+                  <th key={c.key} className="px-2 py-2 border-b border-r font-medium text-gray-600 text-center whitespace-nowrap">
+                    {c.name}
                   </th>
                 ))}
               </tr>
@@ -241,7 +263,7 @@ export const SubmissionMatrixScreen = () => {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={totalCols + 2} className="text-center py-8 text-gray-500">
-                    Không có giáo viên nào trong phạm vi đã chọn.
+                    Không có ai trong phạm vi đã chọn.
                   </td>
                 </tr>
               ) : (
@@ -250,14 +272,18 @@ export const SubmissionMatrixScreen = () => {
                     <td className="sticky left-0 z-10 bg-white px-3 py-2 border-b border-r font-medium text-gray-900 min-w-[180px]">
                       {row.name}
                     </td>
-                    <td className="px-2 py-2 border-b border-r text-center whitespace-nowrap">
-                      <span className={row.approved === totalCols ? 'text-green-600 font-semibold' : 'text-gray-600'}>
-                        {row.approved}/{totalCols}
-                      </span>
-                    </td>
-                    {subCategories.map(s => (
-                      <td key={s.id} className="px-2 py-2 border-b border-r text-center">
-                        {renderCell(row.cells[s.id])}
+                    {totalCols > 1 && (
+                      <td className="px-2 py-2 border-b border-r text-center whitespace-nowrap">
+                        <span className={row.count === totalCols ? 'text-green-600 font-semibold' : 'text-gray-600'}>
+                          {row.count}/{totalCols}
+                        </span>
+                      </td>
+                    )}
+                    {columns.map(c => (
+                      <td key={c.key} className="px-2 py-2 border-b border-r text-center">
+                        {row.done.has(c.key)
+                          ? <Check className="w-4 h-4 text-green-600 mx-auto" />
+                          : <X className="w-4 h-4 text-gray-300 mx-auto" />}
                       </td>
                     ))}
                   </tr>

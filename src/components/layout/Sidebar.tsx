@@ -1,12 +1,14 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getNavigationForUser } from '../../lib/navigation';
+import { useSchoolSettings } from '../../services/schoolSettingsService';
 import { cn } from '@/lib/utils';
 import { GraduationCap } from 'lucide-react';
 
 export const Sidebar = () => {
   const { user, schoolName } = useAuth();
-  const navItems = user ? getNavigationForUser(user) : [];
+  const schoolSettings = useSchoolSettings(user?.schoolId);
+  const navItems = user ? getNavigationForUser(user, schoolSettings) : [];
 
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-64 bg-white border-r border-gray-200 fixed left-0 top-0 bottom-0">

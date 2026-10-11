@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getNavigationForUser } from '../../lib/navigation';
+import { useSchoolSettings } from '../../services/schoolSettingsService';
 import { cn } from '@/lib/utils';
 import { Menu, X } from 'lucide-react';
 
@@ -14,8 +15,9 @@ interface MobileMenuProps {
 
 export const MobileMenu = ({ forceVisible }: MobileMenuProps) => {
   const { user, schoolName } = useAuth();
+  const schoolSettings = useSchoolSettings(user?.schoolId);
   const [isOpen, setIsOpen] = useState(false);
-  const navItems = user ? getNavigationForUser(user) : [];
+  const navItems = user ? getNavigationForUser(user, schoolSettings) : [];
   const visibilityClass = forceVisible ? '' : 'lg:hidden';
 
   return (

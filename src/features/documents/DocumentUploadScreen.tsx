@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Upload, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { schoolSettingsService } from '@/services/schoolSettingsService';
 
 export function DocumentUploadScreen() {
   const { user } = useAuth();
@@ -219,6 +220,11 @@ export function DocumentUploadScreen() {
         ) {
           status = 'approved';
         }
+      }
+
+      // Trường TẮT duyệt hồ sơ → mọi hồ sơ nộp là có hiệu lực ngay.
+      if (!(await schoolSettingsService.get(schoolId)).requireDocumentApproval) {
+        status = 'approved';
       }
 
       await documentService.createDocument(schoolId, {

@@ -10,6 +10,7 @@ import { departmentService } from '@/services/departmentService';
 import { fileRequestService } from '@/services/fileRequestService';
 import { documentHistoryService } from '@/services/documentHistoryService';
 import { campusService } from '@/services/campusService';
+import { schoolSettingsService, useSchoolSettings } from '@/services/schoolSettingsService';
 import { getRoleLabel } from '@/lib/roleLabels';
 import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile, DocumentType, User, Campus } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -116,6 +117,7 @@ export function DocumentBrowseScreen() {
   const [removedFileIds, setRemovedFileIds] = useState<string[]>([]);
 
   const schoolId = user?.schoolId;
+  const schoolSettings = useSchoolSettings(schoolId);
 
   // Danh sách toàn bộ user chỉ dùng cho ô "Xem hồ sơ của" — chỉ cấp quản lý mới
   // có ô này (xem getSelectableUsersForPersonalMode), nên giáo viên/nhân viên
@@ -396,8 +398,26 @@ export function DocumentBrowseScreen() {
   };
 
   const handleDeleteRequest = async (doc: Document) => {
+    if (!schoolId) return;
+    // Trường TẮT duyệt hồ sơ → người nộp tự xóa hẳn, không cần gửi yêu cầu cho BGH.
+    const settings = await schoolSettingsService.get(schoolId);
+    if (!settings.requireDocumentApproval) {
+      if (!confirm(`Xóa hồ sơ "${doc.title}"?
+Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục được.`)) return;
+      try {
+        await documentService.deleteDocumentWithFiles(doc);
+        toast({ title: 'Đã xóa hồ sơ' });
+        await loadDocuments();
+        setTreeViewRefreshTrigger(Date.now());
+      } catch (error) {
+        console.error('Error deleting document:', error);
+        toast({ title: 'Lỗi', description: 'Không thể xóa hồ sơ', variant: 'destructive' });
+      }
+      return;
+    }
+
     const reason = prompt('Lý do xóa hồ sơ:');
-    if (!reason || !schoolId) return;
+    if (!reason) return;
 
     try {
       await fileRequestService.createDeleteRequest(schoolId, {
@@ -593,6 +613,11 @@ export function DocumentBrowseScreen() {
         ) {
           status = 'approved';
         }
+      }
+
+      // Trường TẮT duyệt hồ sơ → mọi hồ sơ nộp là có hiệu lực ngay.
+      if (schoolId && !(await schoolSettingsService.get(schoolId)).requireDocumentApproval) {
+        status = 'approved';
       }
 
       // Build document data with multiple files
@@ -841,8 +866,9 @@ export function DocumentBrowseScreen() {
         updateData.title = documentTitle.trim();
       }
 
-      // If document was approved, change status to pending
-      if (editingDocument.status === 'approved') {
+      // If document was approved, change status to pending (chỉ khi trường BẬT duyệt hồ sơ)
+      const revertToPending = editingDocument.status === 'approved' && !!schoolSettings?.requireDocumentApproval;
+      if (revertToPending) {
         updateData.status = 'pending';
         console.log('⚠️ Document was approved, changing status to pending');
       }
@@ -901,7 +927,7 @@ export function DocumentBrowseScreen() {
         });
       }
 
-      if (editingDocument.status === 'approved') {
+      if (revertToPending) {
         await documentHistoryService.createHistory({
           documentId: editingDocument.id,
           documentTitle: documentTitle.trim(),
@@ -933,7 +959,7 @@ export function DocumentBrowseScreen() {
 
       toast({
         title: 'Thành công',
-        description: editingDocument.status === 'approved'
+        description: revertToPending
           ? 'Hồ sơ đã được cập nhật và chuyển về trạng thái chờ duyệt'
           : 'Hồ sơ đã được cập nhật',
       });

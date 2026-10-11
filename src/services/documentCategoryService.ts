@@ -15,6 +15,7 @@ import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { DocumentCategory, DocumentSubCategory } from '@/types';
 import { cached, invalidateCache } from '@/lib/localCache';
+import { submissionSummaryService } from './submissionSummaryService';
 
 export const documentCategoryService = {
   // ============ CATEGORIES ============
@@ -215,6 +216,8 @@ export const documentCategoryService = {
       // TODO: Delete all subcategories first
       await deleteDoc(doc(db, 'documentCategories', id));
       invalidateCache('documentCategories');
+      // Danh mục đã xóa → server xóa luôn bảng tổng hợp nộp hồ sơ của danh mục này.
+      submissionSummaryService.refresh(id);
     } catch (error) {
       console.error('Error deleting category:', error);
       throw error;

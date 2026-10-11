@@ -12,6 +12,7 @@ import { sendNewTaskNotification, sendTaskScoredNotification } from './notificat
 import { checkDeadlinesAndNotify } from './deadlineChecker.js';
 import { getRankingSnapshot, getComboStats } from './rankingSnapshot.js';
 import { getStatisticsSnapshot, viewForUser } from './statisticsSnapshot.js';
+import { refreshSubmissionSummary, getSubmissionSummary, getDepartmentScope } from './submissionSummary.js';
 import { rankTeachers, RANKING_PERIODS, RANKING_TYPES, RANKING_SEMESTERS } from '../src/shared/rankingCompute.js';
 import admin, { db as adminDb } from './firebase-config.js';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from './_gemini.js';
@@ -1184,16 +1185,31 @@ function computeTeacherStatus(deadline, deadline2, submission) {
 const AI_ALWAYS_ALLOWED_ROLES = ['admin', 'principal', 'vice_principal', 'youth_leader'];
 const schoolSettingsCache = new Map(); // schoolId -> { at, aiForStaff }
 
-async function isAiAllowed(schoolId, role) {
-  if (AI_ALWAYS_ALLOWED_ROLES.includes(role)) return true;
-  if (!schoolId) return false;
+// schoolSettings/{schoolId} — nhớ 60 giây. Mặc định: AI bật cho giáo viên, KHÔNG yêu cầu duyệt hồ sơ.
+async function getSchoolSettings(schoolId) {
   let hit = schoolSettingsCache.get(schoolId);
   if (!hit || Date.now() - hit.at > 60 * 1000) {
     const snap = await adminDb.collection('schoolSettings').doc(schoolId).get();
-    hit = { at: Date.now(), aiForStaff: snap.exists ? snap.data().aiForStaff !== false : true };
+    const data = snap.exists ? snap.data() : {};
+    hit = {
+      at: Date.now(),
+      aiForStaff: data.aiForStaff !== false,
+      requireDocumentApproval: data.requireDocumentApproval === true,
+    };
     schoolSettingsCache.set(schoolId, hit);
   }
-  return hit.aiForStaff;
+  return hit;
+}
+
+async function isAiAllowed(schoolId, role) {
+  if (AI_ALWAYS_ALLOWED_ROLES.includes(role)) return true;
+  if (!schoolId) return false;
+  return (await getSchoolSettings(schoolId)).aiForStaff;
+}
+
+// Tính năng duyệt hồ sơ đang TẮT (mặc định) → hồ sơ nộp là có hiệu lực ngay, sửa không quay về "chờ duyệt".
+async function requiresDocumentApproval(schoolId) {
+  return schoolId ? (await getSchoolSettings(schoolId)).requireDocumentApproval : false;
 }
 
 // ==================== Giới hạn dữ liệu đọc của các công cụ AI ====================
@@ -2393,7 +2409,8 @@ async function executeChatTool(name, ctx, args) {
     case 'confirm_upload_target': return toolConfirmUploadTarget(ctx, args?.categoryId, args?.subCategoryId);
     case 'list_my_documents': return toolListMyDocuments(ctx);
     case 'confirm_edit_target': return toolConfirmEditTarget(ctx, args?.documentId);
-    case 'get_submission_summary': return toolGetSubmissionSummary(ctx);
+    // Tạm TẮT trong Trợ lý AI (tốn nhiều lượt đọc) — xem màn "Theo dõi nộp hồ sơ".
+    case 'get_submission_summary': return { error: 'feature_disabled', message: 'Tính năng tổng hợp nộp hồ sơ qua Trợ lý AI đang tạm tắt. Hãy mở mục "Theo dõi nộp hồ sơ" trong menu để xem.' };
     case 'get_task_completion_summary': return toolGetTaskCompletionSummary(ctx, args?.keyword);
     case 'confirm_report_progress': return toolConfirmReportUpdate(ctx, args, 'progress');
     case 'confirm_report_blocker': return toolConfirmReportUpdate(ctx, args, 'blocker');
@@ -2507,7 +2524,7 @@ Khi giáo viên hỏi về tài liệu CHÍNH HỌ đã nộp (ví dụ "tôi đ
 2. Nếu chỉ hỏi xem đã nộp gì, trả lời trực tiếp dựa trên danh sách (ví dụ liệt kê các tuần đã nộp của "Kế hoạch bài dạy"), không cần làm gì thêm.
 3. Nếu muốn SỬA 1 tài liệu cụ thể, tự suy luận đúng tài liệu đó từ danh sách (theo tên danh mục/mục con, ví dụ "tuần 3"), rồi gọi confirm_edit_target(documentId) với đúng id lấy được — KHÔNG tự bịa id. Nếu không xác định được rõ tài liệu nào, hỏi lại.
 4. Sau khi confirm_edit_target trả về confirmed=true, xác nhận lại bằng lời (tên tài liệu, số file hiện có), mời giáo viên tự thêm file mới hoặc xóa bớt file qua giao diện hiện ra — không tự sửa giúp.
-Khi người dùng hỏi tổng hợp tình hình nộp HỒ SƠ (giáo án/kế hoạch bài dạy/sổ chủ nhiệm/sổ dự giờ) CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): gọi get_submission_summary (hàm tự xác định phạm vi phù hợp với người hỏi, không cần đoán trước là tổ hay trường); nếu hàm báo lỗi not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Kết quả có trường "scope": "department" (chỉ 1 tổ, xem trường "members") hoặc "school" (toàn trường, xem trường "departments" gồm nhiều tổ + "unassigned" là người chưa thuộc tổ nào). Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần). Nếu người dùng hỏi CỤ THỂ thiếu tuần/mục nào (vd "cô A còn thiếu tuần nào", "ai chưa nộp tuần 5"), dùng trường "missingSubs" (danh sách tên mục con CHƯA nộp của từng người trong từng danh mục) để liệt kê chính xác — nếu missingSubs rỗng thì người đó đã nộp đủ.
+Khi người dùng hỏi tổng hợp tình hình nộp HỒ SƠ (giáo án/kế hoạch bài dạy/sổ chủ nhiệm/sổ dự giờ) CỦA NGƯỜI KHÁC/của tổ/toàn trường (ví dụ "tổ tôi ai chưa nộp kế hoạch bài dạy", "xem tổng hợp nộp hồ sơ của tổ", "toàn trường nộp thế nào rồi"): gọi get_submission_summary (hàm tự xác định phạm vi phù hợp với người hỏi, không cần đoán trước là tổ hay trường); nếu hàm báo lỗi not_authorized thì báo thẳng người dùng không có quyền xem tổng hợp này, đừng tự bịa số liệu. Nếu hàm báo lỗi feature_disabled thì chuyển nguyên văn trường "message" cho người dùng, KHÔNG tự tổng hợp bằng hàm khác. Kết quả có trường "scope": "department" (chỉ 1 tổ, xem trường "members") hoặc "school" (toàn trường, xem trường "departments" gồm nhiều tổ + "unassigned" là người chưa thuộc tổ nào). Khi trình bày, nêu rõ tên từng người/tổ kèm số liệu đã nộp/tổng số (đặc biệt "Kế hoạch bài dạy" tính theo số tuần đã nộp/tổng số tuần). Nếu người dùng hỏi CỤ THỂ thiếu tuần/mục nào (vd "cô A còn thiếu tuần nào", "ai chưa nộp tuần 5"), dùng trường "missingSubs" (danh sách tên mục con CHƯA nộp của từng người trong từng danh mục) để liệt kê chính xác — nếu missingSubs rỗng thì người đó đã nộp đủ.
 QUAN TRỌNG — phân biệt HỒ SƠ và CÔNG VIỆC, KHÔNG được lẫn lộn: "hồ sơ" (giáo án, sổ chủ nhiệm, sổ dự giờ...) dùng get_submission_summary như trên. Còn "công việc"/"nhiệm vụ" (task nói chung, ví dụ "họp phụ huynh", "báo cáo tổng kết", "kiểm kê cơ sở vật chất"...) là chuyện KHÁC HẲN, dùng get_task_completion_summary:
 - Hỏi tổng quát "ai chưa hoàn thành việc được giao", "tuần này còn ai chưa xong việc" (không nhắc tên việc cụ thể): gọi get_task_completion_summary() KHÔNG truyền keyword, trình bày danh sách người/việc/hạn trong trường "incomplete".
 - Hỏi về TÌNH HÌNH 1 việc cụ thể (có nhắc tên việc, ví dụ "báo cáo tình hình việc kiểm kê cơ sở vật chất", "việc X ai đúng hạn ai trễ"): gọi get_task_completion_summary(keyword="tên việc"), trình bày theo 3 nhóm dựa vào trường "status" của từng người trong "assignees": completed_on_time (đúng hạn), completed_late (trễ hạn nhưng đã nộp), not_completed_overdue/not_completed_within_deadline (chưa hoàn thành). Nếu keyword không khớp việc nào, báo thẳng không tìm thấy việc đó, đừng tự bịa.
@@ -2974,7 +2991,8 @@ app.post('/api/chat/submit-document', verifyAuth, express.json(), async (req, re
       return res.status(400).json({ error: 'missing_fields' });
     }
 
-    const status = (req.role === 'admin' || req.role === 'vice_principal' || req.role === 'youth_leader' || req.role === 'principal') ? 'approved' : 'pending';
+    const isManager = req.role === 'admin' || req.role === 'vice_principal' || req.role === 'youth_leader' || req.role === 'principal';
+    const status = isManager || !(await requiresDocumentApproval(req.schoolId)) ? 'approved' : 'pending';
 
     const documentData = {
       schoolId: req.schoolId,
@@ -2998,6 +3016,7 @@ app.post('/api/chat/submit-document', verifyAuth, express.json(), async (req, re
 
     const docRef = await adminDb.collection('documents').add(documentData);
 
+    refreshSubmissionSummary(req.schoolId, categoryId, req.uid).catch(e => console.error('summary refresh failed:', e.message));
     res.json({ success: true, documentId: docRef.id, status });
   } catch (error) {
     console.error('❌ Submit document error:', error);
@@ -3040,7 +3059,7 @@ app.post('/api/chat/add-document-files', verifyAuth, express.json(), async (req,
       updatedAt: admin.firestore.Timestamp.now(),
       editCount: (doc.editCount || 0) + 1,
     };
-    if (doc.status === 'approved') updateData.status = 'pending';
+    if (doc.status === 'approved' && (await requiresDocumentApproval(req.schoolId))) updateData.status = 'pending';
 
     await docRef.update(updateData);
     res.json({ success: true, fileCount: updateData.files.length, status: updateData.status || doc.status });
@@ -3080,7 +3099,7 @@ app.post('/api/chat/remove-document-file', verifyAuth, express.json(), async (re
       updatedAt: admin.firestore.Timestamp.now(),
       editCount: (doc.editCount || 0) + 1,
     };
-    if (doc.status === 'approved') updateData.status = 'pending';
+    if (doc.status === 'approved' && (await requiresDocumentApproval(req.schoolId))) updateData.status = 'pending';
 
     await docRef.update(updateData);
     res.json({ success: true, fileCount: remainingFiles.length, status: updateData.status || doc.status });
@@ -3208,6 +3227,69 @@ app.get('/api/school-average', verifyAuth, async (req, res) => {
   } catch (error) {
     console.error('Error getting school average:', error);
     res.status(500).json({ error: 'school_average_failed' });
+  }
+});
+
+/**
+ * Màn "Theo dõi nộp hồ sơ" — đọc bảng tổng hợp lưu sẵn (server/submissionSummary.js).
+ * BGH/admin: cả trường. Tổ trưởng/tổ phó: chỉ thành viên tổ mình.
+ * ?categoryId=<id danh mục>
+ */
+const SUMMARY_SCHOOL_ROLES = ['admin', 'principal', 'vice_principal', 'youth_leader'];
+const SUMMARY_DEPT_ROLES = ['department_head', 'deputy_department_head'];
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+app.get('/api/submission-summary', verifyAuth, async (req, res) => {
+  try {
+    if (!req.schoolId) return res.status(400).json({ error: 'no_school' });
+    const isSchoolScope = SUMMARY_SCHOOL_ROLES.includes(req.role);
+    if (!isSchoolScope && !SUMMARY_DEPT_ROLES.includes(req.role)) return res.status(403).json({ error: 'forbidden' });
+    const categoryId = String(req.query.categoryId || '');
+    if (!ID_RE.test(categoryId)) return res.status(400).json({ error: 'bad_category' });
+
+    const summary = await getSubmissionSummary(req.schoolId, categoryId);
+    if (!summary) return res.status(404).json({ error: 'category_not_found' });
+
+    let byTeacher = summary.byTeacher || {};
+    let departmentIds = null;
+    if (!isSchoolScope) {
+      const scope = await getDepartmentScope(req.schoolId, req.uid);
+      departmentIds = scope.departmentIds;
+      byTeacher = Object.fromEntries(Object.entries(byTeacher).filter(([uid]) => scope.memberUids.has(uid)));
+    }
+    res.json({
+      categoryId,
+      scope: isSchoolScope ? 'school' : 'department',
+      departmentIds,
+      byTeacher,
+      updatedAt: summary.updatedAt?.toMillis?.() || null,
+    });
+  } catch (error) {
+    console.error('Error getting submission summary:', error);
+    res.status(500).json({ error: 'submission_summary_failed' });
+  }
+});
+
+/**
+ * App báo "người X vừa đổi hồ sơ trong danh mục Y" (nộp/xóa/từ chối) → server đếm lại
+ * phần của đúng người đó. Người thường chỉ báo cho chính mình; BGH/admin báo được cho
+ * người khác (khi họ xóa/từ chối hồ sơ của giáo viên). Danh mục đã bị xóa → xóa bản tổng hợp.
+ * body: { categoryId, uid? }
+ */
+app.post('/api/submission-summary/refresh', verifyAuth, express.json(), async (req, res) => {
+  try {
+    if (!req.schoolId) return res.status(400).json({ error: 'no_school' });
+    const categoryId = String(req.body?.categoryId || '');
+    if (!ID_RE.test(categoryId)) return res.status(400).json({ error: 'bad_category' });
+    const requested = req.body?.uid ? String(req.body.uid) : req.uid;
+    if (!ID_RE.test(requested)) return res.status(400).json({ error: 'bad_uid' });
+    const canActForOthers = SUMMARY_SCHOOL_ROLES.includes(req.role) || SUMMARY_DEPT_ROLES.includes(req.role);
+    if (requested !== req.uid && !canActForOthers) return res.status(403).json({ error: 'forbidden' });
+
+    await refreshSubmissionSummary(req.schoolId, categoryId, requested);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error refreshing submission summary:', error);
+    res.status(500).json({ error: 'submission_summary_refresh_failed' });
   }
 });
 

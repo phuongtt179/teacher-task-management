@@ -14,6 +14,8 @@ import {
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { Document, DocumentStatus } from '@/types';
+import { submissionSummaryService } from './submissionSummaryService';
+import { googleDriveServiceBackend } from './googleDriveServiceBackend';
 
 export const documentService = {
   // Get all documents (with filters)
@@ -99,26 +101,6 @@ export const documentService = {
       return docs;
     } catch (error) {
       console.error('Error getting documents:', error);
-      throw error;
-    }
-  },
-
-  // Lấy gọn dữ liệu để dựng bảng ma trận nộp hồ sơ (ai đã nộp mục con nào, trạng thái gì).
-  // Chỉ where theo categoryId (không orderBy) để KHÔNG cần composite index.
-  async getSubmissionCells(schoolId: string, categoryId: string): Promise<Array<{ uploadedBy: string; subCategoryId?: string; status: DocumentStatus }>> {
-    try {
-      const q = query(tenantCollection('documents', schoolId), where('categoryId', '==', categoryId));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(d => {
-        const data = d.data();
-        return {
-          uploadedBy: data.uploadedBy,
-          subCategoryId: data.subCategoryId,
-          status: (data.status || 'pending') as DocumentStatus,
-        };
-      });
-    } catch (error) {
-      console.error('Error getting submission cells:', error);
       throw error;
     }
   },
@@ -282,17 +264,8 @@ export const documentService = {
       const docRef = await addDoc(collection(db, 'documents'), documentData);
 
       console.log('✅ Document saved with ID:', docRef.id);
-
-      // Verify by reading back
-      const savedDoc = await getDoc(docRef);
-      if (savedDoc.exists()) {
-        const savedData = savedDoc.data();
-        console.log('🔍 Verification - Document read back from Firestore:', {
-          id: savedDoc.id,
-          filesCount: savedData.files?.length || 0,
-          files: savedData.files || []
-        });
-      }
+      // Cập nhật bảng tổng hợp "Theo dõi nộp hồ sơ" (server đếm lại phần của người nộp).
+      submissionSummaryService.refresh(data.categoryId, data.uploadedBy);
 
       return docRef.id;
     } catch (error) {
@@ -332,6 +305,7 @@ export const documentService = {
   // Reject document
   async rejectDocument(documentId: string, rejectedBy: string, rejectedByName: string, reason: string): Promise<void> {
     try {
+      const before = await getDoc(doc(db, 'documents', documentId));
       await updateDoc(doc(db, 'documents', documentId), {
         status: 'rejected',
         approvedBy: rejectedBy,
@@ -339,6 +313,8 @@ export const documentService = {
         approvedAt: Timestamp.now(),
         rejectionReason: reason,
       });
+      // Hồ sơ bị từ chối không còn tính là "đã nộp" trên bảng tổng hợp.
+      submissionSummaryService.refresh(before.data()?.categoryId, before.data()?.uploadedBy);
     } catch (error) {
       console.error('Error rejecting document:', error);
 
@@ -428,8 +404,9 @@ export const documentService = {
   // Delete document
   async deleteDocument(id: string): Promise<void> {
     try {
-      // TODO: Also delete from Google Drive
+      const before = await getDoc(doc(db, 'documents', id));
       await deleteDoc(doc(db, 'documents', id));
+      submissionSummaryService.refresh(before.data()?.categoryId, before.data()?.uploadedBy);
     } catch (error) {
       console.error('Error deleting document:', error);
 
@@ -450,6 +427,18 @@ export const documentService = {
   },
 
   // Get document count by status
+  /**
+   * Xóa hẳn 1 hồ sơ kèm các file trên Drive — dùng khi trường TẮT tính năng duyệt (người
+   * nộp tự xóa hồ sơ của mình, không cần gửi yêu cầu xóa). firestore.rules chỉ cho chính
+   * chủ xóa khi tắt duyệt; BGH/admin xóa được mọi lúc.
+   */
+  async deleteDocumentWithFiles(document: Pick<Document, 'id' | 'categoryId' | 'uploadedBy' | 'files'>): Promise<void> {
+    await deleteDoc(doc(db, 'documents', document.id));
+    // Xóa file trên Drive sau cùng — lỗi Drive không làm hỏng việc xóa hồ sơ.
+    await Promise.allSettled((document.files || []).filter(f => f.driveFileId).map(f => googleDriveServiceBackend.deleteFile(f.driveFileId)));
+    submissionSummaryService.refresh(document.categoryId, document.uploadedBy);
+  },
+
   async getDocumentStats(schoolId: string, departmentId?: string) {
     try {
       let q;

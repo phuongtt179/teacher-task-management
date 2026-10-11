@@ -14,6 +14,22 @@ export const AdminDashboard = () => {
   const { toast } = useToast();
   const schoolSettings = useSchoolSettings(user?.schoolId);
   const [savingAi, setSavingAi] = useState(false);
+  const [savingApproval, setSavingApproval] = useState(false);
+
+  const handleToggleApproval = async () => {
+    if (!user?.schoolId || !schoolSettings) return;
+    const next = !schoolSettings.requireDocumentApproval;
+    try {
+      setSavingApproval(true);
+      await schoolSettingsService.setRequireDocumentApproval(user.schoolId, next, user.uid);
+      toast({ title: next ? 'Đã bật duyệt hồ sơ' : 'Đã tắt duyệt hồ sơ — hồ sơ nộp là có hiệu lực ngay' });
+    } catch (error) {
+      console.error('Error saving approval setting:', error);
+      toast({ title: 'Không lưu được cài đặt', variant: 'destructive' });
+    } finally {
+      setSavingApproval(false);
+    }
+  };
 
   const handleToggleAi = async () => {
     if (!user?.schoolId || !schoolSettings) return;
@@ -132,6 +148,28 @@ export const AdminDashboard = () => {
           }`}
         >
           {savingAi ? 'Đang lưu...' : schoolSettings?.aiForStaff === false ? 'Bật cho giáo viên' : 'Tắt cho giáo viên'}
+        </button>
+      </div>
+
+      {/* Công tắc duyệt hồ sơ — tắt: nộp là có hiệu lực, người nộp tự xóa hồ sơ của mình */}
+      <div className="bg-white rounded-lg border p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-gray-900">Duyệt hồ sơ</h3>
+          <p className="text-sm text-gray-600">
+            {schoolSettings?.requireDocumentApproval
+              ? 'Đang BẬT — hồ sơ giáo viên nộp phải chờ BGH/tổ trưởng duyệt; xóa hồ sơ phải gửi yêu cầu.'
+              : 'Đang TẮT — hồ sơ nộp là có hiệu lực ngay; người nộp tự sửa/xóa hồ sơ của mình.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleToggleApproval}
+          disabled={!schoolSettings || savingApproval}
+          className={`px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 ${
+            schoolSettings?.requireDocumentApproval ? 'bg-gray-600 hover:bg-gray-700' : 'bg-indigo-600 hover:bg-indigo-700'
+          }`}
+        >
+          {savingApproval ? 'Đang lưu...' : schoolSettings?.requireDocumentApproval ? 'Tắt duyệt hồ sơ' : 'Bật duyệt hồ sơ'}
         </button>
       </div>
 

@@ -15,6 +15,7 @@ import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { FileRequest, FileRequestType, FileRequestStatus, DocumentFile } from '@/types';
 import { googleDriveServiceBackend } from './googleDriveServiceBackend';
+import { submissionSummaryService } from './submissionSummaryService';
 
 export const fileRequestService = {
   // Get all requests (with filters)
@@ -244,6 +245,8 @@ export const fileRequestService = {
 
         // Delete the document from Firestore
         await deleteDoc(doc(db, 'documents', request.documentId));
+        // Cập nhật bảng tổng hợp "Theo dõi nộp hồ sơ".
+        if (docSnap.exists()) submissionSummaryService.refresh(docSnap.data().categoryId, docSnap.data().uploadedBy);
       } else if (request.requestType === 'edit') {
         // Update the document
         const updateData: any = {};
