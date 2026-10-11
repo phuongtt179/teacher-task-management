@@ -31,7 +31,7 @@ const submittedKeys = (docs) => [
 ].sort();
 
 /** Danh mục của đúng trường (null nếu không có / đã xóa / trường khác). */
-async function getCategory(schoolId, categoryId) {
+export async function getCategory(schoolId, categoryId) {
   const snap = await db.collection('documentCategories').doc(categoryId).get();
   if (!snap.exists || snap.data().schoolId !== schoolId) return null;
   return snap.data();
@@ -99,8 +99,8 @@ async function rebuildCategory(schoolId, categoryId, category) {
 }
 
 /** Bảng tổng hợp của 1 danh mục (tự dựng lại nếu chưa có hoặc quá 7 ngày). null = danh mục không có. */
-export async function getSubmissionSummary(schoolId, categoryId) {
-  const category = await getCategory(schoolId, categoryId);
+export async function getSubmissionSummary(schoolId, categoryId, preloadedCategory) {
+  const category = preloadedCategory || await getCategory(schoolId, categoryId);
   if (!category) return null;
 
   const snap = await summaryRef(schoolId, categoryId).get();

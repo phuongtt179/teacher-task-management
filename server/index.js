@@ -12,7 +12,8 @@ import { sendNewTaskNotification, sendTaskScoredNotification } from './notificat
 import { checkDeadlinesAndNotify } from './deadlineChecker.js';
 import { getRankingSnapshot, getComboStats } from './rankingSnapshot.js';
 import { getStatisticsSnapshot, viewForUser } from './statisticsSnapshot.js';
-import { refreshSubmissionSummary, getSubmissionSummary, getDepartmentScope } from './submissionSummary.js';
+import { refreshSubmissionSummary, getSubmissionSummary, getDepartmentScope, getCategory as getSummaryCategory } from './submissionSummary.js';
+import { canTrackCategory } from '../src/shared/trackedCategories.js';
 import { rankTeachers, RANKING_PERIODS, RANKING_TYPES, RANKING_SEMESTERS } from '../src/shared/rankingCompute.js';
 import admin, { db as adminDb } from './firebase-config.js';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from './_gemini.js';
@@ -3246,8 +3247,12 @@ app.get('/api/submission-summary', verifyAuth, async (req, res) => {
     const categoryId = String(req.query.categoryId || '');
     if (!ID_RE.test(categoryId)) return res.status(400).json({ error: 'bad_category' });
 
-    const summary = await getSubmissionSummary(req.schoolId, categoryId);
-    if (!summary) return res.status(404).json({ error: 'category_not_found' });
+    const category = await getSummaryCategory(req.schoolId, categoryId);
+    if (!category) return res.status(404).json({ error: 'category_not_found' });
+    // Chỉ các danh mục đang theo dõi (src/shared/trackedCategories.js): tổ trưởng/tổ phó —
+    // kế hoạch bài dạy, kế hoạch môn học; BGH/admin — thêm hồ sơ các tổ chuyên môn.
+    if (!canTrackCategory(req.role, category.name)) return res.status(403).json({ error: 'category_not_tracked' });
+    const summary = await getSubmissionSummary(req.schoolId, categoryId, category);
 
     let byTeacher = summary.byTeacher || {};
     let departmentIds = null;
