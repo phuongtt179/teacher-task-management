@@ -160,6 +160,56 @@ export const taskService = {
     }
   },
 
+  /**
+   * "Việc cần làm" của 1 người (màn đầu tiên trên điện thoại): việc được giao trong năm học,
+   * hạn từ `overdueDays` ngày trước trở đi, CHƯA nộp — sắp theo hạn, gần hạn nhất trước.
+   *
+   * Chỉ đọc việc còn hạn/mới quá hạn (điều kiện hạn nộp chạy ở Firestore) + bài nộp của đúng
+   * các việc đó, thay vì toàn bộ việc + bài nộp cả năm như Dashboard/"Công việc của tôi" —
+   * thường 3–15 lượt đọc, không tăng dần theo năm học.
+   */
+  async getTodoTasksForTeacher(
+    schoolId: string,
+    teacherUid: string,
+    schoolYearId: string,
+    overdueDays = 14
+  ): Promise<Task[]> {
+    const since = new Date(Date.now() - overdueDays * 24 * 60 * 60 * 1000);
+    const snapshot = await getDocs(query(
+      tenantCollection('tasks', schoolId),
+      where('assignedTo', 'array-contains', teacherUid),
+      where('schoolYearId', '==', schoolYearId),
+      where('deadline', '>=', Timestamp.fromDate(since)),
+      orderBy('deadline', 'asc')
+    ));
+    const tasks = snapshot.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        deadline: data.deadline?.toDate(),
+        deadline2: data.deadline2?.toDate(),
+        createdAt: data.createdAt?.toDate(),
+        updatedAt: data.updatedAt?.toDate(),
+      } as Task;
+    });
+    if (tasks.length === 0) return [];
+
+    // Bài nộp của chính người này cho đúng các việc trên (gộp 30 việc/truy vấn).
+    const submitted = new Set<string>();
+    const ids = tasks.map((t) => t.id);
+    for (let i = 0; i < ids.length; i += 30) {
+      const subs = await getDocs(query(
+        tenantCollection('submissions', schoolId),
+        where('taskId', 'in', ids.slice(i, i + 30)),
+        where('teacherId', '==', teacherUid),
+        where('isLatest', '==', true)
+      ));
+      subs.docs.forEach((d) => submitted.add(d.data().taskId));
+    }
+    return tasks.filter((t) => !submitted.has(t.id));
+  },
+
   // Update task
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
     try {

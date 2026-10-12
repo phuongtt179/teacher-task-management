@@ -8,6 +8,8 @@ import { QuickAction } from '../../components/dashboard/QuickAction';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SemesterFilter, SEMESTER_FILTER_LABELS, getActiveSemester } from '../../utils/semesterUtils';
 import { SchoolYear } from '../../types';
+import { TodoTasksCard } from './TodoTasksCard';
+import { Button } from '@/components/ui/button';
 import {
   ClipboardList,
   CheckCircle,
@@ -28,6 +30,10 @@ export const TeacherDashboard = () => {
   const [selectedSchoolYearId, setSelectedSchoolYearId] = useState<string>('');
   const [selectedSemester, setSelectedSemester] = useState<SemesterFilter>('all');
   const [activeYearId, setActiveYearId] = useState<string | undefined>(undefined);
+  // Điện thoại: mở app là thấy "Việc cần làm"; thống kê (đọc toàn bộ việc + bài nộp cả năm)
+  // chỉ tải khi bấm "Xem thống kê của tôi" — tiết kiệm quota. Máy tính: tải luôn như cũ.
+  const [isMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches);
+  const [showStats, setShowStats] = useState(!isMobile);
 
   const schoolId = user?.schoolId;
   const uid = user?.uid;
@@ -58,7 +64,7 @@ export const TeacherDashboard = () => {
   // Bước 2: tải thống kê theo bộ lọc (chạy 1 lần sau khi bộ lọc được đặt, và mỗi
   // khi người dùng đổi bộ lọc).
   useEffect(() => {
-    if (!schoolId || !uid || selectedSchoolYearId === '') return;
+    if (!schoolId || !uid || selectedSchoolYearId === '' || !showStats) return;
 
     const loadStats = async () => {
       try {
@@ -81,7 +87,22 @@ export const TeacherDashboard = () => {
     };
 
     loadStats();
-  }, [schoolId, uid, selectedSemester, selectedSchoolYearId, activeYearId]);
+  }, [schoolId, uid, selectedSemester, selectedSchoolYearId, activeYearId, showStats]);
+
+  if (!showStats) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-4">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Xin chào{user?.displayName ? `, ${user.displayName}` : ''}</h2>
+          <p className="text-sm text-gray-600">Các việc chưa nộp, hạn gần nhất ở trên</p>
+        </div>
+        <TodoTasksCard />
+        <Button variant="outline" className="w-full" onClick={() => setShowStats(true)}>
+          <TrendingUp className="w-4 h-4 mr-2" /> Xem thống kê của tôi
+        </Button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -134,6 +155,9 @@ export const TeacherDashboard = () => {
           </Select>
         </div>
       </div>
+
+      {/* Việc cần làm — hạn gần nhất ở trên */}
+      <TodoTasksCard />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

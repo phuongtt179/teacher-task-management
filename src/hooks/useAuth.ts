@@ -52,6 +52,13 @@ export const useAuth = () => {
         role: data.role,
         addedBy: data.addedBy,
         addedAt: data.addedAt?.toDate ? data.addedAt.toDate() : data.addedAt,
+        // Thông tin điền sẵn lúc "Nhập hàng loạt" — dùng khi tạo tài khoản ở lần đăng nhập đầu
+        // tiên (getUserDocument). Trước đây bị bỏ sót ở đây nên người mới luôn mang tên là
+        // phần đầu email và không được xếp vào tổ.
+        pendingDisplayName: data.pendingDisplayName,
+        pendingSubject: data.pendingSubject,
+        pendingDepartmentId: data.pendingDepartmentId,
+        pendingCampusIds: data.pendingCampusIds,
       };
     } catch (error) {
       console.error('Error checking whitelist:', error);
