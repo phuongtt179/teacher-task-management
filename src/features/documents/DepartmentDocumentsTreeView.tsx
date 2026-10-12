@@ -116,7 +116,7 @@ export function DepartmentDocumentsTreeView({
       const dept = departments.find(d => d.id === deptId);
       if (!dept || teachersByDept.has(deptId)) return;
 
-      const allUsers = await userService.getAllUsersCached(schoolId);
+      const allUsers = await userService.getAllUsersCached(schoolId, dept.memberIds);
       const deptTeachers = allUsers.filter(u => dept.memberIds.includes(u.uid));
 
       setTeachersByDept(prev => new Map(prev).set(deptId, deptTeachers));

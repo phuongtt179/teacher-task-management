@@ -117,6 +117,14 @@ export function invalidateCache(...groups: string[]) {
   invalidateHook?.(groups);
 }
 
+/** Như invalidateCache nhưng chỉ trên máy này (không ghi phiên bản cấu hình mới) — dùng khi
+ *  phát hiện bản nhớ tạm thiếu dữ liệu người khác vừa tạo (vd giáo viên mới đăng nhập lần đầu). */
+export function forgetCache(...groups: string[]) {
+  const hook = invalidateHook;
+  invalidateHook = null;
+  try { invalidateCache(...groups); } finally { invalidateHook = hook; }
+}
+
 /** Xóa toàn bộ bộ nhớ tạm — lúc đăng xuất (máy dùng chung không để lại dữ liệu người trước). */
 export function clearAllCache() {
   try {

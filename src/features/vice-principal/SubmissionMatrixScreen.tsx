@@ -76,12 +76,13 @@ export const SubmissionMatrixScreen = () => {
         if (!activeYear) return;
         setSchoolYearId(activeYear.id);
 
-        const [cats, types, depts, allUsers] = await Promise.all([
+        const [cats, types, depts] = await Promise.all([
           documentCategoryService.getCategoriesBySchoolYear(schoolId, activeYear.id),
           documentTypeService.getAllDocumentTypes(schoolId),
           departmentService.getAllDepartments(schoolId),
-          userService.getAllUsersCached(schoolId),
         ]);
+        // Mọi thành viên tổ phải có trong danh sách người dùng (đọc lại nếu bản nhớ tạm thiếu).
+        const allUsers = await userService.getAllUsersCached(schoolId, depts.flatMap(d => d.memberIds));
         const teacherCats = cats.filter(c => isTeacherPlanCategory(c.name)).sort(byNaturalName);
         const deptCats = isSchoolWide ? cats.filter(c => isDepartmentPlanCategory(c.name)).sort(byNaturalName) : [];
         setTeacherCategories(teacherCats);
@@ -161,8 +162,11 @@ export const SubmissionMatrixScreen = () => {
   const teacherRows: TeacherRow[] = useMemo(() => {
     if (isDeptView || !summary || !selectedCategory) return [];
     const docType = documentTypes.find(t => t.id === selectedCategory.documentTypeId);
-    const uploaderIds = new Set(docType?.allowedUploaderUserIds || []);
-    // Người phải nộp: người được phép nộp loại hồ sơ này (nếu có cấu hình), cộng thêm ai đã nộp.
+    // Hồ sơ CÁ NHÂN (viewMode 'personal'): mọi người tự nộp hồ sơ của mình, danh sách "người
+    // được tải lên" không được dùng khi nộp (DocumentBrowseScreen) → người phải nộp = giáo
+    // viên, tổ trưởng, tổ phó. Hồ sơ dùng chung: theo danh sách người được tải lên.
+    const uploaderIds = new Set(docType?.viewMode === 'personal' ? [] : docType?.allowedUploaderUserIds || []);
+    // Người phải nộp + ai đã nộp (kể cả người ngoài nhóm trên).
     let scoped = users.filter(u =>
       (uploaderIds.size > 0 ? uploaderIds.has(u.uid) : DEFAULT_SUBMITTER_ROLES.includes(u.role)) || summary.byTeacher[u.uid]
     );

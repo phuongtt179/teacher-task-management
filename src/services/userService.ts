@@ -14,7 +14,7 @@ import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { User, UserRole } from '@/types';
 import { MANAGEABLE_ROLES } from '@/lib/roleLabels';
-import { cached, invalidateCache } from '@/lib/localCache';
+import { cached, invalidateCache, forgetCache } from '@/lib/localCache';
 
 // Số điện thoại / FCM token KHÔNG còn nằm ở users/{uid} (cả trường đọc được) —
 // xem privateProfileService.
@@ -54,8 +54,17 @@ export const userService = {
    * máy (lib/localCache.ts), tải lại trang không đọc lại cả trường. Màn quản trị (Quản lý
    * Users, Whitelist...) vẫn dùng getAllUsers() để luôn thấy người mới đăng nhập.
    */
-  async getAllUsersCached(schoolId: string): Promise<User[]> {
-    return cached(`users:${schoolId}:all`, () => this.getAllUsers(schoolId));
+  // mustInclude: các uid chắc chắn phải có (vd thành viên tổ) — nếu bản nhớ tạm thiếu ai (giáo
+  // viên vừa đăng nhập lần đầu, vừa được xếp tổ) thì đọc lại danh sách mới thay vì bỏ sót họ.
+  async getAllUsersCached(schoolId: string, mustInclude: string[] = []): Promise<User[]> {
+    const load = () => cached(`users:${schoolId}:all`, () => this.getAllUsers(schoolId));
+    const list = await load();
+    const have = new Set(list.map(u => u.uid));
+    if (mustInclude.some(id => !have.has(id))) {
+      forgetCache('users');
+      return load();
+    }
+    return list;
   },
 
   // Get users by role within a school
