@@ -4,7 +4,17 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-const Select = SelectPrimitive.Root
+// Radix Select đôi khi tự gọi onValueChange('') — khi `value` được đặt TRƯỚC lúc danh sách
+// lựa chọn kịp tải (vd ô "Tổ" ở Hồ sơ cá nhân), hoặc khi nằm trong <form>. Radix không cho
+// SelectItem có value rỗng, nên '' KHÔNG BAO GIỜ là lựa chọn thật của người dùng → bỏ qua
+// ở đây cho MỌI ô chọn. Đã từng gây: vai trò bị lưu thành "" ("Invalid role"), giáo viên
+// mở Hồ sơ cá nhân bị tự gỡ khỏi tổ.
+const Select = ({ onValueChange, ...props }: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Root>) => (
+  <SelectPrimitive.Root
+    {...props}
+    onValueChange={onValueChange ? (value: string) => { if (value !== '') onValueChange(value) } : undefined}
+  />
+)
 
 const SelectGroup = SelectPrimitive.Group
 

@@ -83,7 +83,8 @@ export function TeacherProfileScreen() {
   };
 
   const handleDepartmentChange = async (newDepartmentId: string) => {
-    if (!user) return;
+    // Chỉ xử lý khi người dùng thật sự chọn 1 tổ KHÁC tổ hiện tại (không bao giờ tự gỡ khỏi tổ).
+    if (!user || !newDepartmentId || newDepartmentId === selectedDepartmentId) return;
 
     setLoading(true);
     try {
