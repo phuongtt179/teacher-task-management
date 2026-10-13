@@ -11,7 +11,7 @@ import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, Document
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Upload, X } from 'lucide-react';
-import { isNotYetOpen, formatOpenDate } from '@/lib/submissionDeadline';
+import { isNotYetOpen, formatOpenDate, OPEN_LOCK_EXEMPT_ROLES } from '@/lib/submissionDeadline';
 import { useToast } from '@/hooks/use-toast';
 import { schoolSettingsService } from '@/services/schoolSettingsService';
 
@@ -170,9 +170,14 @@ export function DocumentUploadScreen() {
       return;
     }
 
+    // Tuần chưa tới ngày mở (vd đang tuần 6 mà nộp kế hoạch tuần 9) — chỉ admin/BGH được nộp/sửa.
+    // Đọc lại ngày mở mới nhất (1 lượt đọc) phòng máy còn nhớ lịch cũ.
     const lockedSub = subCategories.find(s => s.id === selectedSubCategoryId);
-    if (isNotYetOpen(lockedSub, user?.role)) {
-      toast({ title: 'Chưa tới thời gian nộp', description: 'Tuần này chưa mở nhận hồ sơ — mở từ ' + formatOpenDate(lockedSub?.openFrom), variant: 'destructive' });
+    const freshOpenFrom = lockedSub && !OPEN_LOCK_EXEMPT_ROLES.includes(user?.role ?? '')
+      ? await documentCategoryService.getSubCategoryOpenFrom(lockedSub.id).catch(() => lockedSub.openFrom ?? null)
+      : null;
+    if (lockedSub && isNotYetOpen({ openFrom: freshOpenFrom }, user?.role)) {
+      toast({ title: 'Chưa tới thời gian nộp', description: 'Tuần này chưa mở nhận hồ sơ — mở từ ' + formatOpenDate(freshOpenFrom), variant: 'destructive' });
       return;
     }
 

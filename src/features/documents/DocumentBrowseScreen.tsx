@@ -12,7 +12,7 @@ import { documentHistoryService } from '@/services/documentHistoryService';
 import { campusService } from '@/services/campusService';
 import { schoolSettingsService, useSchoolSettings } from '@/services/schoolSettingsService';
 import { getRoleLabel } from '@/lib/roleLabels';
-import { isNotYetOpen, formatOpenDate } from '@/lib/submissionDeadline';
+import { isNotYetOpen, formatOpenDate, OPEN_LOCK_EXEMPT_ROLES } from '@/lib/submissionDeadline';
 import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile, DocumentType, User, Campus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -496,9 +496,13 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
     }
 
     // Tuần chưa tới ngày mở (vd đang tuần 6 mà nộp kế hoạch tuần 9) — chỉ admin/BGH được nộp/sửa.
+    // Đọc lại ngày mở mới nhất (1 lượt đọc) phòng máy còn nhớ lịch cũ.
     const lockedSub = subCategories.find(s => s.id === selectedSubCategoryId);
-    if (isNotYetOpen(lockedSub, user?.role)) {
-      toast({ title: 'Chưa tới thời gian nộp', description: 'Tuần này chưa mở nhận hồ sơ — mở từ ' + formatOpenDate(lockedSub?.openFrom), variant: 'destructive' });
+    const freshOpenFrom = lockedSub && !OPEN_LOCK_EXEMPT_ROLES.includes(user?.role ?? '')
+      ? await documentCategoryService.getSubCategoryOpenFrom(lockedSub.id).catch(() => lockedSub.openFrom ?? null)
+      : null;
+    if (lockedSub && isNotYetOpen({ openFrom: freshOpenFrom }, user?.role)) {
+      toast({ title: 'Chưa tới thời gian nộp', description: 'Tuần này chưa mở nhận hồ sơ — mở từ ' + formatOpenDate(freshOpenFrom), variant: 'destructive' });
       return;
     }
 
@@ -757,6 +761,17 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
     }
 
     console.log('🔄 Starting edit submission for document:', editingDocument.id);
+
+    // Tuần chưa tới ngày mở (vd đang tuần 6 mà nộp kế hoạch tuần 9) — chỉ admin/BGH được nộp/sửa.
+    // Đọc lại ngày mở mới nhất (1 lượt đọc) phòng máy còn nhớ lịch cũ.
+    const lockedSub = subCategories.find(s => s.id === editingDocument.subCategoryId);
+    const freshOpenFrom = lockedSub && !OPEN_LOCK_EXEMPT_ROLES.includes(user?.role ?? '')
+      ? await documentCategoryService.getSubCategoryOpenFrom(lockedSub.id).catch(() => lockedSub.openFrom ?? null)
+      : null;
+    if (lockedSub && isNotYetOpen({ openFrom: freshOpenFrom }, user?.role)) {
+      toast({ title: 'Chưa tới thời gian nộp', description: 'Tuần này chưa mở nhận hồ sơ — mở từ ' + formatOpenDate(freshOpenFrom), variant: 'destructive' });
+      return;
+    }
 
     // Check if there are any changes
     const hasNewFiles = selectedFiles.length > 0;

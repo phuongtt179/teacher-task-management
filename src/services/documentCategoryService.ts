@@ -328,6 +328,15 @@ export const documentCategoryService = {
     invalidateCache('documentCategories');
   },
 
+  /**
+   * Ngày mở nhận hồ sơ MỚI NHẤT của 1 mục con (không dùng bộ nhớ tạm) — kiểm tra ngay trước khi
+   * nộp, vì máy có thể còn nhớ lịch cũ trong khi admin vừa khóa tuần (firestore.rules cũng chặn).
+   */
+  async getSubCategoryOpenFrom(id: string): Promise<string | null> {
+    const snap = await getDoc(doc(db, 'documentSubCategories', id));
+    return snap.exists() ? snap.data().openFrom || null : null;
+  },
+
   async deleteSubCategory(id: string): Promise<void> {
     try {
       await deleteDoc(doc(db, 'documentSubCategories', id));

@@ -77,14 +77,30 @@ export function isNotYetOpen(
 }
 
 export type SubmissionCellStatus =
+  | 'early'    // đã nộp, nhưng TRƯỚC ngày mở của tuần đó (nộp dồn trước)
   | 'ontime'   // đã nộp, đúng hạn (hoặc không có hạn)
   | 'late'     // đã nộp, trễ
   | 'overdue'  // chưa nộp, đã quá hạn
   | 'pending'; // chưa nộp, chưa tới hạn (hoặc không có hạn)
 
-export function cellStatus(submittedAt: number | undefined, deadline: string | null | undefined, now = Date.now()): SubmissionCellStatus {
+/** 0h ngày `date` theo giờ Việt Nam (ms); null nếu không có ngày. */
+export function dayStartMs(date: string | null | undefined): number | null {
+  return isDateString(date) ? Date.parse(`${date}T00:00:00+07:00`) : null;
+}
+
+export function cellStatus(
+  submittedAt: number | undefined,
+  deadline: string | null | undefined,
+  now = Date.now(),
+  openFrom?: string | null
+): SubmissionCellStatus {
   const end = deadlineEndMs(deadline);
-  if (submittedAt !== undefined) return end !== null && submittedAt > end ? 'late' : 'ontime';
+  if (submittedAt !== undefined) {
+    const open = dayStartMs(openFrom);
+    // Thời điểm 0 = hồ sơ rất cũ không rõ giờ nộp → không đánh dấu sớm.
+    if (open !== null && submittedAt > 0 && submittedAt < open) return 'early';
+    return end !== null && submittedAt > end ? 'late' : 'ontime';
+  }
   return end !== null && now > end ? 'overdue' : 'pending';
 }
 

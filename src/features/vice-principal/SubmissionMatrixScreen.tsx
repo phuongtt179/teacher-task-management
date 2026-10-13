@@ -22,7 +22,7 @@ const DEFAULT_SUBMITTER_ROLES = ['teacher', 'department_head', 'deputy_departmen
 // Lựa chọn "Kế hoạch tổ chuyên môn" (bảng theo tổ) trong ô chọn — không phải id danh mục thật.
 const DEPARTMENT_VIEW = '__department_plans__';
 
-interface Column { key: string; name: string; deadline?: string | null }
+interface Column { key: string; name: string; deadline?: string | null; openFrom?: string | null }
 interface TeacherRow { uid: string; name: string; cells: Record<string, SubmissionCellStatus>; count: number; late: number }
 // Bảng theo tổ: mỗi ô — 'done' đã nộp, 'missing' chưa nộp, 'none' tổ chưa tạo mục con này.
 type DeptCell = 'done' | 'missing' | 'none';
@@ -148,7 +148,7 @@ export const SubmissionMatrixScreen = () => {
 
   // ---------- Bảng theo giáo viên ----------
   const teacherColumns: Column[] = useMemo(() => {
-    if (selectedCategory?.hasSubCategories) return subCategories.map(s => ({ key: s.id, name: s.name, deadline: s.deadline }));
+    if (selectedCategory?.hasSubCategories) return subCategories.map(s => ({ key: s.id, name: s.name, deadline: s.deadline, openFrom: s.openFrom }));
     return [{ key: NO_SUBCATEGORY_KEY, name: 'Đã nộp', deadline: selectedCategory?.deadline }];
   }, [selectedCategory, subCategories]);
 
@@ -188,9 +188,9 @@ export const SubmissionMatrixScreen = () => {
         let count = 0;
         let late = 0;
         teacherColumns.forEach(col => {
-          const status = cellStatus(times[col.key], col.deadline, now);
+          const status = cellStatus(times[col.key], col.deadline, now, col.openFrom);
           cells[col.key] = status;
-          if (status === 'ontime' || status === 'late') count++;
+          if (status === 'ontime' || status === 'late' || status === 'early') count++;
           if (status === 'late') late++;
         });
         return { uid: u.uid, name: u.displayName || u.email, cells, count, late };
@@ -252,11 +252,12 @@ export const SubmissionMatrixScreen = () => {
 
   // ✓ xanh đúng hạn · ✓ đỏ nộp trễ · ✗ đỏ quá hạn chưa nộp · ✗ xám chưa nộp (chưa tới hạn/không có hạn)
   const STATUS_TITLE: Record<SubmissionCellStatus, string> = {
-    ontime: 'Đã nộp đúng hạn', late: 'Nộp trễ', overdue: 'Quá hạn, chưa nộp', pending: 'Chưa nộp',
+    early: 'Nộp sớm — trước ngày mở của tuần (nộp dồn trước)', ontime: 'Đã nộp đúng hạn', late: 'Nộp trễ', overdue: 'Quá hạn, chưa nộp', pending: 'Chưa nộp',
   };
   const renderStatus = (status: SubmissionCellStatus) => (
     <span title={STATUS_TITLE[status]}>
-      {status === 'ontime' ? <Check className="w-4 h-4 text-green-600 mx-auto" />
+      {status === 'early' ? <Check className="w-4 h-4 text-sky-500 mx-auto" strokeWidth={3} />
+        : status === 'ontime' ? <Check className="w-4 h-4 text-green-600 mx-auto" />
         : status === 'late' ? <Check className="w-4 h-4 text-red-600 mx-auto" strokeWidth={3} />
           : status === 'overdue' ? <X className="w-4 h-4 text-red-500 mx-auto" />
             : <X className="w-4 h-4 text-gray-300 mx-auto" />}
@@ -326,6 +327,9 @@ export const SubmissionMatrixScreen = () => {
         {!isDeptView && hasDeadlines && (
           <>
             <span className="flex items-center gap-1"><Check className="w-4 h-4 text-red-600" strokeWidth={3} /> Nộp trễ</span>
+            {teacherColumns.some(c => !!c.openFrom) && (
+              <span className="flex items-center gap-1"><Check className="w-4 h-4 text-sky-500" strokeWidth={3} /> Nộp sớm (trước ngày mở tuần)</span>
+            )}
             <span className="flex items-center gap-1"><X className="w-4 h-4 text-red-500" /> Quá hạn chưa nộp</span>
           </>
         )}

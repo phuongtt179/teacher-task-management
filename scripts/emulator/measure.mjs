@@ -75,9 +75,6 @@ async function runTeacher() {
   await s.step('mở Hồ sơ điện tử', () => s.nav('/documents'));
   await s.step('chọn Kế hoạch bài dạy', () => s.clickText('Kế hoạch bài dạy', 'button'));
   await s.step('chọn Tuần 7', () => s.clickText('Tuần 7', 'button'));
-  await s.step('chọn Kế hoạch môn học', () => s.clickText('Kế hoạch môn học', 'button'));
-  await s.step('quay lại Kế hoạch bài dạy', () => s.clickText('Kế hoạch bài dạy', 'button'));
-  await s.step('chọn lại Tuần 7', () => s.clickText('Tuần 7', 'button'));
   await s.step('nộp 1 hồ sơ (1 file) vào Tuần 7', async () => {
     await s.clickText('Thêm hồ sơ', 'button');
     await sleep(400);
@@ -88,6 +85,15 @@ async function runTeacher() {
     await s.clickText('Tải lên', 'button');
     await sleep(3000);
   });
+  await s.step('chọn Tuần 8 (chưa mở) — phải bị khóa', async () => {
+    await s.clickText('Tuần 8 🔒', 'button').catch(() => s.page.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('Tuần 8')).click()));
+    await sleep(800);
+    const r = await s.page.evaluate(() => ({ lockMsg: document.body.innerText.includes('Tuần này chưa mở nhận hồ sơ'), addBtn: [...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Thêm hồ sơ') }));
+    console.log('       khóa tuần 8: có dòng "chưa mở" =', r.lockMsg, '| còn nút Thêm hồ sơ =', r.addBtn);
+    if (!r.lockMsg || r.addBtn) throw new Error('tuần 8 không bị khóa');
+  });
+  await s.step('chọn Kế hoạch môn học', () => s.clickText('Kế hoạch môn học', 'button'));
+  await s.step('quay lại Kế hoạch bài dạy', () => s.clickText('Kế hoạch bài dạy', 'button'));
   await s.step('mở Công việc của tôi', () => s.nav('/teacher/my-tasks'));
   await s.step('mở Điểm của tôi', () => s.nav('/teacher/my-scores'));
   await s.step('về Dashboard', () => s.nav('/'));

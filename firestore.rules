@@ -353,12 +353,29 @@ service cloud.firestore {
                get(/databases/$(database)/documents/departments/$(deptId)).data.memberIds.hasAny([request.auth.uid]);
       }
 
+      // Khóa tuần chưa mở (Kế hoạch bài dạy nộp trước 1 tuần): mục con có openFrom 'YYYY-MM-DD'
+      // → trước 0h ngày đó (giờ VN) chỉ admin/BGH được nộp/sửa hồ sơ vào mục con đó. Chặn ở đây
+      // để máy chạy bản cũ / còn nhớ tạm lịch cũ cũng không lách được. Tốn 1 lượt đọc mỗi lần lưu.
+      function weekOpenNow(subCategoryId) {
+        let path = /databases/$(database)/documents/documentSubCategories/$(subCategoryId);
+        let openFrom = exists(path) ? get(path).data.get('openFrom', null) : null;
+        let vn = request.time + duration.value(7, 'h');
+        let p = openFrom == null ? [] : openFrom.split('-');
+        return openFrom == null ||
+          vn.year() * 10000 + vn.month() * 100 + vn.day() >= int(p[0]) * 10000 + int(p[1]) * 100 + int(p[2]);
+      }
+      function weekLockPasses(data) {
+        return isAdmin() || isVicePrincipal() || isPrincipal() ||
+               !('subCategoryId' in data) || data.subCategoryId == null || weekOpenNow(data.subCategoryId);
+      }
+
       allow read: if sameSchool(resource.data);
 
       // CREATE permissions based on category type
       allow create: if isSignedIn() &&
         request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId()) &&
-        request.resource.data.campusId is string && (
+        request.resource.data.campusId is string &&
+        weekLockPasses(request.resource.data) && (
         // Public documents: admin/VP/Principal can upload
         (getRequestCategoryType() == 'public' && (isAdmin() || isVicePrincipal() || isPrincipal())) ||
 
@@ -370,7 +387,7 @@ service cloud.firestore {
       // UPDATE permissions: admin/VP/Principal, or the uploader editing their own document
       allow update: if sameSchool(resource.data) &&
                     (isAdmin() || isVicePrincipal() || isPrincipal() ||
-                     resource.data.uploadedBy == request.auth.uid);
+                     (resource.data.uploadedBy == request.auth.uid && weekLockPasses(request.resource.data)));
 
       // Trường đang BẬT tính năng duyệt hồ sơ? (mặc định TẮT — schoolSettings chưa có/không có field)
       function documentApprovalRequired() {
