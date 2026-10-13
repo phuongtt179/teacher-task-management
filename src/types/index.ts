@@ -312,6 +312,9 @@ export interface DocumentSubCategory {
   // Hạn nộp của mục con (vd "Tuần 6" → thứ Sáu của tuần 6) — 'YYYY-MM-DD', hết ngày đó (giờ VN)
   // còn là đúng hạn; từ hôm sau là TRỄ. null/không có = không theo dõi trễ.
   deadline?: string | null;
+  // Ngày bắt đầu nhận hồ sơ của mục con (vd "Tuần 8" → thứ Hai tuần 7) — 'YYYY-MM-DD'. Trước
+  // ngày này giáo viên/tổ trưởng không nộp/sửa được (admin, BGH vẫn được). null = luôn mở.
+  openFrom?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, List } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { fridayOfWeek, weekNumberOf, weekdayOf, isDateString, shortDate } from '@/lib/submissionDeadline';
+import { weekSchedule, weekNumberOf, weekdayOf, isDateString, shortDate } from '@/lib/submissionDeadline';
 import { DocumentTypesScreen } from '@/features/admin/DocumentTypesScreen';
 
 export function DocumentConfigScreen() {
@@ -46,6 +46,9 @@ export function DocumentConfigScreen() {
   // Hạn nộp từng mục con đang sửa (subId → 'YYYY-MM-DD' | '') + ngày thứ Hai của Tuần 1 để tự điền.
   const [subDeadlines, setSubDeadlines] = useState<Record<string, string>>({});
   const [week1Monday, setWeek1Monday] = useState('');
+  // Các tuần đầu năm gộp chung 1 hạn: tuần 1 → tuần này hạn = hết tuần này (bỏ trống = không gộp).
+  const [mergeUntilWeek, setMergeUntilWeek] = useState('');
+  const [subOpenFrom, setSubOpenFrom] = useState<Record<string, string>>({});
   const [savingDeadlines, setSavingDeadlines] = useState(false);
   const [categoryAllowedUploaders, setCategoryAllowedUploaders] = useState<string[]>([]);
   const [categoryViewPermissionType, setCategoryViewPermissionType] = useState<'everyone' | 'specific_users'>('everyone');
@@ -446,6 +449,7 @@ export function DocumentConfigScreen() {
       const rank = (x: DocumentSubCategory) => weekNumberOf(x.name) ?? 10000 + (x.order ?? 0);
       setSubCategories([...subs].sort((a, b) => rank(a) - rank(b)));
       setSubDeadlines(Object.fromEntries(subs.map(x => [x.id, x.deadline || ''])));
+      setSubOpenFrom(Object.fromEntries(subs.map(x => [x.id, x.openFrom || ''])));
       setWeek1Monday('');
     } catch (error) {
       console.error('Error loading subcategories:', error);
@@ -467,7 +471,8 @@ export function DocumentConfigScreen() {
     }
   };
 
-  // Tự điền hạn nộp: mục con "Tuần N" → thứ Sáu của tuần N (tính từ thứ Hai của Tuần 1).
+  // Tự điền: mục con "Tuần N" → hạn = Chủ nhật tuần N−1, mở từ thứ Hai tuần N−1 (nộp trước 1
+  // tuần); các tuần <= "gộp đến tuần" có chung hạn = hết tuần đó và không khóa (xem weekSchedule).
   // Chỉ điền vào ô, chưa lưu — sửa tay các tuần nghỉ (Tết...) rồi bấm "Lưu hạn nộp".
   const handleAutoFillDeadlines = () => {
     if (!isDateString(week1Monday)) {
@@ -475,26 +480,42 @@ export function DocumentConfigScreen() {
       return;
     }
     if (weekdayOf(week1Monday) !== 1) {
-      toast({ title: 'Ngày đã chọn không phải thứ Hai', description: 'Hạn vẫn được tính = ngày đó + 4 ngày, mỗi tuần cộng 7 ngày.' });
+      toast({ title: 'Ngày đã chọn không phải thứ Hai', description: 'Các mốc vẫn được tính từ ngày đó, mỗi tuần cộng 7 ngày.' });
+    }
+    const merge = mergeUntilWeek.trim() ? Number(mergeUntilWeek) : null;
+    if (merge !== null && (!Number.isInteger(merge) || merge < 1)) {
+      toast({ title: 'Số tuần gộp hạn không hợp lệ', variant: 'destructive' });
+      return;
     }
     let filled = 0;
-    const next = { ...subDeadlines };
+    const nextDeadlines = { ...subDeadlines };
+    const nextOpen = { ...subOpenFrom };
     subCategories.forEach(sub => {
       const week = weekNumberOf(sub.name);
-      if (week) { next[sub.id] = fridayOfWeek(week1Monday, week); filled++; }
+      if (!week) return;
+      const plan = weekSchedule(week1Monday, week, merge);
+      nextDeadlines[sub.id] = plan.deadline;
+      nextOpen[sub.id] = plan.openFrom || '';
+      filled++;
     });
-    setSubDeadlines(next);
+    setSubDeadlines(nextDeadlines);
+    setSubOpenFrom(nextOpen);
     toast({ title: 'Đã điền hạn cho ' + filled + ' mục con', description: 'Kiểm tra lại các tuần nghỉ rồi bấm "Lưu hạn nộp".' });
   };
 
-  const changedSubDeadlines = subCategories.filter(sub => (subDeadlines[sub.id] || '') !== (sub.deadline || ''));
+  const changedSubDeadlines = subCategories.filter(sub =>
+    (subDeadlines[sub.id] || '') !== (sub.deadline || '') || (subOpenFrom[sub.id] || '') !== (sub.openFrom || ''));
 
   const handleSaveSubDeadlines = async () => {
     if (changedSubDeadlines.length === 0) return;
     try {
       setSavingDeadlines(true);
       await documentCategoryService.setSubCategoryDeadlines(
-        changedSubDeadlines.map(sub => ({ id: sub.id, deadline: isDateString(subDeadlines[sub.id]) ? subDeadlines[sub.id] : null }))
+        changedSubDeadlines.map(sub => ({
+          id: sub.id,
+          deadline: isDateString(subDeadlines[sub.id]) ? subDeadlines[sub.id] : null,
+          openFrom: isDateString(subOpenFrom[sub.id]) ? subOpenFrom[sub.id] : null,
+        }))
       );
       toast({ title: 'Đã lưu hạn nộp cho ' + changedSubDeadlines.length + ' mục con' });
       if (expandedCategoryId) await loadSubCategories(expandedCategoryId);
@@ -870,8 +891,12 @@ export function DocumentConfigScreen() {
                             <div className="mb-3 p-3 bg-white border rounded space-y-2">
                               <p className="text-sm font-medium">Hạn nộp theo tuần</p>
                               <p className="text-xs text-gray-500">
-                                Hạn mỗi mục = ngày ghi bên cạnh (vd Tuần 6 → thứ Sáu của tuần 6); nộp từ hôm sau là TRỄ.
-                                Bỏ trống = không theo dõi trễ.
+                                "Mở từ": trước ngày này giáo viên chưa nộp được tuần đó (admin, BGH vẫn nộp được); bỏ trống = luôn mở.
+                                "Hạn": hết ngày này còn đúng hạn, nộp từ hôm sau là TRỄ (vẫn cho nộp bù); bỏ trống = không theo dõi trễ.
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Tự điền: kế hoạch Tuần N mở từ thứ Hai tuần N−1, hạn hết Chủ nhật tuần N−1. Các tuần từ 1 đến
+                                tuần "gộp hạn" dùng chung hạn = hết tuần đó và không khóa.
                               </p>
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-sm text-gray-600">Thứ Hai của Tuần 1:</span>
@@ -880,6 +905,15 @@ export function DocumentConfigScreen() {
                                   value={week1Monday}
                                   onChange={(e) => setWeek1Monday(e.target.value)}
                                   className="border rounded px-2 py-1 text-sm"
+                                />
+                                <span className="text-sm text-gray-600">Gộp hạn tuần 1 đến tuần:</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={mergeUntilWeek}
+                                  onChange={(e) => setMergeUntilWeek(e.target.value)}
+                                  placeholder="(không)"
+                                  className="border rounded px-2 py-1 text-sm w-20"
                                 />
                                 <Button type="button" variant="outline" size="sm" onClick={handleAutoFillDeadlines}>
                                   Tự điền theo tuần
@@ -910,7 +944,14 @@ export function DocumentConfigScreen() {
                                     <List className="h-4 w-4 text-gray-400" />
                                     <span className="font-medium">{sub.name}</span>
                                   </div>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex flex-wrap items-center justify-end gap-2">
+                                    <label className="text-xs text-gray-500 hidden sm:inline">Mở từ</label>
+                                    <input
+                                      type="date"
+                                      value={subOpenFrom[sub.id] || ''}
+                                      onChange={(e) => setSubOpenFrom(prev => ({ ...prev, [sub.id]: e.target.value }))}
+                                      className={'border rounded px-2 py-1 text-sm ' + ((subOpenFrom[sub.id] || '') !== (sub.openFrom || '') ? 'border-amber-400 bg-amber-50' : '')}
+                                    />
                                     <label className="text-xs text-gray-500 hidden sm:inline">Hạn</label>
                                     <input
                                       type="date"

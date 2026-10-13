@@ -11,6 +11,7 @@ import { SchoolYear, DocumentCategory, DocumentSubCategory, Department, Document
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Upload, X } from 'lucide-react';
+import { isNotYetOpen, formatOpenDate } from '@/lib/submissionDeadline';
 import { useToast } from '@/hooks/use-toast';
 import { schoolSettingsService } from '@/services/schoolSettingsService';
 
@@ -166,6 +167,12 @@ export function DocumentUploadScreen() {
         description: 'Vui lòng chọn mục con',
         variant: 'destructive',
       });
+      return;
+    }
+
+    const lockedSub = subCategories.find(s => s.id === selectedSubCategoryId);
+    if (isNotYetOpen(lockedSub, user?.role)) {
+      toast({ title: 'Chưa tới thời gian nộp', description: 'Tuần này chưa mở nhận hồ sơ — mở từ ' + formatOpenDate(lockedSub?.openFrom), variant: 'destructive' });
       return;
     }
 
@@ -356,7 +363,7 @@ export function DocumentUploadScreen() {
                 <option value="">Chọn mục con</option>
                 {subCategories.map(sub => (
                   <option key={sub.id} value={sub.id}>
-                    {sub.name}
+                    {sub.name}{isNotYetOpen(sub, user?.role) ? ' (mở từ ' + formatOpenDate(sub.openFrom) + ')' : ''}
                   </option>
                 ))}
               </select>

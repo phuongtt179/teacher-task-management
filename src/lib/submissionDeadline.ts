@@ -5,7 +5,11 @@ import { normalizeName } from '@/shared/trackedCategories';
  *
  * Hạn lưu dạng ngày 'YYYY-MM-DD' (không giờ, tránh lệch múi giờ). Hết ngày đó theo giờ
  * Việt Nam (23:59:59) vẫn là đúng hạn; từ 0h hôm sau là TRỄ.
- * Kế hoạch bài dạy "Tuần N": hạn = thứ Sáu của tuần N → nộp từ thứ Bảy trở đi là trễ.
+ * Kế hoạch bài dạy "Tuần N" (quy tắc BGH): nộp TRƯỚC 1 tuần — trong tuần N−1 (thứ Hai → CN)
+ * nộp kế hoạch của tuần N; hạn = hết Chủ nhật tuần N−1; tuần N chỉ mở nhận hồ sơ từ thứ Hai
+ * tuần N−1 (khóa tuần tương lai, tuần đã qua vẫn nộp bù nhưng tính TRỄ). Các tuần đầu năm có
+ * thể gộp chung 1 hạn (vd tuần 1–7 hạn hết tuần 7). Mọi mốc là DỮ LIỆU của từng mục con
+ * (deadline / openFrom) do admin đặt ở "Cấu hình hồ sơ" — weekSchedule() chỉ để tự điền gợi ý.
  */
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -36,9 +40,40 @@ export function weekNumberOf(name: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/** Hạn (thứ Sáu) của tuần thứ `week`, biết ngày thứ Hai của tuần 1. */
-export function fridayOfWeek(week1Monday: string, week: number): string {
-  return addDays(week1Monday, (week - 1) * 7 + 4);
+/** Thứ Hai / Chủ nhật của tuần thứ `week` theo lịch, biết ngày thứ Hai của tuần 1. */
+export const mondayOfWeek = (week1Monday: string, week: number) => addDays(week1Monday, (week - 1) * 7);
+export const sundayOfWeek = (week1Monday: string, week: number) => addDays(week1Monday, (week - 1) * 7 + 6);
+
+/**
+ * Lịch gợi ý cho mục con "Tuần N":
+ *  - Bình thường: hạn = Chủ nhật tuần N−1, mở từ thứ Hai tuần N−1.
+ *  - Tuần N <= mergeUntilWeek (các tuần đầu năm gộp hạn): hạn = Chủ nhật tuần mergeUntilWeek,
+ *    không khóa (openFrom null).
+ */
+export function weekSchedule(week1Monday: string, week: number, mergeUntilWeek?: number | null): { deadline: string; openFrom: string | null } {
+  if (mergeUntilWeek && week <= mergeUntilWeek) {
+    return { deadline: sundayOfWeek(week1Monday, mergeUntilWeek), openFrom: null };
+  }
+  return { deadline: sundayOfWeek(week1Monday, week - 1), openFrom: mondayOfWeek(week1Monday, week - 1) };
+}
+
+/** Hôm nay theo giờ Việt Nam, dạng 'YYYY-MM-DD'. */
+export function todayVN(now = Date.now()): string {
+  return new Date(now + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** Admin + BGH nộp/sửa được cả tuần chưa mở (nộp hộ, chỉnh sửa khi cần). */
+export const OPEN_LOCK_EXEMPT_ROLES = ['admin', 'principal', 'vice_principal', 'youth_leader'];
+
+/** Mục con (tuần) chưa tới ngày mở nhận hồ sơ với người này → không được nộp/sửa. */
+export function isNotYetOpen(
+  sub: { openFrom?: string | null } | null | undefined,
+  role: string | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!sub || !isDateString(sub.openFrom)) return false;
+  if (role && OPEN_LOCK_EXEMPT_ROLES.includes(role)) return false;
+  return todayVN(now) < sub.openFrom;
 }
 
 export type SubmissionCellStatus =
@@ -51,6 +86,13 @@ export function cellStatus(submittedAt: number | undefined, deadline: string | n
   const end = deadlineEndMs(deadline);
   if (submittedAt !== undefined) return end !== null && submittedAt > end ? 'late' : 'ontime';
   return end !== null && now > end ? 'overdue' : 'pending';
+}
+
+/** 'YYYY-MM-DD' → "thứ Hai 19/10" (ngày mở nhận hồ sơ). */
+export function formatOpenDate(date: string | null | undefined): string {
+  if (!isDateString(date)) return '';
+  const names = ['Chủ nhật', 'thứ Hai', 'thứ Ba', 'thứ Tư', 'thứ Năm', 'thứ Sáu', 'thứ Bảy'];
+  return names[weekdayOf(date)] + ' ' + date.slice(8, 10) + '/' + date.slice(5, 7);
 }
 
 /** 'YYYY-MM-DD' → 'dd/mm' để hiện gọn trong bảng. */

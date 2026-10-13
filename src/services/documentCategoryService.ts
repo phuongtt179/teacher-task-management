@@ -252,6 +252,7 @@ export const documentCategoryService = {
             order: data.order || 0,
             driveFolderId: data.driveFolderId,
             deadline: data.deadline || null,
+            openFrom: data.openFrom || null,
             createdAt: data.createdAt?.toDate() || new Date(),
             updatedAt: data.updatedAt?.toDate() || new Date(),
           };
@@ -312,12 +313,16 @@ export const documentCategoryService = {
   },
 
   // Delete subcategory
-  /** Lưu hạn nộp của nhiều mục con cùng lúc (vd 36 tuần sau khi "Tự điền theo tuần"). */
-  async setSubCategoryDeadlines(updates: Array<{ id: string; deadline: string | null }>): Promise<void> {
+  /** Lưu hạn nộp + ngày mở của nhiều mục con cùng lúc (vd 36 tuần sau khi "Tự điền theo tuần"). */
+  async setSubCategoryDeadlines(updates: Array<{ id: string; deadline: string | null; openFrom: string | null }>): Promise<void> {
     for (let i = 0; i < updates.length; i += 400) {
       const batch = writeBatch(db);
       updates.slice(i, i + 400).forEach(u =>
-        batch.update(doc(db, 'documentSubCategories', u.id), { deadline: u.deadline || null, updatedAt: Timestamp.now() })
+        batch.update(doc(db, 'documentSubCategories', u.id), {
+          deadline: u.deadline || null,
+          openFrom: u.openFrom || null,
+          updatedAt: Timestamp.now(),
+        })
       );
       await batch.commit();
     }

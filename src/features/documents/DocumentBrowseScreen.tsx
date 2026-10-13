@@ -12,6 +12,7 @@ import { documentHistoryService } from '@/services/documentHistoryService';
 import { campusService } from '@/services/campusService';
 import { schoolSettingsService, useSchoolSettings } from '@/services/schoolSettingsService';
 import { getRoleLabel } from '@/lib/roleLabels';
+import { isNotYetOpen, formatOpenDate } from '@/lib/submissionDeadline';
 import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile, DocumentType, User, Campus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -491,6 +492,13 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
         description: 'Vui lòng chọn mục con',
         variant: 'destructive',
       });
+      return;
+    }
+
+    // Tuần chưa tới ngày mở (vd đang tuần 6 mà nộp kế hoạch tuần 9) — chỉ admin/BGH được nộp/sửa.
+    const lockedSub = subCategories.find(s => s.id === selectedSubCategoryId);
+    if (isNotYetOpen(lockedSub, user?.role)) {
+      toast({ title: 'Chưa tới thời gian nộp', description: 'Tuần này chưa mở nhận hồ sơ — mở từ ' + formatOpenDate(lockedSub?.openFrom), variant: 'destructive' });
       return;
     }
 
@@ -1200,6 +1208,9 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
                                     }`}
                                   >
                                     {subCategory.name}
+                                    {isNotYetOpen(subCategory, user?.role) && (
+                                      <span className="ml-1 text-xs text-gray-400" title={'Mở từ ' + formatOpenDate(subCategory.openFrom)}>🔒</span>
+                                    )}
                                   </button>
                                 ))}
                             </div>
@@ -1252,6 +1263,9 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
                                   }`}
                                 >
                                   {subCategory.name}
+                                  {isNotYetOpen(subCategory, user?.role) && (
+                                    <span className="ml-1 text-xs text-gray-400" title={'Mở từ ' + formatOpenDate(subCategory.openFrom)}>🔒</span>
+                                  )}
                                 </button>
                               ))}
                           </div>
@@ -1303,6 +1317,9 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
                                   }`}
                                 >
                                   {subCategory.name}
+                                  {isNotYetOpen(subCategory, user?.role) && (
+                                    <span className="ml-1 text-xs text-gray-400" title={'Mở từ ' + formatOpenDate(subCategory.openFrom)}>🔒</span>
+                                  )}
                                 </button>
                               ))}
                           </div>
@@ -1416,6 +1433,15 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
                     hasUploadPermission =
                       (category?.categoryType === 'public' && category?.allowedUploaders?.includes(user!.uid)) ||
                       (category?.categoryType === 'personal');
+                  }
+
+                  const selectedSub = subCategories.find(s => s.id === selectedSubCategoryId);
+                  if (canUpload && hasUploadPermission && isNotYetOpen(selectedSub, user?.role)) {
+                    return (
+                      <p className="text-sm text-amber-700 italic">
+                        Tuần này chưa mở nhận hồ sơ — mở từ {formatOpenDate(selectedSub?.openFrom)}
+                      </p>
+                    );
                   }
 
                   return canUpload && hasUploadPermission ? (
