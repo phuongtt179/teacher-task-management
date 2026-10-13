@@ -1,4 +1,5 @@
-import { collection, getDocs, doc, addDoc, updateDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { db } from '../lib/firebase';
 import { Plan } from '../types';
 

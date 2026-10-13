@@ -5,13 +5,13 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
   query,
   where,
   orderBy,
   limit,
-  Timestamp,
+  Timestamp
 } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { db } from '../lib/firebase';
 import { tenantCollection } from '../lib/tenantQuery';
 import { notificationService } from './notificationService';

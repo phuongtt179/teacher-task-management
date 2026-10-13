@@ -6,6 +6,7 @@
  */
 
 import { authFetch, getIdToken } from '@/lib/authFetch';
+import { markBusy } from '@/lib/appUpdate';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -62,8 +63,10 @@ export class GoogleDriveServiceBackend {
   async uploadFile(options: UploadFileOptions): Promise<DriveFile> {
     const { file, schoolYear, category, subCategory, uploaderName, documentTitle, documentType, onProgress } = options;
     const token = await getIdToken();
+    // Đang nộp file thì không tự tải lại trang để lên bản mới (xem lib/appUpdate.ts).
+    const done = markBusy();
 
-    return new Promise((resolve, reject) => {
+    return new Promise<DriveFile>((resolve, reject) => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('schoolYear', schoolYear);
@@ -120,7 +123,7 @@ export class GoogleDriveServiceBackend {
       xhr.open('POST', `${API_BASE_URL}/upload`);
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.send(formData);
-    });
+    }).finally(done);
   }
 
   /**

@@ -3298,6 +3298,33 @@ app.post('/api/submission-summary/refresh', verifyAuth, express.json(), async (r
   }
 });
 
+/**
+ * "Máy đếm" lượt đọc lớn (src/lib/readTracker.ts): trình duyệt báo mỗi khi 1 truy vấn trả
+ * về >= 300 tài liệu. Chỉ ghi vào nhật ký Render (console.log) để tìm màn hình tốn quota —
+ * KHÔNG ghi Firestore. Giới hạn số lần báo mỗi người/ngày để nhật ký không bị spam.
+ */
+const BIG_READ_DAILY_LIMIT = 100;
+const bigReadCountByUid = new Map();
+// Bỏ ký tự điều khiển/xuống dòng (chống giả dòng nhật ký), khoảng trắng → "_".
+const cleanLogText = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, '_').slice(0, max);
+app.post('/api/telemetry/big-read', verifyAuth, express.json({ limit: '2kb' }), (req, res) => {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+  const entry = bigReadCountByUid.get(req.uid);
+  const count = entry && entry.day === today ? entry.count : 0;
+  if (count >= BIG_READ_DAILY_LIMIT) return res.status(204).end();
+  if (bigReadCountByUid.size > 5000) bigReadCountByUid.clear();
+  bigReadCountByUid.set(req.uid, { day: today, count: count + 1 });
+
+  const size = Math.max(0, Math.min(1e6, Number(req.body?.size) || 0));
+  const repeats = Math.max(0, Math.min(1e4, Number(req.body?.repeats) || 0));
+  console.log(
+    `[big-read] size=${size} repeats=${repeats} collection=${cleanLogText(req.body?.collection, 80)} ` +
+    `path=${cleanLogText(req.body?.path, 120)} role=${cleanLogText(req.role, 40)} uid=${cleanLogText(req.uid, 64)} ` +
+    `name=${cleanLogText(req.displayName, 60)}`
+  );
+  res.status(204).end();
+});
+
 app.post('/api/notifications/send', verifyAuth, express.json(), async (req, res) => {
   try {
     const { type, task, assignedTo, userId, score } = req.body;

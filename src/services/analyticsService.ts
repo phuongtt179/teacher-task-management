@@ -1,8 +1,8 @@
 import {
-  getDocs,
   query,
-  where,
+  where
 } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { tenantCollection } from '../lib/tenantQuery';
 import { authFetch } from '../lib/authFetch';
 import { Task, Submission } from '../types';

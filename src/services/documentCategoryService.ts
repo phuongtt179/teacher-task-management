@@ -2,7 +2,6 @@ import {
   writeBatch,
   collection,
   query,
-  getDocs,
   doc,
   getDoc,
   addDoc,
@@ -10,8 +9,9 @@ import {
   deleteDoc,
   where,
   orderBy,
-  Timestamp,
+  Timestamp
 } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { DocumentCategory, DocumentSubCategory } from '@/types';

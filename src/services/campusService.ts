@@ -1,15 +1,15 @@
 import {
   collection,
   query,
-  getDocs,
   doc,
   getDoc,
   addDoc,
   updateDoc,
   deleteDoc,
   orderBy,
-  Timestamp,
+  Timestamp
 } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { Campus } from '@/types';

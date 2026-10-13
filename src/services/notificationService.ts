@@ -4,15 +4,15 @@ import {
   query,
   where,
   orderBy,
-  getDocs,
   getCountFromServer,
   limit,
   updateDoc,
   doc,
   Timestamp,
   deleteDoc,
-  onSnapshot,
+  onSnapshot
 } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { db, app } from '../lib/firebase';
 import { privateProfileService } from './privateProfileService';

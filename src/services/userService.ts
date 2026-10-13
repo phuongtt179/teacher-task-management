@@ -1,7 +1,6 @@
 import {
   doc,
   getDoc,
-  getDocs,
   updateDoc,
   deleteDoc,
   where,
@@ -10,6 +9,7 @@ import {
   Timestamp,
   setDoc
 } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { User, UserRole } from '@/types';

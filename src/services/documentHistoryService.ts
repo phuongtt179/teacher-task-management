@@ -4,10 +4,10 @@ import {
   query,
   where,
   orderBy,
-  getDocs,
   serverTimestamp,
-  Timestamp,
+  Timestamp
 } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
 import { DocumentHistory, DocumentHistoryAction, DocumentFile, DocumentStatus } from '@/types';
 

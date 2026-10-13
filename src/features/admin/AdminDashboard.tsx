@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getDocs, getCountFromServer } from 'firebase/firestore';
+import { getCountFromServer } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { schoolSettingsService, useSchoolSettings } from '../../services/schoolSettingsService';
 import { useToast } from '@/hooks/use-toast';
 import { tenantCollection } from '../../lib/tenantQuery';

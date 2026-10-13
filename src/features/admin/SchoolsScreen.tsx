@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy, doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, query, orderBy, doc, getDoc, setDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { db } from '../../lib/firebase';
 import { authFetch } from '../../lib/authFetch';
 import { useAuth } from '../../hooks/useAuth';

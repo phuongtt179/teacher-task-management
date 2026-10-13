@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { deleteDoc, doc, getDocs, query, orderBy, setDoc, Timestamp } from 'firebase/firestore';
+import { deleteDoc, doc, query, orderBy, setDoc, Timestamp } from 'firebase/firestore';
+import { getDocs } from '@/lib/readTracker';
 import { db } from '../../lib/firebase';
 import { tenantCollection } from '../../lib/tenantQuery';
 import { useAuth } from '../../hooks/useAuth';
