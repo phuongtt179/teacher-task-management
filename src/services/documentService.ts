@@ -439,28 +439,4 @@ export const documentService = {
     submissionSummaryService.refresh(document.categoryId, document.uploadedBy);
   },
 
-  async getDocumentStats(schoolId: string, departmentId?: string) {
-    try {
-      let q;
-
-      if (departmentId) {
-        q = query(tenantCollection('documents', schoolId), where('departmentId', '==', departmentId));
-      } else {
-        q = query(tenantCollection('documents', schoolId));
-      }
-
-      const snapshot = await getDocs(q);
-      const docs = snapshot.docs.map(doc => doc.data());
-
-      return {
-        total: docs.length,
-        pending: docs.filter(d => d.status === 'pending').length,
-        approved: docs.filter(d => d.status === 'approved').length,
-        rejected: docs.filter(d => d.status === 'rejected').length,
-      };
-    } catch (error) {
-      console.error('Error getting document stats:', error);
-      throw error;
-    }
-  },
 };

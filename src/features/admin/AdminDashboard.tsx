@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getCountFromServer } from 'firebase/firestore';
-import { getDocs } from '@/lib/readTracker';
+import { getCountFromServer, query, where, Timestamp } from 'firebase/firestore';
 import { schoolSettingsService, useSchoolSettings } from '../../services/schoolSettingsService';
 import { useToast } from '@/hooks/use-toast';
 import { tenantCollection } from '../../lib/tenantQuery';
@@ -59,24 +58,28 @@ export const AdminDashboard = () => {
 
     const loadStats = async () => {
       try {
-        // Whitelist và công việc chỉ cần ĐẾM — dùng đếm phía server (~1 lượt đọc/1000 bản
-        // ghi) thay vì tải về toàn bộ (trước đây tải mọi việc của mọi năm học chỉ để lấy số lượng).
-        const [usersSnap, whitelistCount, tasksCount] = await Promise.all([
-          getDocs(tenantCollection('users', schoolId)),
+        // Chỉ cần ĐẾM — dùng đếm phía server (~1 lượt đọc/1000 bản ghi) thay vì tải về
+        // toàn bộ (trước đây tải cả danh sách người dùng ~90 lượt đọc chỉ để lấy số lượng).
+        const [usersCount, whitelistCount, tasksCount] = await Promise.all([
+          getCountFromServer(tenantCollection('users', schoolId)),
           getCountFromServer(tenantCollection('whitelist', schoolId)),
           getCountFromServer(tenantCollection('tasks', schoolId)),
         ]);
+        // Hoạt động trong 7 ngày (lastActive) — đếm riêng, lỗi (vd chỉ mục chưa dựng xong)
+        // thì hiện 0 như trước chứ không làm mất các số khác.
+        const weekAgo = Timestamp.fromDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+        const activeUsers = await getCountFromServer(query(tenantCollection('users', schoolId), where('lastActive', '>=', weekAgo)))
+          .then((snap) => snap.data().count)
+          .catch((error) => {
+            console.error('Error counting active users:', error);
+            return 0;
+          });
 
         setStats({
-          totalUsers: usersSnap.size,
+          totalUsers: usersCount.data().count,
           whitelistCount: whitelistCount.data().count,
           totalTasks: tasksCount.data().count,
-          activeUsers: usersSnap.docs.filter(doc => {
-            const lastActive = doc.data().lastActive?.toDate();
-            if (!lastActive) return false;
-            const daysSinceActive = (Date.now() - lastActive.getTime()) / (1000 * 60 * 60 * 24);
-            return daysSinceActive < 7;
-          }).length,
+          activeUsers,
         });
       } catch (error) {
         console.error('Error loading stats:', error);
