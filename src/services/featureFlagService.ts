@@ -1,4 +1,5 @@
-import { doc, getDoc } from 'firebase/firestore';
+import { doc } from 'firebase/firestore';
+import { getDoc } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
 import { cached } from '@/lib/localCache';
 

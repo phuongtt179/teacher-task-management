@@ -12,10 +12,10 @@ import { sendNewTaskNotification, sendTaskScoredNotification } from './notificat
 import { checkDeadlinesAndNotify } from './deadlineChecker.js';
 import { getRankingSnapshot, getComboStats } from './rankingSnapshot.js';
 import { getStatisticsSnapshot, viewForUser } from './statisticsSnapshot.js';
-import { refreshSubmissionSummary, getSubmissionSummary, getDepartmentScope, getCategory as getSummaryCategory } from './submissionSummary.js';
+import { refreshSubmissionSummary, refreshSubmissionSummaryWeek, getSubmissionSummary, getDepartmentScope, getCategory as getSummaryCategory } from './submissionSummary.js';
 import { canTrackCategory } from '../src/shared/trackedCategories.js';
 import { rankTeachers, RANKING_PERIODS, RANKING_TYPES, RANKING_SEMESTERS } from '../src/shared/rankingCompute.js';
-import admin, { db as adminDb } from './firebase-config.js';
+import admin, { db as adminDb, IS_EMULATOR, emulatorReads } from './firebase-config.js';
 import { getGeminiKeys, callGeminiRotate, isDailyLimit } from './_gemini.js';
 
 // Get __dirname equivalent in ES modules
@@ -500,7 +500,7 @@ app.get('/api/health', (req, res) => {
  */
 app.post('/api/upload', verifyAuth, upload.single('file'), async (req, res) => {
   try {
-    if (!drive) {
+    if (!drive && !IS_EMULATOR) {
       return res.status(500).json({
         error: 'Google Drive not configured. Admin needs to authorize first.',
         authUrl: '/api/auth/google',
@@ -529,6 +529,22 @@ app.post('/api/upload', verifyAuth, upload.single('file'), async (req, res) => {
     }
 
     const schoolRootFolderId = await getSchoolDriveRootFolderId(req.schoolId);
+
+    if (IS_EMULATOR) {
+      // Chạy thử trên máy: KHÔNG tạo thư mục/tải file lên Google Drive thật của trường.
+      const fakeId = 'emu-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      return res.json({
+        success: true,
+        file: {
+          id: fakeId,
+          name: originalName,
+          mimeType: req.file.mimetype,
+          size: req.file.size,
+          webViewLink: 'https://example.invalid/' + fakeId,
+        },
+      });
+    }
 
     // Create folder structure
     let targetFolderId;
@@ -620,6 +636,10 @@ app.post('/api/upload', verifyAuth, upload.single('file'), async (req, res) => {
  */
 app.delete('/api/files/:fileId', verifyAuth, async (req, res) => {
   try {
+    if (IS_EMULATOR) {
+      await getSchoolDriveRootFolderId(req.schoolId);
+      return res.json({ success: true, message: 'File deleted successfully' });
+    }
     // Get Drive instance with refreshed token
     const drive = await getDrive();
 
@@ -3290,7 +3310,14 @@ app.post('/api/submission-summary/refresh', verifyAuth, express.json(), async (r
     const canActForOthers = SUMMARY_SCHOOL_ROLES.includes(req.role) || SUMMARY_DEPT_ROLES.includes(req.role);
     if (requested !== req.uid && !canActForOthers) return res.status(403).json({ error: 'forbidden' });
 
-    await refreshSubmissionSummary(req.schoolId, categoryId, requested);
+    const subCategoryId = req.body?.subCategoryId ? String(req.body.subCategoryId) : null;
+    if (subCategoryId) {
+      if (!ID_RE.test(subCategoryId)) return res.status(400).json({ error: 'bad_subcategory' });
+      // Chỉ đếm lại đúng tuần vừa thay đổi (vài lượt đọc thay vì cả danh mục).
+      await refreshSubmissionSummaryWeek(req.schoolId, categoryId, requested, subCategoryId);
+    } else {
+      await refreshSubmissionSummary(req.schoolId, categoryId, requested);
+    }
     res.json({ success: true });
   } catch (error) {
     console.error('Error refreshing submission summary:', error);
@@ -3307,6 +3334,14 @@ const BIG_READ_DAILY_LIMIT = 100;
 const bigReadCountByUid = new Map();
 // Bỏ ký tự điều khiển/xuống dòng (chống giả dòng nhật ký), khoảng trắng → "_".
 const cleanLogText = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, '_').slice(0, max);
+if (IS_EMULATOR) {
+  app.get('/api/dev/reads', (req, res) => res.json({ serverReads: emulatorReads.count }));
+  app.post('/api/dev/reads/reset', (req, res) => {
+    emulatorReads.count = 0;
+    res.json({ serverReads: 0 });
+  });
+}
+
 app.post('/api/telemetry/big-read', verifyAuth, express.json({ limit: '2kb' }), (req, res) => {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
   const entry = bigReadCountByUid.get(req.uid);

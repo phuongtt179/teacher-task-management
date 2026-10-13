@@ -3,7 +3,6 @@ import {
   collection,
   query,
   doc,
-  getDoc,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -11,7 +10,7 @@ import {
   orderBy,
   Timestamp
 } from 'firebase/firestore';
-import { getDocs } from '@/lib/readTracker';
+import { getDocs, getDoc } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { DocumentCategory, DocumentSubCategory } from '@/types';

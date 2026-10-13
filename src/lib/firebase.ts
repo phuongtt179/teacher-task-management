@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, connectAuthEmulator, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { 
   getMessaging, 
   isSupported, 
@@ -23,6 +23,18 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Chạy thử trên máy với Firebase Emulator (npm run dev:emulator, xem scripts/emulator/) — chỉ
+// khi build với VITE_USE_EMULATOR=true; bản deploy không bao giờ bật.
+export const USE_EMULATOR = import.meta.env.VITE_USE_EMULATOR === 'true';
+if (USE_EMULATOR) {
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  // Đăng nhập không cần popup Google — kịch bản kiểm thử tự động tạo custom token cho đúng
+  // tài khoản trong dữ liệu mẫu (scripts/emulator/seed.mjs) rồi gọi hàm này.
+  (window as unknown as { __devLogin: (token: string) => Promise<unknown> }).__devLogin = (token) =>
+    signInWithCustomToken(auth, token);
+}
 
 // Force account selection on login
 googleProvider.setCustomParameters({

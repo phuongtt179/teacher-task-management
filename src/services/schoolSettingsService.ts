@@ -1,4 +1,5 @@
-import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { getDoc } from '@/lib/readTracker';
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
 import { invalidateCache, onInvalidate, syncCacheVersion, rememberCacheVersion } from '../lib/localCache';

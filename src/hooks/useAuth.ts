@@ -1,12 +1,21 @@
 import { useEffect } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc } from 'firebase/firestore';
+import { getDoc } from '@/lib/readTracker';
 import { auth, googleProvider, db } from '../lib/firebase';
 import { useAuthStore } from '../stores/authStore';
 import { departmentService } from '../services/departmentService';
 import { clearAllCache } from '../lib/localCache';
 import { syncLocalCacheWithSchool } from '../services/schoolSettingsService';
 import { User, WhitelistEmail } from '../types';
+
+// Bộ theo dõi đăng nhập DÙNG CHUNG cho cả app. useAuth() được gọi ở ~44 màn hình/thành phần;
+// trước đây MỖI lần một thành phần xuất hiện lại đăng ký onAuthStateChanged riêng — Firebase gọi
+// ngay callback cho người đăng ký mới → đọc lại whitelist + users + schools + schoolSettings
+// (kèm 2 lượt đọc kiểm tra quyền mỗi lần trong firestore.rules), ~60–80 lượt đọc cho MỖI lần
+// chuyển màn hình. Nay chỉ thành phần đầu tiên đăng ký; các thành phần khác chỉ đọc store.
+let authObserverRefs = 0;
+let stopAuthObserver: (() => void) | null = null;
 
 export const useAuth = () => {
   const {
@@ -197,9 +206,19 @@ export const useAuth = () => {
     }
   };
 
-  // Auth state observer
+  // Auth state observer — chỉ 1 bản cho cả app (xem authObserverRefs ở trên). Các setter của
+  // zustand và các hàm check* không phụ thuộc thành phần nào nên dùng chung được.
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    authObserverRefs += 1;
+    const release = () => {
+      authObserverRefs -= 1;
+      if (authObserverRefs === 0 && stopAuthObserver) {
+        stopAuthObserver();
+        stopAuthObserver = null;
+      }
+    };
+    if (stopAuthObserver) return release;
+    stopAuthObserver = onAuthStateChanged(auth, async (firebaseUser) => {
       setFirebaseUser(firebaseUser);
 
       // try/finally bao toàn bộ: một lỗi Firestore bất ngờ ở bất kỳ bước nào cũng
@@ -242,7 +261,7 @@ export const useAuth = () => {
       }
     });
 
-    return () => unsubscribe();
+    return release;
   }, []);
 
   return {

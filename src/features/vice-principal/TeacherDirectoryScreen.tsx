@@ -27,11 +27,13 @@ export const TeacherDirectoryScreen = () => {
     const load = async () => {
       try {
         setIsLoading(true);
-        const [allUsers, depts, camps] = await Promise.all([
-          userService.getAllUsers(schoolId),
+        const [depts, camps] = await Promise.all([
           departmentService.getAllDepartments(schoolId),
           campusService.getAllCampuses(schoolId),
         ]);
+        // Danh sách người dùng nhớ tạm 3 giờ (mở lại không đọc ~90 tài liệu nữa); thiếu thành
+        // viên tổ nào (vừa đăng nhập lần đầu / vừa đổi tổ) thì tự đọc lại bản mới.
+        const allUsers = await userService.getAllUsersCached(schoolId, depts.flatMap(d => d.memberIds));
         setTeachers(allUsers.filter(u => TEACHER_ROLES.includes(u.role)));
         setDepartments(depts);
         setCampuses(camps);

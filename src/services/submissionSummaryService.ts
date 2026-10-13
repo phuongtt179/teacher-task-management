@@ -33,14 +33,19 @@ export const submissionSummaryService = {
   /**
    * Báo server đếm lại phần của 1 người trong 1 danh mục — gọi sau khi nộp / xóa / từ chối
    * hồ sơ, hoặc sau khi xóa danh mục (server xóa bản tổng hợp của danh mục đó).
+   * subCategoryId: tuần (mục con) vừa thay đổi → server chỉ đếm lại đúng tuần đó (vài lượt
+   * đọc) thay vì mọi hồ sơ của người đó trong cả danh mục. Bỏ trống = đếm lại cả danh mục.
    * Không chặn thao tác chính: lỗi chỉ ghi log (bảng tự dựng lại đủ sau tối đa 7 ngày).
    */
-  refresh(categoryId: string | undefined, uid?: string): void {
+  refresh(categoryId: string | undefined, uid?: string, subCategoryId?: string | null): void {
     if (!categoryId) return;
+    const body: Record<string, string> = { categoryId };
+    if (uid) body.uid = uid;
+    if (uid && subCategoryId) body.subCategoryId = subCategoryId;
     authFetch(`${API_BASE_URL}/submission-summary/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(uid ? { categoryId, uid } : { categoryId }),
+      body: JSON.stringify(body),
     })
       .then((r) => { if (!r.ok) console.error('Submission summary refresh failed:', r.status); })
       .catch((e) => console.error('Submission summary refresh error:', e));

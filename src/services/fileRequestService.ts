@@ -2,7 +2,6 @@ import {
   collection,
   query,
   doc,
-  getDoc,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -10,7 +9,7 @@ import {
   orderBy,
   Timestamp
 } from 'firebase/firestore';
-import { getDocs } from '@/lib/readTracker';
+import { getDocs, getDoc } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { FileRequest, FileRequestType, FileRequestStatus, DocumentFile } from '@/types';
@@ -246,7 +245,7 @@ export const fileRequestService = {
         // Delete the document from Firestore
         await deleteDoc(doc(db, 'documents', request.documentId));
         // Cập nhật bảng tổng hợp "Theo dõi nộp hồ sơ".
-        if (docSnap.exists()) submissionSummaryService.refresh(docSnap.data().categoryId, docSnap.data().uploadedBy);
+        if (docSnap.exists()) submissionSummaryService.refresh(docSnap.data().categoryId, docSnap.data().uploadedBy, docSnap.data().subCategoryId);
       } else if (request.requestType === 'edit') {
         // Update the document
         const updateData: any = {};

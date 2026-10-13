@@ -32,3 +32,6 @@ google-oauth-tokens.json
 
 # Uploads directory
 uploads/
+dist-emulator
+scripts/emulator/seed-users.json
+scripts/emulator/.shots/

@@ -10,6 +10,37 @@ const __dirname = dirname(__filename);
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
+// Chế độ chạy thử trên máy với Firebase Emulator (scripts/emulator/) — dự án giả "demo-…"
+// không bao giờ chạm tới Firestore/Auth thật. Đếm lượt đọc của server để đo chi phí từng thao tác.
+export const IS_EMULATOR = !!process.env.FIRESTORE_EMULATOR_HOST;
+export const emulatorReads = { count: 0 };
+
+if (!admin.apps.length && IS_EMULATOR) {
+  const projectId = process.env.GCLOUD_PROJECT || 'demo-ttm';
+  if (!projectId.startsWith('demo-')) throw new Error('Emulator phải dùng project "demo-…" để không chạm dữ liệu thật');
+  admin.initializeApp({ projectId });
+  console.log(`🧪 Firebase Admin dùng EMULATOR (${process.env.FIRESTORE_EMULATOR_HOST}), project ${projectId}`);
+
+  const { Query, DocumentReference, Firestore } = admin.firestore;
+  const origQueryGet = Query.prototype.get;
+  Query.prototype.get = async function (...args) {
+    const snap = await origQueryGet.apply(this, args);
+    emulatorReads.count += Math.max(1, snap.size);
+    return snap;
+  };
+  const origDocGet = DocumentReference.prototype.get;
+  DocumentReference.prototype.get = async function (...args) {
+    emulatorReads.count += 1;
+    return origDocGet.apply(this, args);
+  };
+  const origGetAll = Firestore.prototype.getAll;
+  Firestore.prototype.getAll = async function (...refs) {
+    const snaps = await origGetAll.apply(this, refs);
+    emulatorReads.count += snaps.length;
+    return snaps;
+  };
+}
+
 // Initialize Firebase Admin
 if (!admin.apps.length) {
   // Thiếu/sai 1 trong 3 biến này khiến mọi request xác thực (login, upload...) bị

@@ -1,4 +1,12 @@
-import { getDocs as firestoreGetDocs, type DocumentData, type Query, type QuerySnapshot } from 'firebase/firestore';
+import {
+  getDocs as firestoreGetDocs,
+  getDoc as firestoreGetDoc,
+  type DocumentData,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type Query,
+  type QuerySnapshot,
+} from 'firebase/firestore';
 import { authFetch } from './authFetch';
 
 /**
@@ -114,6 +122,17 @@ const post = (endpoint: string, body: unknown) =>
     keepalive: true,
   }).catch(() => {});
 
+/** Tổng lượt đọc phía trình duyệt từ lúc mở trang — kịch bản kiểm thử trên emulator đọc qua window.__readTotals. */
+export const readTotals = { reads: 0, queries: 0 };
+/** Chỉ khi chạy emulator: nhật ký từng lần đọc (bảng, số tài liệu) cho kịch bản đo. */
+const readLog: Array<{ collection: string; reads: number }> | null =
+  typeof window !== 'undefined' && import.meta.env.VITE_USE_EMULATOR === 'true' ? [] : null;
+if (readLog) {
+  const w = window as unknown as { __readTotals: typeof readTotals; __readLog: typeof readLog };
+  w.__readTotals = readTotals;
+  w.__readLog = readLog;
+}
+
 const report = createBigReadReporter((r) => post('big-read', r));
 const ledger = createReadLedger();
 let ledgerSince = Date.now();
@@ -144,7 +163,28 @@ export async function getDocs<AppModelType, DbModelType extends DocumentData>(
       const collection = collectionOf(query as Query<unknown, DocumentData>, snapshot as QuerySnapshot<unknown, DocumentData>);
       // Truy vấn không có kết quả vẫn bị tính 1 lượt đọc.
       ledger.add(screen, collection, Math.max(1, snapshot.size));
+      readTotals.reads += Math.max(1, snapshot.size);
+      readTotals.queries += 1;
+      readLog?.push({ collection, reads: Math.max(1, snapshot.size) });
       if (snapshot.size >= BIG_READ_THRESHOLD) report(screen, collection, snapshot.size);
+    }
+  } catch {
+    /* máy đếm không bao giờ được làm hỏng việc tải dữ liệu */
+  }
+  return snapshot;
+}
+
+/** Đọc 1 tài liệu (1 lượt đọc, kể cả khi không tồn tại) — cũng ghi vào sổ cái. */
+export async function getDoc<AppModelType, DbModelType extends DocumentData>(
+  reference: DocumentReference<AppModelType, DbModelType>
+): Promise<DocumentSnapshot<AppModelType, DbModelType>> {
+  const snapshot = await firestoreGetDoc(reference);
+  try {
+    if (!snapshot.metadata.fromCache) {
+      ledger.add(screenOf(window.location.pathname), reference.parent.path, 1);
+      readTotals.reads += 1;
+      readTotals.queries += 1;
+      readLog?.push({ collection: reference.parent.path + ' (1 tài liệu)', reads: 1 });
     }
   } catch {
     /* máy đếm không bao giờ được làm hỏng việc tải dữ liệu */

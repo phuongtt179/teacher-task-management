@@ -82,6 +82,37 @@ export async function refreshSubmissionSummary(schoolId, categoryId, uid) {
   }, { mergeFields: ['schoolId', 'categoryId', 'schoolYearId', teacherPath, 'updatedAt'] });
 }
 
+/**
+ * Đếm lại đúng 1 tuần (mục con) của 1 người — dùng khi nộp/xóa/từ chối hồ sơ có mục con.
+ * Chỉ đọc hồ sơ của người đó trong tuần đó (thường 1–3 tài liệu) thay vì mọi tuần của danh
+ * mục, rồi ghi đúng 1 ô byTeacher.<uid>.<tuần>. Bảng chưa có thì bỏ qua — lần xem kế tiếp
+ * sẽ dựng lại đủ (getSubmissionSummary).
+ */
+export async function refreshSubmissionSummaryWeek(schoolId, categoryId, uid, subCategoryId) {
+  if (!schoolId || !categoryId || !uid || !subCategoryId) return;
+  const category = await getCategory(schoolId, categoryId);
+  if (!category) {
+    await summaryRef(schoolId, categoryId).delete();
+    return;
+  }
+  const snap = await db.collection('documents')
+    .where('schoolId', '==', schoolId)
+    .where('categoryId', '==', categoryId)
+    .where('uploadedBy', '==', uid)
+    .where('subCategoryId', '==', subCategoryId)
+    .get();
+  const ms = submittedTimes(snap.docs.map((d) => d.data()))[subCategoryId];
+  try {
+    await summaryRef(schoolId, categoryId).update(
+      new admin.firestore.FieldPath('byTeacher', uid, subCategoryId),
+      ms === undefined ? admin.firestore.FieldValue.delete() : ms,
+      'updatedAt', admin.firestore.Timestamp.now(),
+    );
+  } catch (error) {
+    if (error?.code !== 5) throw error; // 5 = NOT_FOUND: chưa có bảng tổng hợp
+  }
+}
+
 const inflight = new Map(); // tránh nhiều người cùng mở → dựng lại nhiều lần cùng lúc
 
 async function rebuildCategory(schoolId, categoryId, category) {

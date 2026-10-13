@@ -10,7 +10,11 @@
     "start": "node server/index.js",
     "lint": "eslint .",
     "preview": "vite preview",
-    "setup:firebase": "node scripts/update-sw-config.js"
+    "setup:firebase": "node scripts/update-sw-config.js",
+    "emulators": "firebase emulators:start --project demo-ttm --only firestore,auth",
+    "dev:emulator": "vite --mode emulator",
+    "server:emulator": "node scripts/emulator/server.mjs",
+    "seed:emulator": "node scripts/emulator/seed.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
