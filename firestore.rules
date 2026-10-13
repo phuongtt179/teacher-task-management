@@ -402,6 +402,15 @@ service cloud.firestore {
                      (resource.data.uploadedBy == request.auth.uid && !documentApprovalRequired()));
     }
 
+    // Lịch sử thao tác hồ sơ (documentHistoryService) — chỉ ghi thêm, không sửa/xóa. Người thao tác
+    // ghi lịch sử của chính mình trong trường mình; admin/BGH xem được.
+    match /document_history/{historyId} {
+      allow create: if isSignedIn() && request.resource.data.performedBy == request.auth.uid &&
+                    request.resource.data.schoolId == userSchoolId() && schoolIsActive(userSchoolId());
+      allow read: if sameSchool(resource.data) && (isAdmin() || isVicePrincipal() || isPrincipal());
+      allow update, delete: if false;
+    }
+
     // File Requests (delete/edit requests)
     match /fileRequests/{requestId} {
       // Users can read their own requests, or admin/vp/principal/dept head can read all (same school only)

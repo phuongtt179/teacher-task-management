@@ -9,13 +9,17 @@ import {
 } from 'firebase/firestore';
 import { getDocs } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
+import { useAuthStore } from '@/stores/authStore';
 import { DocumentHistory, DocumentHistoryAction, DocumentFile, DocumentStatus } from '@/types';
 
 class DocumentHistoryService {
   private collectionName = 'document_history';
 
   /**
-   * Create a history record for document actions
+   * Ghi lịch sử thao tác hồ sơ. KHÔNG BAO GIỜ làm hỏng thao tác chính: hồ sơ đã lưu xong mới
+   * ghi lịch sử, lỗi ở đây chỉ ghi log (trước đây thiếu quy tắc cho document_history nên mọi
+   * lần sửa hồ sơ đều báo "Missing or insufficient permissions" dù hồ sơ đã lưu → thầy cô bấm
+   * lại nhiều lần, tải trùng file lên Drive). Trả về null nếu không ghi được.
    */
   async createHistory(data: {
     documentId: string;
@@ -32,11 +36,13 @@ class DocumentHistoryService {
       newStatus?: DocumentStatus;
       note?: string;
     };
-  }): Promise<string> {
+  }): Promise<string | null> {
     try {
       const historyRef = collection(db, this.collectionName);
 
       const historyData = {
+        // firestore.rules: chỉ ghi được lịch sử của chính mình, trong trường của mình.
+        schoolId: useAuthStore.getState().user?.schoolId ?? null,
         documentId: data.documentId,
         documentTitle: data.documentTitle,
         action: data.action,
@@ -52,8 +58,8 @@ class DocumentHistoryService {
 
       return docRef.id;
     } catch (error) {
-      console.error('Error creating document history:', error);
-      throw error;
+      console.error('Error creating document history (bỏ qua, hồ sơ vẫn đã lưu):', error);
+      return null;
     }
   }
 

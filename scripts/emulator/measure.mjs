@@ -85,6 +85,18 @@ async function runTeacher() {
     await s.clickText('Tải lên', 'button');
     await sleep(3000);
   });
+  await s.step('sửa hồ sơ vừa nộp (thêm 1 file)', async () => {
+    await s.clickText('Sửa', 'button');
+    await sleep(500);
+    const input = await s.page.$('input[type=file]');
+    const f2 = path.join(SHOTS, 'khbd-them.docx'); fs.writeFileSync(f2, 'them');
+    await input.uploadFile(f2);
+    await s.clickText('Cập nhật', 'button');
+    await sleep(3500);
+    const r = await s.page.evaluate(() => ({ err: /insufficient permissions|Lỗi/i.test(document.body.innerText), dialogOpen: document.body.innerText.includes('Chỉnh sửa hồ sơ') }));
+    console.log('       sửa hồ sơ: báo lỗi =', r.err, '| hộp thoại còn mở =', r.dialogOpen);
+    if (r.err || r.dialogOpen) throw new Error('sửa hồ sơ lỗi');
+  });
   await s.step('chọn Tuần 8 (chưa mở) — phải bị khóa', async () => {
     await s.clickText('Tuần 8 🔒', 'button').catch(() => s.page.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('Tuần 8')).click()));
     await sleep(800);
