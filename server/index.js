@@ -3325,6 +3325,38 @@ app.post('/api/telemetry/big-read', verifyAuth, express.json({ limit: '2kb' }), 
   res.status(204).end();
 });
 
+/**
+ * "Sổ cái" lượt đọc (src/lib/readTracker.ts): mỗi máy cộng dồn mọi truy vấn theo màn hình +
+ * bảng dữ liệu, ~10 phút/lần và khi rời app gửi 1 bản tổng. Ghi 1 dòng [read-ledger] vào
+ * nhật ký Render — KHÔNG ghi Firestore. Giới hạn số lần gửi mỗi người/ngày.
+ */
+const READ_LEDGER_DAILY_LIMIT = 300;
+const readLedgerCountByUid = new Map();
+app.post('/api/telemetry/read-ledger', verifyAuth, express.json({ limit: '8kb' }), (req, res) => {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+  const entry = readLedgerCountByUid.get(req.uid);
+  const count = entry && entry.day === today ? entry.count : 0;
+  if (count >= READ_LEDGER_DAILY_LIMIT) return res.status(204).end();
+  if (readLedgerCountByUid.size > 5000) readLedgerCountByUid.clear();
+  readLedgerCountByUid.set(req.uid, { day: today, count: count + 1 });
+
+  const num = (v, max) => Math.max(0, Math.min(max, Math.round(Number(v) || 0)));
+  const entries = (Array.isArray(req.body?.entries) ? req.body.entries : []).slice(0, 30).map((e) => ({
+    path: cleanLogText(e?.path, 60),
+    collection: cleanLogText(e?.collection, 60),
+    reads: num(e?.reads, 1e6),
+    queries: num(e?.queries, 1e5),
+  }));
+  if (!entries.length) return res.status(204).end();
+  const total = entries.reduce((s, e) => s + e.reads, 0);
+  console.log(
+    `[read-ledger] total=${total} minutes=${num(req.body?.minutes, 1e4)} role=${cleanLogText(req.role, 40)} ` +
+    `name=${cleanLogText(req.displayName, 60)} uid=${cleanLogText(req.uid, 64)} | ` +
+    entries.map((e) => `${e.path} ${e.collection} ${e.reads}/${e.queries}`).join(' ; ')
+  );
+  res.status(204).end();
+});
+
 app.post('/api/notifications/send', verifyAuth, express.json(), async (req, res) => {
   try {
     const { type, task, assignedTo, userId, score } = req.body;
