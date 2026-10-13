@@ -13,9 +13,23 @@ import { getDocs, getDoc } from '@/lib/readTracker';
 import { db } from '@/lib/firebase';
 import { tenantCollection } from '@/lib/tenantQuery';
 import { DocumentType, UserRole } from '@/types';
-// KHÔNG nhớ tạm loại hồ sơ: danh sách người được nộp/được xem quyết định QUYỀN — admin
-// cấp quyền thì giáo viên phải dùng được ngay (chỉ vài chục bản ghi, đọc rẻ).
 import { invalidateCache } from '@/lib/localCache';
+
+// Loại hồ sơ quyết định QUYỀN (ai được nộp/được xem) nên KHÔNG nhớ tạm qua lần tải trang
+// (localStorage) — chỉ nhớ 5 phút trong phiên đang mở: trước đây mỗi lần bấm chọn 1 danh mục
+// lại đọc lại từ máy chủ. Admin cấp quyền thì tối đa 5 phút (hoặc tải lại trang) là có hiệu lực;
+// sửa loại hồ sơ trên chính máy này thì xóa bộ nhớ ngay.
+const SESSION_TTL_MS = 5 * 60 * 1000;
+const sessionCache = new Map<string, { at: number; value: Promise<unknown> }>();
+function sessionCached<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const hit = sessionCache.get(key);
+  if (hit && Date.now() - hit.at < SESSION_TTL_MS) return hit.value as Promise<T>;
+  const value = load();
+  sessionCache.set(key, { at: Date.now(), value });
+  value.catch(() => sessionCache.delete(key));
+  return value;
+}
+const clearSessionCache = () => sessionCache.clear();
 
 export const documentTypeService = {
   // Get all document types
@@ -51,6 +65,10 @@ export const documentTypeService = {
 
   // Get active document types only
   async getActiveDocumentTypes(schoolId: string): Promise<DocumentType[]> {
+    return sessionCached(`active:${schoolId}`, () => this.loadActiveDocumentTypes(schoolId));
+  },
+
+  async loadActiveDocumentTypes(schoolId: string): Promise<DocumentType[]> {
     try {
       const q = query(
         tenantCollection('documentTypes', schoolId),
@@ -86,6 +104,10 @@ export const documentTypeService = {
 
   // Get document type by ID
   async getDocumentTypeById(id: string): Promise<DocumentType | null> {
+    return sessionCached(`id:${id}`, () => this.loadDocumentTypeById(id));
+  },
+
+  async loadDocumentTypeById(id: string): Promise<DocumentType | null> {
     try {
       const docRef = doc(db, 'documentTypes', id);
       const docSnap = await getDoc(docRef);
@@ -162,6 +184,7 @@ export const documentTypeService = {
       });
 
       invalidateCache('documentTypes');
+      clearSessionCache();
       return typeDoc.id;
     } catch (error) {
       console.error('Error creating document type:', error);
@@ -225,6 +248,7 @@ export const documentTypeService = {
 
       await updateDoc(doc(db, 'documentTypes', id), updateData);
       invalidateCache('documentTypes');
+      clearSessionCache();
     } catch (error) {
       console.error('Error updating document type:', error);
       throw error;
@@ -237,6 +261,7 @@ export const documentTypeService = {
       // Note: Should check if any categories are using this type before deleting
       await deleteDoc(doc(db, 'documentTypes', id));
       invalidateCache('documentTypes');
+      clearSessionCache();
     } catch (error) {
       console.error('Error deleting document type:', error);
       throw error;
@@ -313,6 +338,7 @@ export const documentTypeService = {
       console.log('Default document types initialized successfully');
       console.log('NOTE: Please configure allowed uploaders for each document type in the admin panel');
       invalidateCache('documentTypes');
+      clearSessionCache();
     } catch (error) {
       console.error('Error initializing default document types:', error);
       throw error;

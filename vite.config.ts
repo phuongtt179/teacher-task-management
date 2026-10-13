@@ -4,6 +4,11 @@ import { defineConfig } from "vite"
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // Mã phiên bản của bản build (Render đặt RENDER_GIT_COMMIT lúc build) — app gửi kèm mọi lần
+  // gọi server (header X-App-Build) để server nhận ra máy nào còn chạy bản cũ.
+  define: {
+    __APP_BUILD__: JSON.stringify((process.env.RENDER_GIT_COMMIT || '').slice(0, 7) || 'dev-' + Date.now().toString(36)),
+  },
   plugins: [
     react(),
     VitePWA({

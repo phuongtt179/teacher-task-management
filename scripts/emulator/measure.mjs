@@ -75,6 +75,9 @@ async function runTeacher() {
   await s.step('mở Hồ sơ điện tử', () => s.nav('/documents'));
   await s.step('chọn Kế hoạch bài dạy', () => s.clickText('Kế hoạch bài dạy', 'button'));
   await s.step('chọn Tuần 7', () => s.clickText('Tuần 7', 'button'));
+  await s.step('chọn Kế hoạch môn học', () => s.clickText('Kế hoạch môn học', 'button'));
+  await s.step('quay lại Kế hoạch bài dạy', () => s.clickText('Kế hoạch bài dạy', 'button'));
+  await s.step('chọn lại Tuần 7', () => s.clickText('Tuần 7', 'button'));
   await s.step('nộp 1 hồ sơ (1 file) vào Tuần 7', async () => {
     await s.clickText('Thêm hồ sơ', 'button');
     await sleep(400);

@@ -7,6 +7,7 @@
 
 import { authFetch, getIdToken } from '@/lib/authFetch';
 import { markBusy } from '@/lib/appUpdate';
+import { clientHeaders } from '@/lib/clientInfo';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -122,6 +123,7 @@ export class GoogleDriveServiceBackend {
 
       xhr.open('POST', `${API_BASE_URL}/upload`);
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      Object.entries(clientHeaders()).forEach(([k, v]) => xhr.setRequestHeader(k, v));
       xhr.send(formData);
     }).finally(done);
   }

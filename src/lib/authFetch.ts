@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { clientHeaders } from './clientInfo';
 
 /**
  * Backend endpoints xác thực bằng Firebase ID token (Authorization: Bearer <token>),
@@ -15,6 +16,6 @@ export async function authFetch(input: string, init: RequestInit = {}): Promise<
   const token = await getIdToken();
   return fetch(input, {
     ...init,
-    headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
+    headers: { ...(init.headers || {}), ...clientHeaders(), Authorization: `Bearer ${token}` },
   });
 }

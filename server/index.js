@@ -54,6 +54,26 @@ app.use(express.json());
 // Xác thực Firebase ID token — bắt buộc cho mọi endpoint đọc/ghi dữ liệu người dùng.
 // KHÔNG bao giờ tin uid do client tự khai trong body/query — phải lấy từ token đã được
 // Firebase ký và giải mã ở đây (req.uid), để tránh giả danh (gọi API bằng uid người khác).
+// Máy chạy bản app cũ (trước khi có header X-App-Build) — ghi nhật ký [old-client] mỗi người
+// tối đa 1 lần / 30 phút để biết ai cần tắt hẳn app mở lại.
+const OLD_CLIENT_LOG_GAP_MS = 30 * 60 * 1000;
+const oldClientLoggedAt = new Map();
+function uaLabel(ua = '') {
+  const os = /iPhone|iPad|iPod/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows'
+    : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Khac';
+  const br = /Zalo/i.test(ua) ? 'Zalo' : /FBAN|FBAV/.test(ua) ? 'Facebook' : /Edg\//.test(ua) ? 'Edge'
+    : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Khac';
+  return os + '-' + br;
+}
+function noteClientBuild(req) {
+  if (req.headers['x-app-build'] || !req.uid) return;
+  const last = oldClientLoggedAt.get(req.uid) || 0;
+  if (Date.now() - last < OLD_CLIENT_LOG_GAP_MS) return;
+  if (oldClientLoggedAt.size > 5000) oldClientLoggedAt.clear();
+  oldClientLoggedAt.set(req.uid, Date.now());
+  console.log(`[old-client] name=${cleanLogText(req.displayName, 60)} role=${cleanLogText(req.role, 40)} uid=${cleanLogText(req.uid, 64)} device=${uaLabel(req.headers['user-agent'])} path=${cleanLogText(req.path, 60)}`);
+}
+
 async function verifyAuth(req, res, next) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -87,6 +107,7 @@ async function verifyAuth(req, res, next) {
       }
     }
 
+    noteClientBuild(req);
     next();
   } catch (error) {
     // Lỗi thật trước đây bị nuốt mất — không cách nào biết token bị từ chối vì
@@ -3333,7 +3354,9 @@ app.post('/api/submission-summary/refresh', verifyAuth, express.json(), async (r
 const BIG_READ_DAILY_LIMIT = 100;
 const bigReadCountByUid = new Map();
 // Bỏ ký tự điều khiển/xuống dòng (chống giả dòng nhật ký), khoảng trắng → "_".
-const cleanLogText = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, '_').slice(0, max);
+function cleanLogText(v, max) {
+  return String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, '_').slice(0, max);
+}
 if (IS_EMULATOR) {
   app.get('/api/dev/reads', (req, res) => res.json({ serverReads: emulatorReads.count }));
   app.post('/api/dev/reads/reset', (req, res) => {
@@ -3386,7 +3409,8 @@ app.post('/api/telemetry/read-ledger', verifyAuth, express.json({ limit: '8kb' }
   const total = entries.reduce((s, e) => s + e.reads, 0);
   console.log(
     `[read-ledger] total=${total} minutes=${num(req.body?.minutes, 1e4)} role=${cleanLogText(req.role, 40)} ` +
-    `name=${cleanLogText(req.displayName, 60)} uid=${cleanLogText(req.uid, 64)} | ` +
+    `name=${cleanLogText(req.displayName, 60)} uid=${cleanLogText(req.uid, 64)} ` +
+    `build=${cleanLogText(req.headers['x-app-build'] || 'cu', 20)} device=${cleanLogText(req.headers['x-app-device'] || uaLabel(req.headers['user-agent']), 40)} | ` +
     entries.map((e) => `${e.path} ${e.collection} ${e.reads}/${e.queries}`).join(' ; ')
   );
   res.status(204).end();

@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/** Mã phiên bản bản build (vite.config.ts → define). */
+declare const __APP_BUILD__: string;
+
 interface ImportMetaEnv {
     readonly VITE_FIREBASE_API_KEY: string
     readonly VITE_FIREBASE_AUTH_DOMAIN: string
