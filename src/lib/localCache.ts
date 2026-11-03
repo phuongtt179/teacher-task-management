@@ -37,6 +37,15 @@ export function syncCacheVersion(version: string | undefined | null) {
   }
 }
 
+/** Phiên bản cấu hình máy này đang giữ (null nếu chưa có / không đọc được bộ nhớ). */
+export function getCacheVersion(): string | null {
+  try {
+    return localStorage.getItem(VERSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
 /** Máy vừa tự ghi phiên bản mới (bộ nhớ tạm của máy này đã được xóa đúng chỗ) — nhớ lại, khỏi xóa lần nữa. */
 export function rememberCacheVersion(version: string) {
   try {

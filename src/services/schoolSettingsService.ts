@@ -1,8 +1,8 @@
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, Timestamp } from 'firebase/firestore';
 import { getDoc } from '@/lib/readTracker';
 import { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { invalidateCache, onInvalidate, syncCacheVersion, rememberCacheVersion } from '../lib/localCache';
+import { invalidateCache, onInvalidate, syncCacheVersion, rememberCacheVersion, getCacheVersion } from '../lib/localCache';
 import { useAuthStore } from '../stores/authStore';
 import type { UserRole } from '../types';
 
@@ -102,12 +102,15 @@ export function useSchoolSettings(schoolId: string | null | undefined): SchoolSe
 // lúc tải trang app vốn đã đọc schoolSettings.
 const SHARED_CACHE_GROUPS = ['schoolYears', 'documentCategories', 'campuses', 'users', 'schoolSettings'];
 const CONFIG_EDITOR_ROLES: UserRole[] = ['admin', 'principal', 'vice_principal', 'youth_leader'];
+const QUIET_VERSION_SUFFIX = '-u';
 
 onInvalidate((groups) => {
   if (!groups.some((g) => SHARED_CACHE_GROUPS.includes(g))) return;
   const user = useAuthStore.getState().user;
   if (!user?.schoolId || !CONFIG_EDITOR_ROLES.includes(user.role)) return;
-  const version = String(Date.now());
+  // Chỉ sửa danh sách người dùng → thêm hậu tố để máy khác không hiện dòng "bấm để cập nhật"
+  // (bộ nhớ tạm vẫn được làm mới ở lần tải trang kế tiếp vì phiên bản đã khác).
+  const version = String(Date.now()) + (groups.every((g) => g === 'users') ? QUIET_VERSION_SUFFIX : '');
   rememberCacheVersion(version);
   setDoc(doc(db, 'schoolSettings', user.schoolId), { schoolId: user.schoolId, configVersion: version }, { merge: true })
     .catch((error) => console.error('Error bumping config version:', error));
@@ -125,4 +128,22 @@ export async function syncLocalCacheWithSchool(schoolId: string | null | undefin
   } catch {
     // không chặn đăng nhập
   }
+}
+
+/**
+ * Báo khi admin/BGH vừa sửa dữ liệu dùng chung (lịch nộp, danh mục, năm học...) trong lúc app đang
+ * mở — để hiện dòng "bấm để cập nhật" (components/UpdateBanner.tsx). Lắng nghe đúng 1 tài liệu:
+ * 1 lượt đọc lúc bắt đầu + 1 lượt mỗi lần tài liệu đổi. Trả về hàm hủy.
+ */
+export function subscribeConfigChanges(schoolId: string, onChange: () => void): () => void {
+  return onSnapshot(
+    doc(db, 'schoolSettings', schoolId),
+    (snap) => {
+      const version = snap.data()?.configVersion;
+      const local = getCacheVersion();
+      if (typeof version !== 'string' || version.endsWith(QUIET_VERSION_SUFFIX) || !local) return;
+      if (version !== local) onChange();
+    },
+    (error) => console.error('Error listening for config changes:', error)
+  );
 }

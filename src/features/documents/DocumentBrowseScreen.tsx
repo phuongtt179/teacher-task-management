@@ -12,7 +12,7 @@ import { documentHistoryService } from '@/services/documentHistoryService';
 import { campusService } from '@/services/campusService';
 import { schoolSettingsService, useSchoolSettings } from '@/services/schoolSettingsService';
 import { getRoleLabel } from '@/lib/roleLabels';
-import { isNotYetOpen, formatOpenDate, OPEN_LOCK_EXEMPT_ROLES } from '@/lib/submissionDeadline';
+import { isNotYetOpen, formatOpenDate, weekDatesLabel, OPEN_LOCK_EXEMPT_ROLES } from '@/lib/submissionDeadline';
 import { Document, SchoolYear, DocumentCategory, DocumentSubCategory, Department, DocumentFile, DocumentType, User, Campus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1226,6 +1226,9 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
                                     {isNotYetOpen(subCategory, user?.role) && (
                                       <span className="ml-1 text-xs text-gray-400" title={'Mở từ ' + formatOpenDate(subCategory.openFrom)}>🔒</span>
                                     )}
+                                    {weekDatesLabel(subCategory) && (
+                                      <span className="block text-[11px] font-normal text-gray-400">{weekDatesLabel(subCategory)}</span>
+                                    )}
                                   </button>
                                 ))}
                             </div>
@@ -1281,6 +1284,9 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
                                   {isNotYetOpen(subCategory, user?.role) && (
                                     <span className="ml-1 text-xs text-gray-400" title={'Mở từ ' + formatOpenDate(subCategory.openFrom)}>🔒</span>
                                   )}
+                                  {weekDatesLabel(subCategory) && (
+                                    <span className="block text-[11px] font-normal text-gray-400">{weekDatesLabel(subCategory)}</span>
+                                  )}
                                 </button>
                               ))}
                           </div>
@@ -1334,6 +1340,9 @@ Các file đính kèm cũng bị xóa khỏi Drive và không khôi phục đư�
                                   {subCategory.name}
                                   {isNotYetOpen(subCategory, user?.role) && (
                                     <span className="ml-1 text-xs text-gray-400" title={'Mở từ ' + formatOpenDate(subCategory.openFrom)}>🔒</span>
+                                  )}
+                                  {weekDatesLabel(subCategory) && (
+                                    <span className="block text-[11px] font-normal text-gray-400">{weekDatesLabel(subCategory)}</span>
                                   )}
                                 </button>
                               ))}

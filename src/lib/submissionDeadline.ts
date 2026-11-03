@@ -111,6 +111,14 @@ export function formatOpenDate(date: string | null | undefined): string {
   return names[weekdayOf(date)] + ' ' + date.slice(8, 10) + '/' + date.slice(5, 7);
 }
 
+/** Dòng nhỏ cạnh tên tuần: "Mở 19/10 · Hạn 25/10" (bỏ phần không đặt; rỗng nếu không có mốc nào). */
+export function weekDatesLabel(sub: { openFrom?: string | null; deadline?: string | null }): string {
+  return [
+    isDateString(sub.openFrom) ? 'Mở ' + shortDate(sub.openFrom) : '',
+    isDateString(sub.deadline) ? 'Hạn ' + shortDate(sub.deadline) : '',
+  ].filter(Boolean).join(' · ');
+}
+
 /** 'YYYY-MM-DD' → 'dd/mm' để hiện gọn trong bảng. */
 export const shortDate = (date: string | null | undefined) =>
   isDateString(date) ? `${date.slice(8, 10)}/${date.slice(5, 7)}` : '';

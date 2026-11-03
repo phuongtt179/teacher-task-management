@@ -60,7 +60,15 @@ async function session(user) {
     await page.evaluate((t) => window.__devLogin(t), token);
     await page.waitForFunction(() => !location.pathname.startsWith('/login'), { timeout: 20000 });
   }
-  return { page, step, nav, clickText, login, ctx };
+  const clickWeek = async (name) => {
+    const ok = await page.evaluate((n) => {
+      const b = [...document.querySelectorAll('button')].find((e) => e.offsetParent && e.innerText.split('\n')[0].replace('🔒', '').trim() === n);
+      if (b) b.click();
+      return !!b;
+    }, name);
+    if (!ok) throw new Error('không thấy: ' + name);
+  };
+  return { page, step, nav, clickText, clickWeek, login, ctx };
 }
 
 const byRole = (role, dept) => seedUsers.find((u) => u.role === role && (dept === undefined || u.dept === dept));
@@ -74,7 +82,7 @@ async function runTeacher() {
   await s.step('tải lại trang (đã có bộ nhớ tạm 3 giờ)', () => s.page.reload({ waitUntil: 'load' }));
   await s.step('mở Hồ sơ điện tử', () => s.nav('/documents'));
   await s.step('chọn Kế hoạch bài dạy', () => s.clickText('Kế hoạch bài dạy', 'button'));
-  await s.step('chọn Tuần 7', () => s.clickText('Tuần 7', 'button'));
+  await s.step('chọn Tuần 7', () => s.clickWeek('Tuần 7'));
   await s.step('nộp 1 hồ sơ (1 file) vào Tuần 7', async () => {
     await s.clickText('Thêm hồ sơ', 'button');
     await sleep(400);
@@ -97,12 +105,12 @@ async function runTeacher() {
     console.log('       sửa hồ sơ: báo lỗi =', r.err, '| hộp thoại còn mở =', r.dialogOpen);
     if (r.err || r.dialogOpen) throw new Error('sửa hồ sơ lỗi');
   });
-  await s.step('chọn Tuần 8 (chưa mở) — phải bị khóa', async () => {
-    await s.clickText('Tuần 8 🔒', 'button').catch(() => s.page.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('Tuần 8')).click()));
+  await s.step('chọn Tuần 30 (chưa mở) — phải bị khóa', async () => {
+    await s.clickWeek('Tuần 30');
     await sleep(800);
     const r = await s.page.evaluate(() => ({ lockMsg: document.body.innerText.includes('Tuần này chưa mở nhận hồ sơ'), addBtn: [...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Thêm hồ sơ') }));
-    console.log('       khóa tuần 8: có dòng "chưa mở" =', r.lockMsg, '| còn nút Thêm hồ sơ =', r.addBtn);
-    if (!r.lockMsg || r.addBtn) throw new Error('tuần 8 không bị khóa');
+    console.log('       khóa tuần 30: có dòng "chưa mở" =', r.lockMsg, '| còn nút Thêm hồ sơ =', r.addBtn);
+    if (!r.lockMsg || r.addBtn) throw new Error('tuần 30 không bị khóa');
   });
   await s.step('chọn Kế hoạch môn học', () => s.clickText('Kế hoạch môn học', 'button'));
   await s.step('quay lại Kế hoạch bài dạy', () => s.clickText('Kế hoạch bài dạy', 'button'));
@@ -117,7 +125,7 @@ async function runHead() {
   await s.step('mở Theo dõi nộp hồ sơ', () => s.nav('/vp/submission-matrix'));
   await s.step('mở Hồ sơ điện tử', () => s.nav('/documents'));
   await s.step('chọn Kế hoạch bài dạy', () => s.clickText('Kế hoạch bài dạy', 'button'));
-  await s.step('chọn Tuần 7', () => s.clickText('Tuần 7', 'button'));
+  await s.step('chọn Tuần 7', () => s.clickWeek('Tuần 7'));
   await s.ctx.close();
 }
 async function runVp() {
