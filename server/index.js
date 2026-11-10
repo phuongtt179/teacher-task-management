@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import { oauth2Client, getAuthUrl, getTokenFromCode, loadSavedCredentials, getValidOAuth2Client } from './oauth-config.js';
 import { sendNewTaskNotification, sendTaskScoredNotification } from './notificationService.js';
 import { checkDeadlinesAndNotify } from './deadlineChecker.js';
+import { autoApprovePendingDocuments } from './autoApprove.js';
 import { getRankingSnapshot, getComboStats } from './rankingSnapshot.js';
 import { getStatisticsSnapshot, viewForUser } from './statisticsSnapshot.js';
 import { refreshSubmissionSummary, refreshSubmissionSummaryWeek, getSubmissionSummary, getDepartmentScope, getCategory as getSummaryCategory } from './submissionSummary.js';
@@ -3508,4 +3509,8 @@ app.listen(PORT, () => {
   // Firestore trùng nhau + gửi trùng lặp thông báo cho cùng 1 người).
   checkDeadlinesAndNotify();
   setInterval(checkDeadlinesAndNotify, 30 * 60 * 1000);
+
+  // Trường đã tắt duyệt hồ sơ mà vẫn còn hồ sơ "chờ duyệt" (máy chạy bản app cũ) → tự duyệt.
+  autoApprovePendingDocuments();
+  setInterval(autoApprovePendingDocuments, 30 * 60 * 1000);
 });
